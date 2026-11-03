@@ -1,3 +1,4 @@
+import { isVertexUrl, fetchVertex } from './vertexDirect';
 import { isAnthropicEndpoint, nativeRequestUrl } from './llmEndpoint';
 import { modelRejectsSamplingParams } from './samplingParamCompat';
 
@@ -211,6 +212,8 @@ function convertAnthropicStream(response: Response): Response {
 export async function fetchLlm(resource: RequestInfo | URL, init?: RequestInit, transport: typeof fetch = globalThis.fetch, browser = typeof window !== 'undefined'): Promise<Response> {
     if ((transport as FetchTransport).__sullyAnthropic) return transport(resource,init);
     const inputUrl = typeof resource === 'string' ? resource : resource instanceof URL ? resource.href : resource.url;
+    // Vertex 本机直连：换上本机签出的 token（见 utils/vertexDirect.ts）
+    if (isVertexUrl(inputUrl)) return fetchVertex(resource, init, transport);
     if (!isAnthropicEndpoint(inputUrl)) return transport(resource,init);
     const request = resource instanceof Request ? resource : undefined;
     const method=(init?.method || request?.method || 'GET').toUpperCase();
