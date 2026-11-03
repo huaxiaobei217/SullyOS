@@ -208,7 +208,7 @@ export class LxRuntime {
         });
         const j = await res.json().catch(() => null);
         if (!res.ok || !j || j.error) {
-          const hint = res.status === 404 ? '（你的代理 Worker 还没有 /lx/request，需要重新部署最新的 worker/index.js）' : '';
+          const hint = (res.status === 404 || res.status === 405) ? '（你的代理 Worker 还没有 /lx/request，需要重新部署最新的 worker/index.js）' : '';
           reply({ error: (j?.error || `代理请求失败 HTTP ${res.status}`) + hint });
           return;
         }
