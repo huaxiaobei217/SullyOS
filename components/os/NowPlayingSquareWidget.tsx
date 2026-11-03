@@ -187,7 +187,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       {/* 顶部：封面 + 文字 */}
       <div className="relative flex items-center gap-2 z-10 min-w-0">
         <div
-          className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} shrink-0 rounded-lg overflow-hidden relative`"
+          className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} shrink-0 rounded-lg overflow-hidden relative`}
           style={{
             background: palette.thumbBg,
             border: palette.thumbBorder,
@@ -279,7 +279,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
             aria-label={playing ? 'Pause' : 'Play'}
             onClick={handlePlay}
             onMouseDown={stopProp}
-            className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} flex items-center justify-center rounded-full active:scale-95 transition`"
+            className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} flex items-center justify-center rounded-full active:scale-95 transition`}
             style={{
               background: palette.playBg,
               color: palette.playColor,
