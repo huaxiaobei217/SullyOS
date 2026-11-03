@@ -56,6 +56,7 @@ export const parseLxScriptInfo = (script: string): LxScriptInfo => {
 
 // Worker 里的前置代码：定义 lx 对象，桥接消息
 const PRELUDE = `
+(() => {
 const __pending = new Map();
 let __reqSeq = 0;
 let __handler = null;
@@ -107,6 +108,7 @@ self.onmessage = async (e) => {
     }
   }
 };
+})();
 `;
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void; timer: number };

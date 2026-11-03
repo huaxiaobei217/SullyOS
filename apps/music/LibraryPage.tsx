@@ -118,11 +118,12 @@ const LibraryPage: React.FC<{
             style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.accent})` }}>
             <Play size={12} weight="fill" /> 播放全部
           </button>
-          <span className="text-[11px]" style={{ color: C.muted }}>{open.songs.length} 首</span>
+          <span className="text-[11px]" style={{ color: C.muted }}>{open.songs.length} 首 · 长按歌曲可移除</span>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
           {open.songs.map((s, i) => (
-            <div key={s.id} className="relative group">
+            <div key={s.id} className="relative"
+              onContextMenu={(e) => { e.preventDefault(); if (confirm(`从歌单移除「${s.name}」？`)) removeSong(open, s); }}>
               <SongRow
                 name={s.name}
                 artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
@@ -133,12 +134,6 @@ const LibraryPage: React.FC<{
                 isActive={current?.id === s.id}
                 onClick={() => playSong(s, { replaceQueue: open.songs, startIdx: i })}
               />
-              <button
-                onClick={(e) => { e.stopPropagation(); if (confirm(`从歌单移除「${s.name}」？`)) removeSong(open, s); }}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 opacity-40"
-                style={{ color: C.muted }} aria-label="移除">
-                <Trash size={13} />
-              </button>
             </div>
           ))}
           {!open.songs.length && <div className="text-center text-xs mt-16" style={{ color: C.faint }}>歌单还是空的</div>}
