@@ -1,5 +1,5 @@
 import {weatherForCharacter} from './characterWeather';
-import { buildRecentListenBlock } from './music/listenDiaryStore';
+import { buildRecentListenBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
 import { expandHomeContextHistory } from './homeContextSegments';
@@ -600,6 +600,10 @@ ${groupLogStr}\n`;
 
         // 角色真的听过的歌（音乐 App「一起听 / 让 TA 听这首」生成的听歌日记），刚听完的一段时间内带上
         try {
+            if (userListeningContext?.songName) {
+                const analysisBlock = buildSongAnalysisBlock(userListeningContext.songName, userListeningContext.artists);
+                if (analysisBlock) volatileState += `\n${analysisBlock}\n`;
+            }
             const listenBlock = buildRecentListenBlock(char.id, userProfile.name);
             if (listenBlock) volatileState += `\n${listenBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }

@@ -1,11 +1,12 @@
 /**
  * 一起听时，每首新歌放满 20 秒后，自动让陪你听的角色真的听一遍、写听歌日记（每首只听一次）。
+ * 没人陪听但开了「自动解读」时，只生成这首歌的客观解读。
  * 需要在音乐 App 的音源设置里填「听歌模型」，并开着「一起听时自动听」。
  */
 import React, { useEffect, useRef } from 'react';
 import { useMusic } from '../../context/MusicContext';
 import { useOS } from '../../context/OSContext';
-import { isListenApiReady, loadListenApiConfig, listenToSong, findDiary } from '../../utils/music/songListen';
+import { isListenApiReady, loadListenApiConfig, listenToSong, findDiary, analyzeSong, getAnalysis, songKeyOf } from '../../utils/music/songListen';
 
 const ListenTogetherWatcher: React.FC = () => {
   const { current, playing, listeningTogetherWith } = useMusic();
@@ -14,11 +15,20 @@ const ListenTogetherWatcher: React.FC = () => {
 
   useEffect(() => {
     if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; }
-    if (!current || !playing || !listeningTogetherWith.length) return;
+    if (!current || !playing) return;
     const cfg = loadListenApiConfig();
-    if (!cfg.autoTogether || !isListenApiReady(cfg)) return;
+    if (!isListenApiReady(cfg)) return;
     const song = current;
     const partners = [...listeningTogetherWith];
+    if (!partners.length) {
+      // 没人陪听：只在开了「自动解读」时，给这首歌生成一份客观解读
+      if (!cfg.autoAnalyze || getAnalysis(songKeyOf(song))) return;
+      timerRef.current = window.setTimeout(() => {
+        analyzeSong(song).catch(e => addToast(`《${song.name}》解读失败：${e?.message || e}`, 'error'));
+      }, 20000);
+      return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
+    }
+    if (!cfg.autoTogether) return;
     timerRef.current = window.setTimeout(() => {
       for (const charId of partners) {
         if (findDiary(charId, song)) continue;

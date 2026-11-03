@@ -11,7 +11,7 @@ import Cover from './Cover';
 import SongActionSheet from './SongActionSheet';
 import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
-import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary } from '../../utils/music/songListen';
+import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis } from '../../utils/music/songListen';
 import { NotePencil } from '@phosphor-icons/react';
 import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
@@ -36,14 +36,29 @@ const PlayerPage: React.FC<{
   const [pickPartner, setPickPartner] = useState(false);
   const [showDiary, setShowDiary] = useState(false);
   const [diaries, setDiaries] = useState<ListenDiary[]>([]);
+  const [analysis, setAnalysis] = useState<SongAnalysis | undefined>(undefined);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const [listening, setListening] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (!current) return;
-    const h = () => setDiaries(loadDiaries().filter(d => d.songKey === songKeyOf(current)));
+    const h = () => {
+      setDiaries(loadDiaries().filter(d => d.songKey === songKeyOf(current)));
+      setAnalysis(getAnalysis(songKeyOf(current)));
+    };
     h();
     window.addEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
     return () => window.removeEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
   }, [current?.id]);
+  const askAnalyze = (force = false) => {
+    if (!current) return;
+    if (!isListenApiReady()) { toast('先在音乐的音源设置里填「听歌模型」', 'info'); return; }
+    setAnalyzing(true);
+    toast('正在听这首歌、写解读，要等一会儿', 'info');
+    analyzeSong(current, { force }).then(() => setShowAnalysis(true))
+      .catch(e => toast(`解读失败：${e?.message || e}`, 'error'))
+      .finally(() => setAnalyzing(false));
+  };
   const askListen = (charId: string, name: string) => {
     if (!current) return;
     if (!isListenApiReady()) { toast('先在音乐的音源设置里填「听歌模型」', 'info'); return; }
@@ -248,9 +263,31 @@ const PlayerPage: React.FC<{
           <div className="relative w-full rounded-t-3xl pb-6 pt-2 max-h-[75%] overflow-y-auto" style={{ background: 'rgba(255,255,255,0.97)' }}
             onClick={e => e.stopPropagation()}>
             <div className="mx-auto w-10 h-1 rounded-full bg-black/10 mb-2" />
-            <div className="px-4 pb-1 text-sm font-semibold" style={{ color: C.text }}>《{current.name}》的听歌日记</div>
-            <div className="px-4 pb-3 text-[11px] leading-relaxed" style={{ color: C.muted }}>
-              让角色真的听一遍这首歌（音频 + 歌词），用 TA 自己的口吻写下感受。之后一个半小时内聊天，TA 会记得自己听过。
+            <div className="px-4 pb-2 text-sm font-semibold" style={{ color: C.text }}>《{current.name}》</div>
+
+            {/* 歌曲解读（客观，所有角色共用） */}
+            <div className="mx-4 mb-3 p-3 rounded-2xl" style={{ border: `1px solid ${C.primary}30` }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold" style={{ color: C.primary }}>歌曲解读</span>
+                {analysis ? (
+                  <span className="flex gap-3">
+                    <button onClick={() => setShowAnalysis(v => !v)} className="text-[11px]" style={{ color: C.muted }}>{showAnalysis ? '收起' : '展开'}</button>
+                    <button onClick={() => askAnalyze(true)} disabled={analyzing} className="text-[11px]" style={{ color: C.muted }}>{analyzing ? '解读中…' : '重新解读'}</button>
+                  </span>
+                ) : (
+                  <button onClick={() => askAnalyze()} disabled={analyzing} className="text-[11px]" style={{ color: C.primary }}>{analyzing ? '解读中…' : '解读这首'}</button>
+                )}
+              </div>
+              <div className="text-[11px] leading-relaxed" style={{ color: C.muted }}>
+                {analysis ? (showAnalysis
+                  ? <span className="whitespace-pre-wrap" style={{ color: C.text }}>{analysis.text.replace(/\*\*/g, '')}</span>
+                  : '已存档：放这首歌时，聊天里的角色都能知道它听起来是什么样。')
+                  : '还没解读。解读会听一次整首歌，之后所有角色共用，不用再听。'}
+              </div>
+            </div>
+
+            <div className="px-4 pb-2 text-[11px] leading-relaxed" style={{ color: C.muted }}>
+              听歌日记：每个角色自己的感受，读上面的解读和歌词来写。之后一个半小时内聊天，TA 会记得自己听过。
             </div>
             {diaries.map(d => {
               const c = characters.find(x => x.id === d.charId);

@@ -1,5 +1,7 @@
 /**
- * 让角色真的听一首歌，写一篇听歌日记。
+ * 让角色真的听一首歌：两层
+ *   1. 歌曲解读（客观）：只听一次音频，存档后所有角色共用；放这首歌时注入聊天
+ *   2. 听歌日记（主观）：每个角色专属，读解读 + 歌词 + 人设来写，不再重新听音频
  *
  * 思路参考自社区 fork SullyOS-NuiAPK（post090）的「角色主动听歌」：
  * 取整首歌的音频 + 歌词 → 带着角色人设（ContextBuilder）单独调用一个能听音频的模型（OpenAI 兼容，input_audio）
@@ -21,6 +23,8 @@ export interface ListenApiConfig {
   model: string;
   /** 一起听时，每首新歌自动让角色听一遍 */
   autoTogether: boolean;
+  /** 没人陪听时，放新歌也自动生成歌曲解读（每首只解读一次） */
+  autoAnalyze: boolean;
 }
 
 const LS_CFG = 'sully_music_listen_api_v1';
@@ -28,8 +32,8 @@ const LS_CFG = 'sully_music_listen_api_v1';
 export const loadListenApiConfig = (): ListenApiConfig => {
   try {
     const raw = localStorage.getItem(LS_CFG);
-    return { baseUrl: '', apiKey: '', model: '', autoTogether: true, ...(raw ? JSON.parse(raw) : {}) };
-  } catch { return { baseUrl: '', apiKey: '', model: '', autoTogether: true }; }
+    return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false, ...(raw ? JSON.parse(raw) : {}) };
+  } catch { return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false }; }
 };
 export const saveListenApiConfig = (c: ListenApiConfig) => {
   try { localStorage.setItem(LS_CFG, JSON.stringify(c)); } catch {}
@@ -37,7 +41,7 @@ export const saveListenApiConfig = (c: ListenApiConfig) => {
 export const isListenApiReady = (c = loadListenApiConfig()) => !!(c.baseUrl.trim() && c.apiKey.trim() && c.model.trim());
 
 import {
-  ListenDiary, songKeyOf, loadDiaries, saveDiaries, findDiary,
+  ListenDiary, SongAnalysis, songKeyOf, loadDiaries, saveDiaries, findDiary, getAnalysis, saveAnalysis,
 } from './listenDiaryStore';
 export * from './listenDiaryStore';
 
@@ -100,20 +104,34 @@ const tasteBlock = (char: any): string => {
   return lines.length ? `\n${lines.join('\n')}\n` : '';
 };
 
-const instructions = (charName: string, userName: string, mode: 'together' | 'alone', char: any) => {
+/** 第一层：客观的歌曲解读（只听一次音频，所有角色共用） */
+const ANALYZE_PROMPT = `请认真听这首歌（音频附在后面，歌词供对照），写一份客观的「歌曲解读」，让一个没听过这首歌的人读完就能想象出它听起来是什么样。
+
+包含这几部分（用简洁的中文，小标题 + 短句即可）：
+1. 整体：风格流派、整体氛围和情绪基调，一两句话概括。
+2. 声音：主要乐器与音色、节奏和速度感、人声的特点（性别、音色、唱法、语种）。
+3. 结构：按时间顺序列出各段落（前奏 / 主歌 / 副歌 / 间奏 / 尾奏等），标注大致时间点（mm:ss），每段一句话说清楚发生了什么、情绪怎么变化。
+4. 歌词：这首歌在唱什么、讲了一个什么样的故事或心情；如果是外语，用中文概括大意。
+5. 记忆点：最抓耳的一两处（某句歌词、某个转折、某段旋律），带时间点。
+
+要求：只描述确实听到的，听不出来的不要编；不写个人喜好，不打分；总长度控制在 600 字以内。`;
+
+/** 第二层：角色专属的听歌日记（读解读 + 歌词来写，不再听音频） */
+const diaryInstructions = (charName: string, userName: string, mode: 'together' | 'alone', char: any) => {
   const scene = mode === 'together'
     ? `${userName} 正在放这首歌，你戴上了另一只耳机，和 ta 一起把它从头听到尾。`
     : '你一个人戴着耳机，把这首歌从头听到尾，没有人打扰。';
   return `### 【现在：听歌】
 ${scene}
 ${tasteBlock(char)}
+下面会给你这首歌的客观解读（它听起来是什么样）和歌词——这就是你刚刚亲耳听到的内容。
 听完以后，作为 ${charName} 本人，写一段只给自己看的听歌日记。
 
 最重要的是「像 ${charName}」，而不是「听得准」：
 - 用 ${charName} 平时说话的方式写：用词、语气、口头禅、句子长短、标点习惯，都照你的人设来。
 - 带着你自己的口味和偏见去听：喜欢就说喜欢，听不惯、觉得吵、觉得矫情、觉得一般也可以直说，不用替这首歌说好话。拿它跟你熟悉的歌或歌手比也行。
 - 让歌勾出你自己的东西：某段旋律、某句歌词让你想起了什么人、什么事、你的经历或最近的心情${mode === 'together' ? `，或者此刻身边的 ${userName}` : ''}。这部分比描述音乐本身更重要。
-- 声音上的细节只挑一两处真正抓住你的写（某个转音、鼓点进来的那一下、哪句歌词），用你自己的话说，不要乐评术语堆砌。只写你确实听到的，听不出来的别编。
+- 声音上的细节只挑一两处真正抓住你的写，用你自己的话说，不要照搬解读里的术语。解读里没有的细节别编。
 
 格式：第一人称，长短按你的性格来，大约 80–300 字。不要列条目，不要打分，不要写成报告。只输出日记正文，不要标题、引号或任何格式标签。`;
 };
@@ -121,6 +139,61 @@ ${tasteBlock(char)}
 const plainLyrics = (lrc: string) => lrc.split('\n')
   .map(l => l.replace(/\[[^\]]*\]/g, '').trim())
   .filter(Boolean).join('\n');
+
+const callModel = async (messages: any[], maxTokens: number, temperature: number): Promise<string> => {
+  const cfg = loadListenApiConfig();
+  const base = cfg.baseUrl.trim().replace(/\/+$/, '');
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey.trim()}` },
+    body: JSON.stringify({ model: cfg.model.trim(), messages, temperature, max_tokens: maxTokens, stream: false }),
+  });
+  const j = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(j?.error?.message || j?.error || `HTTP ${res.status}`);
+  const content = String(j?.choices?.[0]?.message?.content || '').trim();
+  if (!content) throw new Error('模型没有返回内容');
+  return content;
+};
+
+/* ───────── 第一层：歌曲解读 ───────── */
+
+const analyzeInFlight = new Map<string, Promise<SongAnalysis>>();
+
+/** 取这首歌的解读：有存档直接用，没有就听一遍音频生成并存档 */
+export function analyzeSong(song: Song, opts: { force?: boolean } = {}): Promise<SongAnalysis> {
+  const key = songKeyOf(song);
+  const cached = getAnalysis(key);
+  if (cached && !opts.force) return Promise.resolve(cached);
+  const running = analyzeInFlight.get(key);
+  if (running) return running;
+  const task = (async () => {
+    if (!isListenApiReady()) throw new Error('还没填「听歌模型」的接口');
+    const [{ blob, format }, ly] = await Promise.all([
+      fetchSongAudio(song),
+      fetchLyricsForLxSong(loadMusicCfgStandalone(), song).catch(() => null),
+    ]);
+    const data = await blobToBase64(blob);
+    const lyrics = ly?.lrc ? plainLyrics(ly.lrc).slice(0, 4000) : '';
+    const head = `《${song.name}》— ${song.artists}${song.album ? `（专辑《${song.album}》）` : ''}`;
+    const text = await callModel([{
+      role: 'user',
+      content: [
+        { type: 'text', text: `${ANALYZE_PROMPT}\n\n${head}\n\n${lyrics ? `歌词：\n${lyrics}` : '（没拿到歌词）'}` },
+        { type: 'input_audio', input_audio: { data, format } },
+      ],
+    }], 1500, 0.2);
+    const a: SongAnalysis = {
+      songKey: key, songName: song.name, artists: song.artists,
+      text: text.slice(0, 3000), lyrics: lyrics.slice(0, 3000), createdAt: Date.now(),
+    };
+    saveAnalysis(a);
+    return a;
+  })().finally(() => analyzeInFlight.delete(key));
+  analyzeInFlight.set(key, task);
+  return task;
+}
+
+/* ───────── 第二层：角色听歌日记 ───────── */
 
 export interface ListenOutcome { status: 'listened' | 'existing' | 'skipped' | 'failed'; diary?: ListenDiary; error?: string; }
 
@@ -136,34 +209,24 @@ export function listenToSong(charId: string, song: Song, mode: 'together' | 'alo
 }
 
 async function run(charId: string, song: Song, mode: 'together' | 'alone', force?: boolean): Promise<ListenOutcome> {
-  const cfg = loadListenApiConfig();
-  if (!isListenApiReady(cfg)) return { status: 'skipped', error: '还没填「听歌模型」的接口' };
+  if (!isListenApiReady()) return { status: 'skipped', error: '还没填「听歌模型」的接口' };
   const old = findDiary(charId, song);
   if (old && !force) return { status: 'existing', diary: old };
   try {
     const [char, user] = await Promise.all([DB.getCharacter(charId), DB.getUserProfile()]);
     if (!char || !user) return { status: 'skipped', error: '找不到角色' };
-    const [{ blob, format }, ly] = await Promise.all([
-      fetchSongAudio(song),
-      fetchLyricsForLxSong(loadMusicCfgStandalone(), song).catch(() => null),
-    ]);
-    const data = await blobToBase64(blob);
-    const lyrics = ly?.lrc ? plainLyrics(ly.lrc).slice(0, 4000) : '';
-    const userText = `《${song.name}》— ${song.artists}${song.album ? `（专辑《${song.album}》）` : ''}\n\n${lyrics ? `歌词（供你对照着听）：\n${lyrics}` : '（这首没拿到歌词，靠耳朵听。）'}`;
+    const analysis = await analyzeSong(song);
+    const userText = `《${song.name}》— ${song.artists}
+
+【这首歌听起来是什么样】
+${analysis.text}
+
+${analysis.lyrics ? `【歌词】\n${analysis.lyrics}` : '（没有歌词）'}`;
     const messages = await ContextBuilder.buildCharacterRequest(
-      { char, user, instructions: instructions(char.name, user.name || '对方', mode, char) },
-      [{ role: 'user', content: [{ type: 'text', text: userText }, { type: 'input_audio', input_audio: { data, format } }] } as any],
+      { char, user, instructions: diaryInstructions(char.name, user.name || '对方', mode, char) },
+      [{ role: 'user', content: userText }],
     );
-    const base = cfg.baseUrl.trim().replace(/\/+$/, '');
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey.trim()}` },
-      body: JSON.stringify({ model: cfg.model.trim(), messages, temperature: 0.85, max_tokens: 900, stream: false }),
-    });
-    const j = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(j?.error?.message || j?.error || `HTTP ${res.status}`);
-    const content = String(j?.choices?.[0]?.message?.content || '').replace(/^["“「]|["”」]$/g, '').trim().slice(0, 2000);
-    if (!content) throw new Error('模型没有返回内容');
+    const content = (await callModel(messages, 900, 0.85)).replace(/^["“「]|["”」]$/g, '').trim().slice(0, 2000);
     const diary: ListenDiary = {
       id: `ld_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       charId, songKey: songKeyOf(song), songName: song.name, artists: song.artists, mode, content, createdAt: Date.now(),
@@ -174,4 +237,3 @@ async function run(charId: string, song: Song, mode: 'together' | 'alone', force
     return { status: 'failed', error: e?.message || String(e) };
   }
 }
-

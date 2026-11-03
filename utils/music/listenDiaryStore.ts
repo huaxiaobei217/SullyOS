@@ -3,6 +3,51 @@ import type { Song } from '../../context/MusicContext';
 
 const LS_DIARY = 'sully_music_listen_diary_v1';
 export const LISTEN_DIARY_CHANGED_EVENT = 'sully:music-listen-diary-changed';
+const LS_ANALYSIS = 'sully_music_song_analysis_v1';
+
+/* ───────── 歌曲解读（客观，所有角色共用，每首歌一份存档） ───────── */
+
+export interface SongAnalysis {
+  songKey: string;
+  songName: string;
+  artists: string;
+  text: string;
+  lyrics: string;
+  createdAt: number;
+}
+
+const loadAnalyses = (): Record<string, SongAnalysis> => {
+  try { const o = JSON.parse(localStorage.getItem(LS_ANALYSIS) || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; }
+};
+export const getAnalysis = (songKey: string): SongAnalysis | undefined => loadAnalyses()[songKey];
+export const listAnalyses = (): SongAnalysis[] => Object.values(loadAnalyses()).sort((a, b) => b.createdAt - a.createdAt);
+export const saveAnalysis = (a: SongAnalysis) => {
+  const all = loadAnalyses();
+  all[a.songKey] = a;
+  // 最多留 300 首，太旧的先丢
+  const keep = Object.values(all).sort((x, y) => y.createdAt - x.createdAt).slice(0, 300);
+  try { localStorage.setItem(LS_ANALYSIS, JSON.stringify(Object.fromEntries(keep.map(x => [x.songKey, x])))); } catch {}
+  try { window.dispatchEvent(new Event(LISTEN_DIARY_CHANGED_EVENT)); } catch {}
+};
+export const deleteAnalysis = (songKey: string) => {
+  const all = loadAnalyses();
+  delete all[songKey];
+  try { localStorage.setItem(LS_ANALYSIS, JSON.stringify(all)); } catch {}
+  try { window.dispatchEvent(new Event(LISTEN_DIARY_CHANGED_EVENT)); } catch {}
+};
+
+/** 聊天里：用户正在放的这首歌如果有解读，告诉角色它听起来是什么样（按歌名 + 歌手匹配） */
+export function buildSongAnalysisBlock(songName: string, artists: string): string {
+  if (!songName) return '';
+  const hit = Object.values(loadAnalyses()).find(a => a.songName === songName && a.artists === artists)
+    || Object.values(loadAnalyses()).find(a => a.songName === songName);
+  if (!hit) return '';
+  return `### 【正在放的这首歌听起来是什么样】
+《${hit.songName}》— ${hit.artists}
+${hit.text}
+（这是这首歌的客观解读，帮你知道它听起来是什么样；聊起它时以此为准，不要编造这里没有的细节。）`;
+}
+
 
 
 export interface ListenDiary {

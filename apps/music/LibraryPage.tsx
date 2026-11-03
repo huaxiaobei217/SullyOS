@@ -244,6 +244,13 @@ const LibraryPage: React.FC<{
                   <span>一起听时，每首新歌自动让 TA 听（放满 20 秒才算）</span>
                   <input type="checkbox" checked={listenCfg.autoTogether} onChange={e => setListen({ autoTogether: e.target.checked })} />
                 </label>
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>没人陪听时，放新歌也自动生成歌曲解读</span>
+                  <input type="checkbox" checked={listenCfg.autoAnalyze} onChange={e => setListen({ autoAnalyze: e.target.checked })} />
+                </label>
+                <div className="text-[9px] leading-relaxed" style={{ color: C.faint }}>
+                  歌曲解读每首只听一次音频，存档后所有角色共用；听歌日记是每个角色自己的，读解读来写，不再重复听。
+                </div>
               </div>
               <div className="text-[9px] leading-relaxed" style={{ color: C.faint }}>
                 脚本和里面的密钥只存在这台设备上。脚本的网络请求经「设置 → 网络代理」里你自己的 Worker 转发。
