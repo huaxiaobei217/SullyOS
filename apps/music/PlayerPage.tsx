@@ -11,7 +11,7 @@ import Cover from './Cover';
 import SongActionSheet from './SongActionSheet';
 import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
-import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis } from '../../utils/music/songListen';
+import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis, plainAnalysis } from '../../utils/music/songListen';
 import { NotePencil } from '@phosphor-icons/react';
 import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT, normalizeCoverUrl } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
@@ -285,7 +285,7 @@ const PlayerPage: React.FC<{
               </div>
               <div className="text-[11px] leading-relaxed" style={{ color: C.muted }}>
                 {analysis ? (showAnalysis
-                  ? <span className="whitespace-pre-wrap" style={{ color: C.text }}>{analysis.text.replace(/\*\*/g, '')}</span>
+                  ? <span className="whitespace-pre-wrap" style={{ color: C.text }}>{plainAnalysis(analysis.text)}</span>
                   : '已存档：放这首歌时，聊天里的角色都能知道它听起来是什么样。')
                   : '还没解读。解读会听一次整首歌，之后所有角色共用，不用再听。'}
               </div>

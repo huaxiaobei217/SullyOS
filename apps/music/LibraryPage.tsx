@@ -271,6 +271,10 @@ const LibraryPage: React.FC<{
                   <input type="checkbox" checked={listenCfg.autoTogether} onChange={e => setListen({ autoTogether: e.target.checked })} />
                 </label>
                 <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>流式请求（回复老是被截断或超时就打开）</span>
+                  <input type="checkbox" checked={!!listenCfg.stream} onChange={e => setListen({ stream: e.target.checked })} />
+                </label>
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
                   <span>没人陪听时，放新歌也自动生成歌曲解读</span>
                   <input type="checkbox" checked={listenCfg.autoAnalyze} onChange={e => setListen({ autoAnalyze: e.target.checked })} />
                 </label>

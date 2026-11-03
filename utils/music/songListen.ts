@@ -25,6 +25,8 @@ export interface ListenApiConfig {
   autoTogether: boolean;
   /** 没人陪听时，放新歌也自动生成歌曲解读（每首只解读一次） */
   autoAnalyze: boolean;
+  /** 流式请求（有些中转对非流式长回复容易断） */
+  stream: boolean;
 }
 
 const LS_CFG = 'sully_music_listen_api_v1';
@@ -32,8 +34,8 @@ const LS_CFG = 'sully_music_listen_api_v1';
 export const loadListenApiConfig = (): ListenApiConfig => {
   try {
     const raw = localStorage.getItem(LS_CFG);
-    return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false, ...(raw ? JSON.parse(raw) : {}) };
-  } catch { return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false }; }
+    return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false, stream: false, ...(raw ? JSON.parse(raw) : {}) };
+  } catch { return { baseUrl: '', apiKey: '', model: '', autoTogether: true, autoAnalyze: false, stream: false }; }
 };
 export const saveListenApiConfig = (c: ListenApiConfig) => {
   try { localStorage.setItem(LS_CFG, JSON.stringify(c)); } catch {}
@@ -146,12 +148,44 @@ const callModel = async (messages: any[], maxTokens: number, temperature: number
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey.trim()}` },
-    body: JSON.stringify({ model: cfg.model.trim(), messages, temperature, max_tokens: maxTokens, stream: false }),
+    // 思考型模型（如 Gemini 2.5）的思考也算在 max_tokens 里，给足余量，不然正文会被截断
+    body: JSON.stringify({ model: cfg.model.trim(), messages, temperature, max_tokens: maxTokens, stream: !!cfg.stream }),
   });
-  const j = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(j?.error?.message || j?.error || `HTTP ${res.status}`);
-  const content = String(j?.choices?.[0]?.message?.content || '').trim();
-  if (!content) throw new Error('模型没有返回内容');
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    throw new Error(j?.error?.message || j?.error || `HTTP ${res.status}`);
+  }
+  let content = '';
+  let finish = '';
+  if (cfg.stream && res.body) {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        const d = t.slice(5).trim();
+        if (d === '[DONE]') continue;
+        try {
+          const j = JSON.parse(d);
+          content += j?.choices?.[0]?.delta?.content || '';
+          finish = j?.choices?.[0]?.finish_reason || finish;
+        } catch { /* 半行，跳过 */ }
+      }
+    }
+  } else {
+    const j = await res.json().catch(() => null);
+    content = String(j?.choices?.[0]?.message?.content || '');
+    finish = j?.choices?.[0]?.finish_reason || '';
+  }
+  content = content.trim();
+  if (!content) throw new Error(finish === 'length' ? '输出被截断了（模型思考太长），可以换个模型或开流式再试' : '模型没有返回内容');
   return content;
 };
 
@@ -181,10 +215,10 @@ export function analyzeSong(song: Song, opts: { force?: boolean } = {}): Promise
         { type: 'text', text: `${ANALYZE_PROMPT}\n\n${head}\n\n${lyrics ? `歌词：\n${lyrics}` : '（没拿到歌词）'}` },
         { type: 'input_audio', input_audio: { data, format } },
       ],
-    }], 1500, 0.2);
+    }], 6000, 0.2);
     const a: SongAnalysis = {
       songKey: key, songName: song.name, artists: song.artists,
-      text: text.slice(0, 3000), lyrics: lyrics.slice(0, 3000), createdAt: Date.now(),
+      text: text.slice(0, 6000), lyrics: lyrics.slice(0, 4000), createdAt: Date.now(),
     };
     saveAnalysis(a);
     return a;
@@ -226,7 +260,7 @@ ${analysis.lyrics ? `【歌词】\n${analysis.lyrics}` : '（没有歌词）'}`;
       { char, user, instructions: diaryInstructions(char.name, user.name || '对方', mode, char) },
       [{ role: 'user', content: userText }],
     );
-    const content = (await callModel(messages, 900, 0.85)).replace(/^["“「]|["”」]$/g, '').trim().slice(0, 2000);
+    const content = (await callModel(messages, 3000, 0.85)).replace(/^["“「]|["”」]$/g, '').trim().slice(0, 2000);
     const diary: ListenDiary = {
       id: `ld_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       charId, songKey: songKeyOf(song), songName: song.name, artists: song.artists, mode, content, createdAt: Date.now(),

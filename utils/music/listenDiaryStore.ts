@@ -36,19 +36,24 @@ export const deleteAnalysis = (songKey: string) => {
   try { window.dispatchEvent(new Event(LISTEN_DIARY_CHANGED_EVENT)); } catch {}
 };
 
-/** 聊天里：用户正在放的这首歌如果有解读，告诉角色它听起来是什么样（按歌名 + 歌手匹配） */
-export function buildSongAnalysisBlock(songName: string, artists: string): string {
+/** 去掉 Markdown 标记（###、**），给人看和给模型看都更干净 */
+export const plainAnalysis = (t: string) => t.replace(/^#{1,6}\s*/gm, '').replace(/\*\*/g, '').trim();
+
+/**
+ * 聊天里：用户正在放的这首歌如果有解读，告诉角色它听起来是什么样（按歌名 + 歌手匹配）。
+ * 一起听时额外带上完整歌词，方便角色引用任何一句。
+ */
+export function buildSongAnalysisBlock(songName: string, artists: string, opts: { withLyrics?: boolean } = {}): string {
   if (!songName) return '';
-  const hit = Object.values(loadAnalyses()).find(a => a.songName === songName && a.artists === artists)
-    || Object.values(loadAnalyses()).find(a => a.songName === songName);
+  const all = Object.values(loadAnalyses());
+  const hit = all.find(a => a.songName === songName && a.artists === artists) || all.find(a => a.songName === songName);
   if (!hit) return '';
+  const lyrics = opts.withLyrics && hit.lyrics ? `\n【完整歌词】\n${hit.lyrics.slice(0, 2000)}\n` : '';
   return `### 【正在放的这首歌听起来是什么样】
 《${hit.songName}》— ${hit.artists}
-${hit.text}
-（这是这首歌的客观解读，帮你知道它听起来是什么样；聊起它时以此为准，不要编造这里没有的细节。）`;
+${plainAnalysis(hit.text)}
+${lyrics}（这是这首歌的客观解读，帮你知道它听起来是什么样；聊起它时以此为准，不要编造这里没有的细节。）`;
 }
-
-
 
 export interface ListenDiary {
   id: string;

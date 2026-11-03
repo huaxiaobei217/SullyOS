@@ -601,7 +601,7 @@ ${groupLogStr}\n`;
         // 角色真的听过的歌（音乐 App「一起听 / 让 TA 听这首」生成的听歌日记），刚听完的一段时间内带上
         try {
             if (userListeningContext?.songName) {
-                const analysisBlock = buildSongAnalysisBlock(userListeningContext.songName, userListeningContext.artists);
+                const analysisBlock = buildSongAnalysisBlock(userListeningContext.songName, userListeningContext.artists, { withLyrics: !!isListeningTogether });
                 if (analysisBlock) volatileState += `\n${analysisBlock}\n`;
             }
             const listenBlock = buildRecentListenBlock(char.id, userProfile.name);
