@@ -123,6 +123,7 @@ import AppErrorBoundary from './os/AppErrorBoundary';
 import GlobalMiniPlayer from './os/GlobalMiniPlayer';
 import DesktopLyric from './os/DesktopLyric';
 import NowPlayingSync from './os/NowPlayingSync';
+import ListenTogetherWatcher from './os/ListenTogetherWatcher';
 import NavigationBall from './os/NavigationBall';
 import PersonaSimIndicator from './os/PersonaSimIndicator';
 import DreamSimIndicator from './os/DreamSimIndicator';
@@ -1083,6 +1084,7 @@ const PhoneShell: React.FC = () => {
           <GlobalMiniPlayer />
           <DesktopLyric />
           <NowPlayingSync />
+          <ListenTogetherWatcher />
           <NavigationBall />
           {isDataLoaded&&!isLocked&&<Suspense fallback={null}><FriendFeedNotification/></Suspense>}
           {!isLocked && <SARModuleMonitor />}

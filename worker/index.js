@@ -4410,6 +4410,38 @@ export default {
       }
     }
 
+    // ========== 音频中转（给「角色听歌」用：浏览器不能跨域下载平台音频） ==========
+    // GET /music2/audio?url=... → 原样流式返回音频；只放行公网地址，上限 30MB
+    if (url.pathname === '/music2/audio' && request.method === 'GET') {
+      let target;
+      try { target = new URL(url.searchParams.get('url') || ''); } catch { target = null; }
+      if (!target || !/^https?:$/.test(target.protocol)) {
+        return jsonResponse({ error: 'invalid url' }, { status: 400, origin });
+      }
+      const host = target.hostname.toLowerCase();
+      if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')
+        || /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.includes(':')) {
+        return jsonResponse({ error: 'host not allowed' }, { status: 403, origin });
+      }
+      const res = await fetch(target.toString(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36' },
+        redirect: 'follow',
+      });
+      const len = Number(res.headers.get('content-length') || 0);
+      if (len && len > 30 * 1024 * 1024) {
+        return jsonResponse({ error: 'audio too large' }, { status: 413, origin });
+      }
+      return new Response(res.body, {
+        status: res.status,
+        headers: {
+          'Content-Type': res.headers.get('content-type') || 'audio/mpeg',
+          ...(len ? { 'Content-Length': String(len) } : {}),
+          ...corsHeaders(origin),
+        },
+      });
+    }
+
     // ========== 多平台搜索（酷狗 / 酷我；网易走 /netease/search） ==========
     // POST /music2/search { source: 'kg'|'kw', keyword, page?, limit? } → { list: [{ source, songmid, hash?, name, singer, albumName, interval, picUrl }] }
     if (url.pathname === '/music2/search' && request.method === 'POST') {

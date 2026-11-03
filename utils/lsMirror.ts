@@ -83,6 +83,8 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_music_playlists_v2',          // 我的歌单（LX 导入 / 自建）
     'sully_music_lx_script_v1',          // 用户导入的 LX 音源脚本
     'sully_music_lx_quality_v1',
+    'sully_music_listen_api_v1',
+    'sully_music_listen_diary_v1',
     // 主动消息（旧版）与彼方/家园定时排程
     'proactive_schedules',
     'proactive_last_fire_map',

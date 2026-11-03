@@ -11,6 +11,8 @@ import Cover from './Cover';
 import SongActionSheet from './SongActionSheet';
 import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
+import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary } from '../../utils/music/songListen';
+import { NotePencil } from '@phosphor-icons/react';
 import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
 
@@ -32,6 +34,26 @@ const PlayerPage: React.FC<{
   } = useMusic();
   const { characters } = useOS();
   const [pickPartner, setPickPartner] = useState(false);
+  const [showDiary, setShowDiary] = useState(false);
+  const [diaries, setDiaries] = useState<ListenDiary[]>([]);
+  const [listening, setListening] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!current) return;
+    const h = () => setDiaries(loadDiaries().filter(d => d.songKey === songKeyOf(current)));
+    h();
+    window.addEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
+    return () => window.removeEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
+  }, [current?.id]);
+  const askListen = (charId: string, name: string) => {
+    if (!current) return;
+    if (!isListenApiReady()) { toast('先在音乐的音源设置里填「听歌模型」', 'info'); return; }
+    setListening(m => ({ ...m, [charId]: true }));
+    toast(`${name}戴上耳机开始听了，大概要等一会儿`, 'info');
+    listenToSong(charId, current, partners.some(p => p.id === charId) ? 'together' : 'alone', { force: true }).then(r => {
+      setListening(m => ({ ...m, [charId]: false }));
+      if (r.status === 'failed' || r.status === 'skipped') toast(`没听成：${r.error}`, 'error');
+    });
+  };
   const partners = characters.filter(c => listeningTogetherWith.includes(c.id));
   const lyricBoxRef = useRef<HTMLDivElement | null>(null);
   const [page, setPage] = useState(0);
@@ -133,6 +155,9 @@ const PlayerPage: React.FC<{
             <button onClick={() => setPickPartner(true)} className="p-1.5" style={{ color: partners.length ? C.primary : C.muted }} title="一起听">
               <Headphones size={18} weight={partners.length ? 'fill' : 'regular'} />
             </button>
+            <button onClick={() => setShowDiary(true)} className="p-1.5" style={{ color: diaries.length ? C.primary : C.muted }} title="听歌日记">
+              <NotePencil size={18} weight={diaries.length ? 'fill' : 'regular'} />
+            </button>
             <button onClick={() => setMenu(true)} className="p-1.5" style={{ color: C.muted }}><DotsThree size={20} weight="bold" /></button>
           </div>
         } />
@@ -216,6 +241,45 @@ const PlayerPage: React.FC<{
       </div>
 
       {menu && <SongActionSheet song={current} onClose={() => setMenu(false)} toast={toast} />}
+
+      {showDiary && (
+        <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowDiary(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full rounded-t-3xl pb-6 pt-2 max-h-[75%] overflow-y-auto" style={{ background: 'rgba(255,255,255,0.97)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="mx-auto w-10 h-1 rounded-full bg-black/10 mb-2" />
+            <div className="px-4 pb-1 text-sm font-semibold" style={{ color: C.text }}>《{current.name}》的听歌日记</div>
+            <div className="px-4 pb-3 text-[11px] leading-relaxed" style={{ color: C.muted }}>
+              让角色真的听一遍这首歌（音频 + 歌词），用 TA 自己的口吻写下感受。之后一个半小时内聊天，TA 会记得自己听过。
+            </div>
+            {diaries.map(d => {
+              const c = characters.find(x => x.id === d.charId);
+              return (
+                <div key={d.id} className="mx-4 mb-3 p-3 rounded-2xl" style={{ background: `${C.bgDeep}` }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {c?.avatar && <img src={c.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />}
+                    <span className="text-xs font-semibold" style={{ color: C.text }}>{c?.name || '角色'}</span>
+                    <span className="text-[10px]" style={{ color: C.muted }}>{d.mode === 'together' ? '一起听' : '自己听'} · {new Date(d.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <div className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ color: C.text }}>{d.content}</div>
+                </div>
+              );
+            })}
+            <div className="px-4 pt-1 text-[11px]" style={{ color: C.muted }}>让 TA 听这首：</div>
+            {characters.map(c => {
+              const has = diaries.some(d => d.charId === c.id);
+              return (
+                <button key={c.id} disabled={listening[c.id]} onClick={() => askListen(c.id, c.name)}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-left active:bg-black/5">
+                  <img src={c.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                  <span className="flex-1 text-sm" style={{ color: C.text }}>{c.name}</span>
+                  <span className="text-[11px]" style={{ color: C.primary }}>{listening[c.id] ? '正在听…' : has ? '重听一遍' : '听这首'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {pickPartner && (
         <div className="absolute inset-0 z-50 flex items-end" onClick={() => setPickPartner(false)}>

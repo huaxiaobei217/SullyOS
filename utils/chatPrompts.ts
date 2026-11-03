@@ -1,4 +1,5 @@
 import {weatherForCharacter} from './characterWeather';
+import { buildRecentListenBlock } from './music/listenDiaryStore';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
 import { expandHomeContextHistory } from './homeContextSegments';
@@ -596,6 +597,12 @@ ${groupLogStr}\n`;
         } catch (e) {
             console.error('Failed to inject music atmosphere:', e);
         }
+
+        // 角色真的听过的歌（音乐 App「一起听 / 让 TA 听这首」生成的听歌日记），刚听完的一段时间内带上
+        try {
+            const listenBlock = buildRecentListenBlock(char.id, userProfile.name);
+            if (listenBlock) volatileState += `\n${listenBlock}\n`;
+        } catch { /* 读不到日记不影响主 prompt */ }
 
         // 群聊背景带时间戳、随群消息实时滚动 → 易变；日记标题/生活记录变化很慢 → 稳定。
         volatileState += groupContextText;

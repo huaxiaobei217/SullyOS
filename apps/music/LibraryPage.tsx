@@ -18,6 +18,7 @@ import {
 } from '../../utils/music/lxRuntime';
 import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, loadNowPlayingSyncPrefs, saveNowPlayingSyncPrefs } from '../../utils/music/musicPrefs';
 import { pushNowPlaying } from '../../components/os/NowPlayingSync';
+import { loadListenApiConfig, saveListenApiConfig } from '../../utils/music/songListen';
 import { LX_QUALITY_ORDER, LX_QUALITY_LABEL, loadLxQualityPref, saveLxQualityPref, LxQualityPref } from '../../utils/music/lxQuality';
 
 const LS_LAST_PLAYLIST = 'sully_music_last_playlist_v1';
@@ -68,6 +69,8 @@ const LibraryPage: React.FC<{
   const [sheetSong, setSheetSong] = useState<Song | null>(null);
   const [lyricPrefs, setLyricPrefs] = useState(() => loadDesktopLyricPrefs());
   const [syncPrefs, setSyncPrefs] = useState(() => loadNowPlayingSyncPrefs());
+  const [listenCfg, setListenCfg] = useState(() => loadListenApiConfig());
+  const setListen = (patch: Partial<typeof listenCfg>) => { const n = { ...listenCfg, ...patch }; setListenCfg(n); saveListenApiConfig(n); };
   const [sorting, setSorting] = useState(false);
   const [importingLocal, setImportingLocal] = useState(false);
   const localFileRef = useRef<HTMLInputElement | null>(null);
@@ -226,6 +229,21 @@ const LibraryPage: React.FC<{
                     .then(() => toast('已发送', 'success')).catch(e => toast(`发送失败：${e.message}`, 'error'))}>
                   发送一次试试
                 </button>
+              </div>
+              <div className="pt-2 border-t border-white/40 space-y-1.5">
+                <div className="text-[10px] leading-relaxed" style={{ color: C.muted }}>
+                  听歌模型：让角色真的听歌、写听歌日记。需要能听音频的模型（OpenAI 兼容格式，比如 Gemini 系列）
+                </div>
+                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                  placeholder="Base URL（例如 https://xxx/v1）" value={listenCfg.baseUrl} onChange={e => setListen({ baseUrl: e.target.value })} />
+                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }} type="password"
+                  placeholder="API Key" value={listenCfg.apiKey} onChange={e => setListen({ apiKey: e.target.value })} />
+                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                  placeholder="模型名（例如 gemini-2.5-flash）" value={listenCfg.model} onChange={e => setListen({ model: e.target.value })} />
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>一起听时，每首新歌自动让 TA 听（放满 20 秒才算）</span>
+                  <input type="checkbox" checked={listenCfg.autoTogether} onChange={e => setListen({ autoTogether: e.target.checked })} />
+                </label>
               </div>
               <div className="text-[9px] leading-relaxed" style={{ color: C.faint }}>
                 脚本和里面的密钥只存在这台设备上。脚本的网络请求经「设置 → 网络代理」里你自己的 Worker 转发。
