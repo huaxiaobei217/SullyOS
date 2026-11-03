@@ -70,6 +70,21 @@ const LibraryPage: React.FC<{
   const [lyricPrefs, setLyricPrefs] = useState(() => loadDesktopLyricPrefs());
   const [syncPrefs, setSyncPrefs] = useState(() => loadNowPlayingSyncPrefs());
   const [listenCfg, setListenCfg] = useState(() => loadListenApiConfig());
+  const [models, setModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const fetchModels = async () => {
+    if (!listenCfg.baseUrl.trim() || !listenCfg.apiKey.trim()) { toast('先填 Base URL 和 API Key', 'info'); return; }
+    setFetchingModels(true);
+    try {
+      const res = await fetch(`${listenCfg.baseUrl.trim().replace(/\/+$/, '')}/models`, { headers: { Authorization: `Bearer ${listenCfg.apiKey.trim()}` } });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error?.message || `HTTP ${res.status}`);
+      const ids: string[] = (j?.data || j?.models || []).map((m: any) => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean);
+      setModels(ids);
+      toast(ids.length ? `拉到 ${ids.length} 个模型` : '没拉到模型', ids.length ? 'success' : 'info');
+    } catch (e: any) { toast(`拉取失败：${e?.message || e}`, 'error'); }
+    finally { setFetchingModels(false); }
+  };
   const setListen = (patch: Partial<typeof listenCfg>) => { const n = { ...listenCfg, ...patch }; setListenCfg(n); saveListenApiConfig(n); };
   const [sorting, setSorting] = useState(false);
   const [importingLocal, setImportingLocal] = useState(false);
@@ -238,8 +253,19 @@ const LibraryPage: React.FC<{
                   placeholder="Base URL（例如 https://xxx/v1）" value={listenCfg.baseUrl} onChange={e => setListen({ baseUrl: e.target.value })} />
                 <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }} type="password"
                   placeholder="API Key" value={listenCfg.apiKey} onChange={e => setListen({ apiKey: e.target.value })} />
-                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
-                  placeholder="模型名（例如 gemini-2.5-flash）" value={listenCfg.model} onChange={e => setListen({ model: e.target.value })} />
+                <div className="flex gap-1.5">
+                  <input className="flex-1 min-w-0 rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                    placeholder="模型名（例如 gemini-2.5-flash）" value={listenCfg.model} onChange={e => setListen({ model: e.target.value })} />
+                  <button onClick={fetchModels} disabled={fetchingModels} className="shrink-0 px-2.5 rounded-xl text-[11px]"
+                    style={{ color: C.primary, border: `1px solid ${C.primary}40` }}>{fetchingModels ? '拉取中…' : '拉取模型'}</button>
+                </div>
+                {models.length > 0 && (
+                  <select className="w-full rounded-xl px-2 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                    value={models.includes(listenCfg.model) ? listenCfg.model : ''} onChange={e => setListen({ model: e.target.value })}>
+                    <option value="" disabled>从列表里选一个（要能听音频的）</option>
+                    {models.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                )}
                 <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
                   <span>一起听时，每首新歌自动让 TA 听（放满 20 秒才算）</span>
                   <input type="checkbox" checked={listenCfg.autoTogether} onChange={e => setListen({ autoTogether: e.target.checked })} />
@@ -313,7 +339,7 @@ const LibraryPage: React.FC<{
       <div className="flex flex-col h-full relative" style={bg}>
         <BokehBg />
         <div className="flex items-center gap-1 px-2 h-12 shrink-0 shizuku-glass-strong relative z-20"
-          style={{ paddingTop: 'var(--safe-top)', boxSizing: 'content-box' }}>
+          style={{ paddingTop: 'calc(var(--safe-top) + 10px)', boxSizing: 'content-box' }}>
           <button onClick={() => { setDrawer(true); setSorting(false); }} className="p-2" style={{ color: C.primary }} title="歌单列表"><List size={18} weight="bold" /></button>
           <div className="flex-1 min-w-0 text-sm font-semibold truncate" style={{ color: C.text }}>{open.name}</div>
           <button onClick={onOpenSearch} className="p-1.5" style={{ color: C.primary }} title="搜索"><MagnifyingGlass size={16} weight="bold" /></button>
@@ -380,7 +406,7 @@ const LibraryPage: React.FC<{
             <style>{'@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:none}}'}</style>
             <div className="h-full w-[82%] max-w-[360px] flex flex-col shadow-2xl"
               style={{ ...bg, animation: 'slideInLeft .2s ease-out' }} onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-4 h-12 shrink-0" style={{ paddingTop: 'var(--safe-top)', boxSizing: 'content-box' }}>
+              <div className="flex items-center justify-between px-4 h-12 shrink-0" style={{ paddingTop: 'calc(var(--safe-top) + 10px)', boxSizing: 'content-box' }}>
                 <span className="text-sm font-semibold" style={{ color: C.text }}>我的音乐</span>
                 <button onClick={() => setDrawer(false)} className="p-1.5" style={{ color: C.muted }}><X size={16} /></button>
               </div>

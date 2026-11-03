@@ -24,7 +24,9 @@ const ListenTogetherWatcher: React.FC = () => {
       // 没人陪听：只在开了「自动解读」时，给这首歌生成一份客观解读
       if (!cfg.autoAnalyze || getAnalysis(songKeyOf(song))) return;
       timerRef.current = window.setTimeout(() => {
-        analyzeSong(song).catch(e => addToast(`《${song.name}》解读失败：${e?.message || e}`, 'error'));
+        analyzeSong(song)
+          .then(() => addToast(`《${song.name}》解读好了，在播放页 📝 里看`, 'success'))
+          .catch(e => addToast(`《${song.name}》解读失败：${e?.message || e}`, 'error'));
       }, 20000);
       return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
     }

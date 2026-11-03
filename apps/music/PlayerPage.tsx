@@ -204,6 +204,11 @@ const PlayerPage: React.FC<{
               <div className="text-sm" style={{ color: C.primary }}>{curLine?.text || (lyric.length ? '' : '暂无歌词')}</div>
               {curLine && <div className="text-[11px] mt-0.5" style={{ color: C.muted }}>{transFor(curLine.t)}</div>}
             </div>
+            <button onClick={() => setShowDiary(true)} className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px]"
+              style={{ color: analysis ? C.primary : C.muted, border: `1px solid ${analysis ? C.primary : C.muted}40` }}>
+              <NotePencil size={12} weight={analysis ? 'fill' : 'regular'} />
+              {analyzing ? '正在解读…' : analysis ? `已解读${diaries.length ? ` · ${diaries.length} 篇日记` : ''}` : '还没解读 · 点这里'}
+            </button>
           </div>
         </div>
 
