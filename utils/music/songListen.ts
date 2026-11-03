@@ -215,10 +215,10 @@ export function analyzeSong(song: Song, opts: { force?: boolean } = {}): Promise
         { type: 'text', text: `${ANALYZE_PROMPT}\n\n${head}\n\n${lyrics ? `歌词：\n${lyrics}` : '（没拿到歌词）'}` },
         { type: 'input_audio', input_audio: { data, format } },
       ],
-    }], 6000, 0.2);
+    }], 12000, 0.2);
     const a: SongAnalysis = {
       songKey: key, songName: song.name, artists: song.artists,
-      text: text.slice(0, 6000), lyrics: lyrics.slice(0, 4000), createdAt: Date.now(),
+      text: text.slice(0, 12000), lyrics: lyrics.slice(0, 4000), createdAt: Date.now(),
     };
     saveAnalysis(a);
     return a;
@@ -260,7 +260,7 @@ ${analysis.lyrics ? `【歌词】\n${analysis.lyrics}` : '（没有歌词）'}`;
       { char, user, instructions: diaryInstructions(char.name, user.name || '对方', mode, char) },
       [{ role: 'user', content: userText }],
     );
-    const content = (await callModel(messages, 3000, 0.85)).replace(/^["“「]|["”」]$/g, '').trim().slice(0, 2000);
+    const content = (await callModel(messages, 8000, 0.85)).replace(/^["“「]|["”」]$/g, '').trim().slice(0, 4000);
     const diary: ListenDiary = {
       id: `ld_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       charId, songKey: songKeyOf(song), songName: song.name, artists: song.artists, mode, content, createdAt: Date.now(),

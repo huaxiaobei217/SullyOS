@@ -51,6 +51,8 @@ import {resolveDecorationTheme} from '../utils/chatDecoration';
 import {DecorationTab} from '../components/chat/ChatDecorationPanel';
 import ChatAppearanceWardrobe from '../components/chat/ChatAppearanceWardrobe';
 import ChatInputArea from '../components/chat/ChatInputArea';
+import { loadMusicPlaybackSnapshot } from '../context/MusicContext';
+import { isListenApiReady, loadListenApiConfig, getAnalysis, songKeyOf, analyzeSong } from '../utils/music/songListen';
 import ConfirmDialog from '../components/os/ConfirmDialog';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
@@ -1807,6 +1809,20 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
+            case 'share-music': {
+                const cur = loadMusicPlaybackSnapshot()?.current;
+                if (!cur) { addToast('现在没有在放歌，先去音乐里放一首吧', 'info'); break; }
+                setShowPanel('none');
+                handleSendText('[音乐卡片]', 'music_card', {
+                    intent: 'share',
+                    song: { songId: cur.id, name: cur.name, artists: cur.artists, album: cur.album, albumPic: cur.albumPic, duration: cur.duration, fee: cur.fee },
+                });
+                // 这首还没解读的话，顺手在后台解读一下，他接话时就知道这首歌听起来是什么样
+                if (isListenApiReady(loadListenApiConfig()) && !getAnalysis(songKeyOf(cur))) {
+                    analyzeSong(cur).catch(() => {});
+                }
+                break;
+            }
             case 'archive': setModalType(char?.memoryPalaceEnabled ? 'archive-legacy-warning' : 'archive-settings'); break;
             case 'settings': setModalType('chat-settings'); break;
             case 'chrome-css': setShowPanel('none'); setDecorationTab('library'); setModalType('chrome-css'); break;

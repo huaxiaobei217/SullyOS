@@ -1755,7 +1755,7 @@ const MessageItem = React.memo(({
     // --- Music Card Rendering (一起听 / 加入歌单) ---
     if (m.type === 'music_card' && m.metadata?.song) {
         const song = m.metadata.song as { songId: number; name: string; artists: string; albumPic: string };
-        const intent = (m.metadata.intent || 'join') as 'join' | 'add' | 'join_and_add';
+        const intent = (m.metadata.intent || 'join') as 'join' | 'add' | 'join_and_add' | 'share';
         const isTogether = intent === 'join' || intent === 'join_and_add';
         const addedTo = m.metadata.addedToPlaylistTitle as string | undefined;
 
@@ -1870,7 +1870,7 @@ const MessageItem = React.memo(({
                     {!isTogether && (
                         <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full backdrop-blur-sm text-[9px] font-medium"
                             style={{ background: 'rgba(255,255,255,0.85)', color: '#5a49a8' }}>
-                            📌 收入歌单
+                            {intent === 'share' ? '🎧 正在听' : '📌 收入歌单'}
                         </div>
                     )}
                 </div>

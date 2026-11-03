@@ -209,10 +209,11 @@ export function normalizeMessageContent(
     // "[音乐卡片]" 这种没信息量的占位，丢掉"谁因为什么歌做了什么"的语义
     if (type === 'music_card') {
         const song = msg.metadata?.song as { name?: string; artists?: string } | undefined;
-        const intent = msg.metadata?.intent as 'join' | 'add' | 'join_and_add' | undefined;
+        const intent = msg.metadata?.intent as 'join' | 'add' | 'join_and_add' | 'share' | undefined;
         const addedTo = msg.metadata?.addedToPlaylistTitle as string | undefined;
         if (song?.name) {
             const songDesc = song.artists ? `《${song.name}》— ${song.artists}` : `《${song.name}》`;
+            if (intent === 'share') return `[音乐卡片] ${userName}把正在听的歌分享给了${charName}：${songDesc}`;
             const action =
                 intent === 'join' ? `决定和${userName}一起听这首`
                 : intent === 'add' ? `把这首收进了自己的歌单${addedTo ? `《${addedTo}》` : ''}`
