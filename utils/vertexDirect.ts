@@ -124,6 +124,20 @@ export const getVertexAccessToken = async (transport: typeof fetch = fetch): Pro
 /* ───────── 请求改写 ───────── */
 
 const FALLBACK_MODELS = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite'];
+const EXTRA_MODELS_KEY = 'sully_vertex_extra_models_v1';
+
+/** 目录里查不到、但用户测试通过的模型（比如预览版），记下来，拉取模型时一起列出 */
+export const rememberVertexModel = (model: string) => {
+  const m = model.trim();
+  if (!m) return;
+  try {
+    const arr: string[] = JSON.parse(localStorage.getItem(EXTRA_MODELS_KEY) || '[]');
+    if (!arr.includes(m)) localStorage.setItem(EXTRA_MODELS_KEY, JSON.stringify([m, ...arr].slice(0, 30)));
+  } catch { /* ignore */ }
+};
+const loadExtraModels = (): string[] => {
+  try { const a = JSON.parse(localStorage.getItem(EXTRA_MODELS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+};
 
 const listVertexModels = async (transport: typeof fetch, token: string): Promise<string[]> => {
   try {
@@ -147,7 +161,7 @@ export async function fetchVertex(resource: RequestInfo | URL, init: RequestInit
 
   // 「拉取模型」：OpenAI 兼容端点没有 /models，换成 Vertex 的模型目录
   if (method === 'GET' && /\/endpoints\/openapi\/models\/?$/.test(new URL(url).pathname)) {
-    const ids = await listVertexModels(transport, token);
+    const ids = Array.from(new Set([...loadExtraModels(), ...(await listVertexModels(transport, token))]));
     return new Response(JSON.stringify({ object: 'list', data: ids.map(id => ({ id, object: 'model', owned_by: 'google' })) }), {
       status: 200, headers: { 'content-type': 'application/json' },
     });

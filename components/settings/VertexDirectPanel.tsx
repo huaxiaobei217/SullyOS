@@ -5,7 +5,7 @@
 import React, { useRef, useState } from 'react';
 import {
   loadVertexStore, saveVertexStore, parseServiceAccount, vertexBaseUrl,
-  getVertexAccessToken, VERTEX_PLACEHOLDER_KEY,
+  getVertexAccessToken, VERTEX_PLACEHOLDER_KEY, rememberVertexModel,
 } from '../../utils/vertexDirect';
 
 const LOCATIONS = ['global', 'us-central1', 'us-east5', 'europe-west1', 'asia-northeast1', 'asia-southeast1'];
@@ -57,6 +57,7 @@ const VertexDirectPanel: React.FC<{
         throw new Error(err?.message || `HTTP ${res.status}`);
       }
       const text = j?.choices?.[0]?.message?.content || '（空回复）';
+      rememberVertexModel(testModel);
       setStatus(`连接成功 ✓\n${testModel}：${String(text).slice(0, 120)}`);
     } catch (e: any) {
       const msg = String(e?.message || e);
@@ -66,6 +67,7 @@ const VertexDirectPanel: React.FC<{
 
   const apply = () => {
     if (!store) return;
+    rememberVertexModel(testModel);
     onApply({ baseUrl: vertexBaseUrl(store.sa.project_id, location), apiKey: VERTEX_PLACEHOLDER_KEY, model: testModel.trim() || 'google/gemini-2.5-pro' });
     setStatus('已填进当前 API 设置（地址 + 占位密钥 vertex-local + 模型）。可以在那里「拉取模型」换别的，也可以存成预设。');
   };

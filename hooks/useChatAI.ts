@@ -56,6 +56,7 @@ import { AMSG2_EMPTY_REPLY_PROMPT, AMSG2_WRAP_UP_PROMPT, createAmsg2StallTracker
 import { buildLimitsBrief, resolveAmsgLimits } from '../utils/amsgLimits';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { isAnthropicEndpoint } from '../utils/llmEndpoint';
+import { isVertexUrl } from '../utils/vertexDirect';
 import { anthropicContinuation } from '../utils/anthropicApi';
 import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
@@ -834,8 +835,10 @@ export const useChatAI = ({
                 : instantChatReadiness.workerBundleCurrent === false ? 'sar-module-worker-outdated'
                     : instantChatReadiness.workerBundleCurrent === undefined ? 'sar-module-worker-unverified'
                         : null;
+            // Vertex 本机直连：密钥只在这台设备上，云端 Worker 拿不到，这一轮必须本地生成
             const instantChatVeto: string | null = sarWorkerVeto
-                ?? (luckinChatOn ? 'luckin-chat'
+                ?? (isVertexUrl(effectiveApi.baseUrl) ? 'vertex-local'
+                : luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null);
@@ -856,6 +859,8 @@ export const useChatAI = ({
                         ? '[AmsgInstantChat] 这一轮没上云（SAR 模块生效中，那台 Worker 还是旧 bundle、拆不了模块的回复信封），本地生成。去设置页点「更新 Worker」'
                         : skipReason === 'sar-module-worker-unverified'
                         ? '[AmsgInstantChat] 这一轮没上云（SAR 模块生效中，没问到那台 Worker 的版本、确认不了它认得模块的回复信封），本地生成。连上云端探到版本后会自己回到云端'
+                        : skipReason === 'vertex-local'
+                        ? '[AmsgInstantChat] 这一轮没上云（当前用的是 Vertex 本机直连，密钥不出本机），本地生成'
                         : skipReason === 'mcp-worker-unreachable'
                         ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
                         : `[AmsgInstantChat] 这一轮没上云（${skipReason} 点单流程需要客户端交互），本地生成`,
