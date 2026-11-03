@@ -640,6 +640,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // 前进/后退 refs (避免循环依赖 & audio 事件闭包陷阱)
   const queueRef = useRef(queue); queueRef.current = queue;
   const idxRef = useRef(idx); idxRef.current = idx;
+  /** 最近一次 playSong 请求的歌，用来丢弃过期的异步结果（歌词等） */
+  const requestedSongIdRef = useRef<number | null>(null);
   const modeRef = useRef(playMode); modeRef.current = playMode;
   const cfgRef = useRef(cfg); cfgRef.current = cfg;
   const endedHandlerRef = useRef<() => void>(() => {});
@@ -696,6 +698,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
 
+    requestedSongIdRef.current = song.id;
     setLoadingSong(true); setLyric([]); setTlyric([]); setProgress(0); setDuration(0);
     try {
       // ── Local-source branch ── 本地生成的歌（写歌 App 出歌）从 IndexedDB 取 blob
@@ -797,19 +800,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           copyrightId: song.lxCopyrightId,
           source: song.lxSource,
         };
-        const [url, lyricRes] = await Promise.all([
-          rt.getMusicUrl(song.lxSource, musicInfo, quality),
-          song.lxSource === 'wy'
-            ? musicApi.lyric(cfgRef.current, Number(song.lxSongmid)).catch(() => null)
-            : Promise.resolve(null),
-        ]);
+        const url = await rt.getMusicUrl(song.lxSource, musicInfo, quality);
         const a = audioRef.current!;
         a.src = url.replace(/^http:\/\//i, 'https://');
         a.play().catch(() => {});
-        if (lyricRes) {
-          setLyric(parseLyric(lyricRes?.lrc?.lyric || ''));
-          setTlyric(parseLyric(lyricRes?.tlyric?.lyric || ''));
-        }
+        // 歌词不挡播放：后台取，回来时如果还是这首歌就填上
+        const { fetchLyricsForLxSong } = await import('../utils/music/lyrics');
+        fetchLyricsForLxSong(cfgRef.current, song).then(ly => {
+          if (!ly || requestedSongIdRef.current !== song.id) return;
+          setLyric(parseLyric(ly.lrc));
+          setTlyric(parseLyric(ly.tlrc));
+        }).catch(() => {});
         if ('mediaSession' in navigator) {
           try {
             (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({

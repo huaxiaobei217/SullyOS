@@ -150,6 +150,29 @@ const MusicApp: React.FC = () => {
     }
   }, [keyword, cfg, addToast]);
 
+  const renderMini = () => (
+    <>
+      {current && (
+      <MiniPlayer
+        name={current.name}
+        artists={current.artists}
+        albumPic={current.albumPic}
+        playing={playing}
+        onTap={() => { setView('player'); trackEvent('打开播放页'); }}
+        onPrev={() => { prevSong(); trackEvent('切歌（上一首/下一首）', { direction: 'prev' }); }}
+        onToggle={togglePlay}
+        onNext={() => { nextSong(); trackEvent('切歌（上一首/下一首）', { direction: 'next' }); }}
+        userAvatar={userProfile?.avatar}
+        userName={userProfile?.name}
+        companions={companions}
+        onKickCompanion={charId => { removeListeningPartner(charId); trackEvent('结束和角色的一起听'); }}
+        charsWithSong={charsWithSong}
+        regenStatus={isCurrentRegenerating ? regeneratingStatus : undefined}
+      />
+    )}
+    </>
+  );
+
   // ════════════════ 搜索页 ════════════════
   const renderSearch = () => (
     <div className="flex flex-col h-full relative"
@@ -236,24 +259,7 @@ const MusicApp: React.FC = () => {
         ))}
       </div>
 
-      {current && (
-        <MiniPlayer
-          name={current.name}
-          artists={current.artists}
-          albumPic={current.albumPic}
-          playing={playing}
-          onTap={() => { setView('player'); trackEvent('打开播放页'); }}
-          onPrev={() => { prevSong(); trackEvent('切歌（上一首/下一首）', { direction: 'prev' }); }}
-          onToggle={togglePlay}
-          onNext={() => { nextSong(); trackEvent('切歌（上一首/下一首）', { direction: 'next' }); }}
-          userAvatar={userProfile?.avatar}
-          userName={userProfile?.name}
-          companions={companions}
-          onKickCompanion={charId => { removeListeningPartner(charId); trackEvent('结束和角色的一起听'); }}
-          charsWithSong={charsWithSong}
-          regenStatus={isCurrentRegenerating ? regeneratingStatus : undefined}
-        />
-      )}
+      {renderMini()}
     </div>
   );
 
@@ -565,6 +571,7 @@ const MusicApp: React.FC = () => {
           toast={addToast}
         />
       )}
+      {view === 'library' && renderMini()}
       {view === 'search' && renderSearch()}
       {view === 'player' && renderPlayer()}
       {view === 'settings' && renderSettings()}

@@ -13,6 +13,8 @@ import {
 import {
   loadSavedLxScript, saveLxScript, parseLxScriptInfo, getLxRuntime,
 } from '../../utils/music/lxRuntime';
+import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, loadNowPlayingSyncPrefs, saveNowPlayingSyncPrefs } from '../../utils/music/musicPrefs';
+import { pushNowPlaying } from '../../components/os/NowPlayingSync';
 import { LX_QUALITY_ORDER, LX_QUALITY_LABEL, loadLxQualityPref, saveLxQualityPref, LxQualityPref } from '../../utils/music/lxQuality';
 
 const SOURCE_LABEL: Record<string, string> = { wy: '网易', kg: '酷狗', kw: '酷我', tx: 'QQ', mg: '咪咕' };
@@ -48,6 +50,8 @@ const LibraryPage: React.FC<{
   const scriptInfo = useMemo(() => (script ? parseLxScriptInfo(script) : null), [script]);
   const [quality, setQuality] = useState<LxQualityPref>(() => loadLxQualityPref());
   const [testing, setTesting] = useState(false);
+  const [lyricPrefs, setLyricPrefs] = useState(() => loadDesktopLyricPrefs());
+  const [syncPrefs, setSyncPrefs] = useState(() => loadNowPlayingSyncPrefs());
 
   const open = lists.find(l => l.id === openId) || null;
 
@@ -196,6 +200,32 @@ const LibraryPage: React.FC<{
                       }}>{LX_QUALITY_LABEL[q]}</button>
                   ))}
                 </div>
+              </div>
+              <div className="pt-2 border-t border-white/40 space-y-2">
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>桌面歌词（离开音乐 App 后显示，可上下拖动）</span>
+                  <input type="checkbox" checked={lyricPrefs.enabled}
+                    onChange={e => { const p = { ...lyricPrefs, enabled: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
+                </label>
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>桌面歌词显示翻译</span>
+                  <input type="checkbox" checked={lyricPrefs.showTranslation}
+                    onChange={e => { const p = { ...lyricPrefs, showTranslation: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
+                </label>
+              </div>
+              <div className="pt-2 border-t border-white/40 space-y-1.5">
+                <div className="text-[10px]" style={{ color: C.muted }}>换歌时同步「正在听」到（比如你的 MCP 的 /update 地址，留空就不同步）</div>
+                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                  placeholder="https://mcp.xxx/update" value={syncPrefs.url}
+                  onChange={e => { const p = { ...syncPrefs, url: e.target.value }; setSyncPrefs(p); saveNowPlayingSyncPrefs(p); }} />
+                <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
+                  placeholder="通行密钥（MCP 加了校验才需要，可留空）" value={syncPrefs.token}
+                  onChange={e => { const p = { ...syncPrefs, token: e.target.value }; setSyncPrefs(p); saveNowPlayingSyncPrefs(p); }} />
+                <button className="text-[10px] underline" style={{ color: C.primary }}
+                  onClick={() => pushNowPlaying(current ? `${current.name} - ${current.artists}` : '测试 - SullyOS')
+                    .then(() => toast('已发送', 'success')).catch(e => toast(`发送失败：${e.message}`, 'error'))}>
+                  发送一次试试
+                </button>
               </div>
               <div className="text-[9px] leading-relaxed" style={{ color: C.faint }}>
                 脚本和里面的密钥只存在这台设备上。脚本的网络请求经「设置 → 网络代理」里你自己的 Worker 转发。

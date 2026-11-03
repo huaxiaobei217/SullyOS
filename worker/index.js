@@ -4410,6 +4410,56 @@ export default {
       }
     }
 
+    // ========== 多平台歌词 ==========
+    // POST /music2/lyric { source: 'kw'|'kg'|'tx', songmid, hash?, name?, interval? } → { lrc, tlrc }
+    // 网易的歌词前端直接走 /netease/lyric；这里拿不到时前端会再去网易按歌名搜一次兜底。
+    if (url.pathname === '/music2/lyric' && request.method === 'POST') {
+      const q = await request.json().catch(() => ({}));
+      const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36';
+      const pad = (n) => String(n).padStart(2, '0');
+      const toTag = (sec) => {
+        const s = Math.max(0, Number(sec) || 0);
+        return `[${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}.${pad(Math.floor((s % 1) * 100))}]`;
+      };
+      try {
+        let lrc = '', tlrc = '';
+        if (q.source === 'kw') {
+          const r = await fetch(`https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=${encodeURIComponent(q.songmid)}&httpsStatus=1`,
+            { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+          const j = await r.json().catch(() => null);
+          const list = j?.data?.lrclist || [];
+          lrc = list.map((l) => `${toTag(l.time)}${l.lineLyric || ''}`).join('\n');
+        } else if (q.source === 'kg') {
+          const dur = Math.round(Number(q.duration || 0) * 1000);
+          const s = await fetch(`https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=${dur || ''}&hash=${encodeURIComponent(q.hash || '')}&album_audio_id=`,
+            { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+          const sj = await s.json().catch(() => null);
+          const c = sj?.candidates?.[0];
+          if (c) {
+            const d = await fetch(`https://lyrics.kugou.com/download?ver=1&client=pc&id=${c.id}&accesskey=${c.accesskey}&fmt=lrc&charset=utf8`,
+              { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+            const dj = await d.json().catch(() => null);
+            if (dj?.content) {
+              const bin = atob(dj.content);
+              lrc = new TextDecoder().decode(Uint8Array.from(bin, (ch) => ch.charCodeAt(0)));
+            }
+          }
+        } else if (q.source === 'tx') {
+          const r = await fetch(`https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${encodeURIComponent(q.songmid)}&format=json&nobase64=1&g_tk=5381`,
+            { headers: { 'User-Agent': UA, Referer: 'https://y.qq.com/' }, signal: AbortSignal.timeout(10000) });
+          const j = await r.json().catch(() => null);
+          const unesc = (t) => String(t || '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+          lrc = unesc(j?.lyric);
+          tlrc = unesc(j?.trans);
+        } else {
+          return jsonResponse({ error: 'unsupported source' }, { status: 400, origin });
+        }
+        return jsonResponse({ lrc, tlrc }, { origin });
+      } catch (e) {
+        return jsonResponse({ error: String(e && e.message || e) }, { status: 502, origin });
+      }
+    }
+
     // ========== 网易云音乐代理 (转发到 api-enhanced, 带边缘缓存 + 多上游容灾) ==========
     // 前端 POST /netease/<action> { ...body }
     // Worker 翻译成 api-enhanced 的 GET 参数形式并转发
