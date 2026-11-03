@@ -15,7 +15,7 @@ const write = (key: string, v: unknown) => {
   try { window.dispatchEvent(new Event(MUSIC_PREFS_CHANGED_EVENT)); } catch {}
 };
 
-export const loadDesktopLyricPrefs = () => read<DesktopLyricPrefs>(LS_DESKTOP_LYRIC, { enabled: false, showTranslation: true, top: null });
+export const loadDesktopLyricPrefs = () => read<DesktopLyricPrefs>(LS_DESKTOP_LYRIC, { enabled: true, showTranslation: true, top: null });
 export const saveDesktopLyricPrefs = (p: DesktopLyricPrefs) => write(LS_DESKTOP_LYRIC, p);
 
 export const loadNowPlayingSyncPrefs = () => read<NowPlayingSyncPrefs>(LS_NP_SYNC, { url: '', token: '' });

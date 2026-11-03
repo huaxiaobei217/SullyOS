@@ -183,8 +183,11 @@ export const SongRow: React.FC<{
   >
     {/* 封面 — 圆角 + 水光边框 */}
     <div className="relative shrink-0">
-      <img src={resolvedAlbumPic} alt="" className="w-11 h-11 rounded-xl object-cover"
-        style={{ border: `1.5px solid ${isActive ? C.accent + '60' : C.faint + '40'}` }} />
+      <img src={resolvedAlbumPic ? resolvedAlbumPic.replace(/^http:\/\//i, 'https://') : undefined} alt=""
+        referrerPolicy="no-referrer" loading="lazy"
+        onError={e => { const el = e.currentTarget; el.removeAttribute('src'); el.style.background = `linear-gradient(135deg, ${C.bgDeep}, ${C.faint}55)`; }}
+        className="w-11 h-11 rounded-xl object-cover"
+        style={{ border: `1.5px solid ${isActive ? C.accent + '60' : C.faint + '40'}`, background: resolvedAlbumPic ? undefined : `linear-gradient(135deg, ${C.bgDeep}, ${C.faint}55)` }} />
       {isActive && <div className="absolute -top-0.5 -right-0.5"><Sparkle size={8} color={C.glow} delay={0.3} /></div>}
     </div>
     <div className="flex-1 min-w-0 text-left">

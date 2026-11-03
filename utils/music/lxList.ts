@@ -143,3 +143,45 @@ export const mergeImported = (existing: MusicPlaylist[], incoming: MusicPlaylist
   }
   return out;
 };
+
+/* ───────── 歌单操作小工具 ───────── */
+
+export const FAVORITES_NAME = '我喜欢';
+
+export const isInFavorites = (songId: number): boolean =>
+  loadPlaylists().some(p => p.name === FAVORITES_NAME && p.songs.some(s => s.id === songId));
+
+/** 切换「我喜欢」，返回切换后的状态 */
+export const toggleFavorite = (song: Song): boolean => {
+  const lists = loadPlaylists();
+  let fav = lists.find(p => p.name === FAVORITES_NAME);
+  const now = Date.now();
+  if (!fav) {
+    fav = { id: `pl_fav_${now.toString(36)}`, name: FAVORITES_NAME, songs: [], createdAt: now, updatedAt: now };
+    lists.unshift(fav);
+  }
+  const has = fav.songs.some(s => s.id === song.id);
+  fav.songs = has ? fav.songs.filter(s => s.id !== song.id) : [song, ...fav.songs];
+  fav.updatedAt = now;
+  savePlaylists(lists);
+  return !has;
+};
+
+/** 加到某个歌单（已存在就不重复加），返回是否新加入 */
+export const addSongToPlaylist = (playlistId: string, song: Song): boolean => {
+  const lists = loadPlaylists();
+  const pl = lists.find(p => p.id === playlistId);
+  if (!pl || pl.songs.some(s => s.id === song.id)) return false;
+  pl.songs = [...pl.songs, song];
+  pl.updatedAt = Date.now();
+  savePlaylists(lists);
+  return true;
+};
+
+export const createPlaylist = (name: string): MusicPlaylist => {
+  const lists = loadPlaylists();
+  const now = Date.now();
+  const pl: MusicPlaylist = { id: `pl_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`, name, songs: [], createdAt: now, updatedAt: now };
+  savePlaylists([...lists, pl]);
+  return pl;
+};

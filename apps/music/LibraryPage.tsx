@@ -6,6 +6,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMusic, Song } from '../../context/MusicContext';
 import { C, MizuHeader, SongRow, BokehBg } from './MusicUI';
+import SongActionSheet from './SongActionSheet';
+import Cover from './Cover';
 import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp } from '@phosphor-icons/react';
 import {
   MusicPlaylist, loadPlaylists, savePlaylists, parseLxFile, mergeImported, PLAYLISTS_CHANGED_EVENT,
@@ -50,6 +52,7 @@ const LibraryPage: React.FC<{
   const scriptInfo = useMemo(() => (script ? parseLxScriptInfo(script) : null), [script]);
   const [quality, setQuality] = useState<LxQualityPref>(() => loadLxQualityPref());
   const [testing, setTesting] = useState(false);
+  const [sheetSong, setSheetSong] = useState<Song | null>(null);
   const [lyricPrefs, setLyricPrefs] = useState(() => loadDesktopLyricPrefs());
   const [syncPrefs, setSyncPrefs] = useState(() => loadNowPlayingSyncPrefs());
 
@@ -122,12 +125,12 @@ const LibraryPage: React.FC<{
             style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.accent})` }}>
             <Play size={12} weight="fill" /> 播放全部
           </button>
-          <span className="text-[11px]" style={{ color: C.muted }}>{open.songs.length} 首 · 长按歌曲可移除</span>
+          <span className="text-[11px]" style={{ color: C.muted }}>{open.songs.length} 首 · 长按歌曲有更多操作</span>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
           {open.songs.map((s, i) => (
             <div key={s.id} className="relative"
-              onContextMenu={(e) => { e.preventDefault(); if (confirm(`从歌单移除「${s.name}」？`)) removeSong(open, s); }}>
+              onContextMenu={(e) => { e.preventDefault(); setSheetSong(s); }}>
               <SongRow
                 name={s.name}
                 artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
@@ -142,6 +145,10 @@ const LibraryPage: React.FC<{
           ))}
           {!open.songs.length && <div className="text-center text-xs mt-16" style={{ color: C.faint }}>歌单还是空的</div>}
         </div>
+        {sheetSong && (
+          <SongActionSheet song={sheetSong} toast={toast} onClose={() => setSheetSong(null)}
+            onRemoveFromPlaylist={() => removeSong(open, sheetSong)} />
+        )}
       </div>
     );
   }
@@ -259,7 +266,7 @@ const LibraryPage: React.FC<{
             <button key={l.id} onClick={() => setOpenId(l.id)}
               className="w-full flex items-center gap-3 p-2 rounded-2xl shizuku-glass text-left">
               <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: C.bgDeep }}>
-                {cover && <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />}
+                <Cover src={cover} seed={l.name} className="w-full h-full" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm truncate" style={{ color: C.text }}>{l.name}</div>

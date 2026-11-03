@@ -19,7 +19,8 @@ const formatTime = (sec: number) => {
 
 const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentColor }) => {
   const { openApp, theme } = useOS();
-  const { current, playing, progress, duration, togglePlay, nextSong, prevSong } = useMusic();
+  const { current, playing, progress, duration, togglePlay, nextSong, prevSong, lyric, activeLyricIdx } = useMusic();
+  const lyricLine = activeLyricIdx >= 0 ? (lyric[activeLyricIdx]?.text || '') : '';
   const acnh = theme.skin === 'animalcrossing'; // 动森：奶油卡片 + 薄荷进度
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
 
@@ -210,7 +211,14 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
         </div>
       </div>
 
-      {/* 中间：均衡器条 */}
+      {/* 中间：有歌词时显示当前这一句，没有就显示均衡器条 */}
+      {lyricLine ? (
+        <div className="relative flex-1 flex items-center justify-center z-10 py-1 px-0.5 min-h-0">
+          <div key={lyricLine} className="text-[10.5px] font-medium leading-snug text-center opacity-90 line-clamp-2 animate-fade-in">
+            {lyricLine}
+          </div>
+        </div>
+      ) : (
       <div className="relative flex-1 flex items-center justify-center gap-[3px] z-10 opacity-40 py-1">
         {[5, 9, 4, 7, 5, 8, 4].map((h, i) => (
           <div
@@ -225,6 +233,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           />
         ))}
       </div>
+      )}
 
       {/* 底部：进度 + 控件 */}
       <div className="relative z-10 flex flex-col gap-1.5">
