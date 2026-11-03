@@ -13,7 +13,7 @@ import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check 
 import { useOS } from '../../context/OSContext';
 import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis } from '../../utils/music/songListen';
 import { NotePencil } from '@phosphor-icons/react';
-import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT } from '../../utils/music/lxList';
+import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT, normalizeCoverUrl } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
 
 const fmt = (s: number) => {
@@ -157,7 +157,7 @@ const PlayerPage: React.FC<{
     <div className="flex flex-col h-full relative overflow-hidden" style={{ background: C.bg }}>
       {/* 模糊封面做背景 */}
       {current.albumPic && (
-        <img src={current.albumPic.replace(/^http:\/\//i, 'https://')} alt="" referrerPolicy="no-referrer"
+        <img src={normalizeCoverUrl(current.albumPic)} alt="" referrerPolicy="no-referrer"
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ filter: 'blur(40px) saturate(1.2)', opacity: 0.35, transform: 'scale(1.3)' }}
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />

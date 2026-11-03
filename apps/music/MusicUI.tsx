@@ -3,6 +3,7 @@
  * 水滴般清澈 + 二次元装饰: 玻璃拟态, 浮游粒子, 星芒, 柔光, 梦幻渐变
  */
 import React, { useEffect } from 'react';
+import { normalizeCoverUrl } from '../../utils/music/lxList';
 import {
   ArrowLeft, X, MagnifyingGlass,
   Play, Pause, SkipBack, SkipForward,
@@ -183,7 +184,7 @@ export const SongRow: React.FC<{
   >
     {/* 封面 — 圆角 + 水光边框 */}
     <div className="relative shrink-0">
-      <img src={resolvedAlbumPic ? resolvedAlbumPic.replace(/^http:\/\//i, 'https://') : undefined} alt=""
+      <img src={resolvedAlbumPic ? normalizeCoverUrl(resolvedAlbumPic) : undefined} alt=""
         referrerPolicy="no-referrer" loading="lazy"
         onError={e => { const el = e.currentTarget; el.removeAttribute('src'); el.style.background = `linear-gradient(135deg, ${C.bgDeep}, ${C.faint}55)`; }}
         className="w-11 h-11 rounded-xl object-cover"

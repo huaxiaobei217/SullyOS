@@ -54,7 +54,7 @@ export const lxItemToSong = (it: any): Song | null => {
     name: String(it.name || ''),
     artists: String(it.singer || ''),
     album: String(meta.albumName || ''),
-    albumPic: String(meta.picUrl || '').replace(/^http:\/\//i, 'https://'),
+    albumPic: normalizeCoverUrl(String(meta.picUrl || '')),
     duration: intervalToSec(it.interval),
     fee: 0,
     interval: it.interval || '',
@@ -218,4 +218,12 @@ export const moveItem = <T,>(arr: T[], from: number, to: number): T[] => {
   const [x] = next.splice(from, 1);
   next.splice(to, 0, x);
   return next;
+};
+
+/** 封面地址规范化：统一 https；酷我的 img1.kwcdn.kuwo.cn 证书坏的，换到同路径的 img4.kuwo.cn */
+export const normalizeCoverUrl = (url: string): string => {
+  if (!url) return '';
+  let u = url.trim().replace(/^http:\/\//i, 'https://');
+  u = u.replace(/^https:\/\/img\d*\.kwcdn\.kuwo\.cn\//i, 'https://img4.kuwo.cn/');
+  return u;
 };

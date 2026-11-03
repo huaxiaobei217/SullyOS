@@ -1,6 +1,7 @@
 /** 封面：图片加载失败或没有图时，显示按歌名生成的渐变占位 */
 import React, { useEffect, useState } from 'react';
 import { MusicNotes } from '@phosphor-icons/react';
+import { normalizeCoverUrl } from '../../utils/music/lxList';
 
 const hue = (s: string) => {
   let h = 0;
@@ -17,7 +18,7 @@ const Cover: React.FC<{
 }> = ({ src, seed = '', className = '', style, iconSize = 20 }) => {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [src]);
-  const url = (src || '').replace(/^http:\/\//i, 'https://');
+  const url = normalizeCoverUrl(src || '');
   if (!url || failed) {
     const h = hue(seed);
     return (
