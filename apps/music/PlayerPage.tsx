@@ -9,7 +9,8 @@ import { useMusic } from '../../context/MusicContext';
 import { C, MizuHeader, GlassProgress, PlayControls } from './MusicUI';
 import Cover from './Cover';
 import SongActionSheet from './SongActionSheet';
-import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play } from '@phosphor-icons/react';
+import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check } from '@phosphor-icons/react';
+import { useOS } from '../../context/OSContext';
 import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
 
@@ -27,7 +28,11 @@ const PlayerPage: React.FC<{
   const {
     current, playing, progress, duration, loadingSong, lyric, tlyric, activeLyricIdx,
     togglePlay, nextSong, prevSong, seek, playMode, setPlayMode,
+    listeningTogetherWith, addListeningPartner, removeListeningPartner,
   } = useMusic();
+  const { characters } = useOS();
+  const [pickPartner, setPickPartner] = useState(false);
+  const partners = characters.filter(c => listeningTogetherWith.includes(c.id));
   const lyricBoxRef = useRef<HTMLDivElement | null>(null);
   const [page, setPage] = useState(0);
   const [padY, setPadY] = useState(200);
@@ -123,9 +128,26 @@ const PlayerPage: React.FC<{
       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.75))' }} />
 
       <MizuHeader title={page === 0 ? '正在播放' : '歌词'} onBack={onBack}
-        right={<button onClick={() => setMenu(true)} className="p-1.5" style={{ color: C.muted }}><DotsThree size={20} weight="bold" /></button>} />
+        right={
+          <div className="flex items-center">
+            <button onClick={() => setPickPartner(true)} className="p-1.5" style={{ color: partners.length ? C.primary : C.muted }} title="一起听">
+              <Headphones size={18} weight={partners.length ? 'fill' : 'regular'} />
+            </button>
+            <button onClick={() => setMenu(true)} className="p-1.5" style={{ color: C.muted }}><DotsThree size={20} weight="bold" /></button>
+          </div>
+        } />
 
       {companions}
+      {partners.length > 0 && (
+        <button onClick={() => setPickPartner(true)} className="relative z-10 mx-auto mt-1 flex items-center gap-1.5 px-3 py-1 rounded-full shizuku-glass">
+          <span className="flex -space-x-1.5">
+            {partners.map(c => (
+              <img key={c.id} src={c.avatar} alt="" className="w-5 h-5 rounded-full object-cover border border-white" />
+            ))}
+          </span>
+          <span className="text-[11px]" style={{ color: C.muted }}>和{partners.map(c => c.name).join('、')}一起听</span>
+        </button>
+      )}
 
       {/* 封面屏 / 歌词屏：点击切换（同 LX） */}
       <div className="flex-1 relative z-10 min-h-0">
@@ -194,6 +216,30 @@ const PlayerPage: React.FC<{
       </div>
 
       {menu && <SongActionSheet song={current} onClose={() => setMenu(false)} toast={toast} />}
+
+      {pickPartner && (
+        <div className="absolute inset-0 z-50 flex items-end" onClick={() => setPickPartner(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full rounded-t-3xl pb-6 pt-2 max-h-[65%] overflow-y-auto" style={{ background: 'rgba(255,255,255,0.97)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="mx-auto w-10 h-1 rounded-full bg-black/10 mb-2" />
+            <div className="px-4 pb-2 text-[11px] leading-relaxed" style={{ color: C.muted }}>
+              一起听：TA 聊天时能感受到你正在放的歌和唱到哪几句。在这里邀请的会一直陪你听下去，换歌也不散，再点一次结束。
+            </div>
+            {characters.map(c => {
+              const on = listeningTogetherWith.includes(c.id);
+              return (
+                <button key={c.id} onClick={() => (on ? removeListeningPartner(c.id) : addListeningPartner(c.id, { sticky: true }))}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-black/5">
+                  <img src={c.avatar} alt="" className="w-9 h-9 rounded-full object-cover" />
+                  <span className="flex-1 text-sm" style={{ color: C.text }}>{c.name}</span>
+                  {on && <Check size={16} weight="bold" style={{ color: C.primary }} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

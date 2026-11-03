@@ -377,7 +377,8 @@ interface MusicContextType {
   // 一起听 — 当前哪些 char 和 user 一起听（仅视觉状态，不影响播放）
   // 歌曲切换 / 结束时自动清空
   listeningTogetherWith: string[];
-  addListeningPartner: (charId: string) => void;
+  /** sticky：用户在音乐 App 里主动邀请的，换歌后保留（整段一起听）；聊天里角色自己加入的不传，换歌即散 */
+  addListeningPartner: (charId: string, opts?: { sticky?: boolean }) => void;
   removeListeningPartner: (charId: string) => void;
   clearListeningPartners: () => void;
   /** 最近一次一起听途中换歌的记录（供 prompt 注入"察觉换歌"，不触发主动消息） */
@@ -606,13 +607,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // 一起听 - char 加入后在 miniPlayer / 播放页显示徽标；切歌 / 结束自动清空
   const [listeningTogetherWith, setListeningTogetherWith] = useState<string[]>([]);
-  const addListeningPartner = useCallback((charId: string) => {
+  const stickyPartnersRef = useRef<Set<string>>(new Set());
+  const addListeningPartner = useCallback((charId: string, opts?: { sticky?: boolean }) => {
+    if (opts?.sticky) stickyPartnersRef.current.add(charId);
     setListeningTogetherWith(prev => prev.includes(charId) ? prev : [...prev, charId]);
   }, []);
   const removeListeningPartner = useCallback((charId: string) => {
+    stickyPartnersRef.current.delete(charId);
     setListeningTogetherWith(prev => prev.filter(id => id !== charId));
   }, []);
   const clearListeningPartners = useCallback(() => {
+    stickyPartnersRef.current.clear();
     setListeningTogetherWith(prev => prev.length ? [] : prev);
   }, []);
 
@@ -627,14 +632,16 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const previousSong = previousSongRef.current;
     if (previousSong && previousSong.id !== current?.id) {
       const wasListening = listeningTogetherRef.current;
-      if (wasListening.length > 0) {
+      const sticky = wasListening.filter(id => stickyPartnersRef.current.has(id));
+      const leaving = wasListening.filter(id => !stickyPartnersRef.current.has(id));
+      if (leaving.length > 0) {
         setRecentTrackChange({
           previousSong: { id: previousSong.id, name: previousSong.name, artists: previousSong.artists },
-          charIds: [...wasListening],
+          charIds: [...leaving],
           at: Date.now(),
         });
       }
-      setListeningTogetherWith([]);
+      setListeningTogetherWith(sticky);
     }
     previousSongRef.current = current;
   }, [current]);
@@ -660,7 +667,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const onTime = () => setProgress(a.currentTime);
     const onMeta = () => setDuration(a.duration || 0);
     // 播放出错 → 清掉 playing 状态 + 清掉"一起听"伙伴（防止 UI 卡在残留状态）
-    const onErr = () => { setPlaying(false); setListeningTogetherWith([]); toast('播放失败', 'error'); };
+    const onErr = () => { setPlaying(false); setListeningTogetherWith(prev => prev.filter(id => stickyPartnersRef.current.has(id))); toast('播放失败', 'error'); };
     const onEnd = () => { endedHandlerRef.current(); };
 
     a.addEventListener('play', onPlay);

@@ -224,8 +224,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       {lyricLine ? (
         <div className="relative flex-1 flex items-center justify-center z-10 py-1 px-0.5 min-h-0">
           <div key={lyricLine} className="text-center animate-fade-in min-w-0 w-full">
-            <div className="text-[13px] font-semibold leading-snug opacity-95 line-clamp-2">{lyricLine}</div>
-            {lyricTrans && <div className="text-[10px] leading-snug opacity-65 line-clamp-2 mt-0.5">{lyricTrans}</div>}
+            <div className="text-[11.5px] font-semibold leading-snug opacity-95 line-clamp-2">{lyricLine}</div>
+            {lyricTrans && <div className="text-[9px] leading-snug opacity-65 line-clamp-2 mt-0.5">{lyricTrans}</div>}
           </div>
         </div>
       ) : (

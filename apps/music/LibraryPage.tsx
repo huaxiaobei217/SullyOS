@@ -8,7 +8,7 @@ import { useMusic, Song } from '../../context/MusicContext';
 import { C, MizuHeader, SongRow, BokehBg } from './MusicUI';
 import SongActionSheet from './SongActionSheet';
 import Cover from './Cover';
-import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp, PencilSimple, ArrowsDownUp, ArrowUp, ArrowDown, DotsThreeVertical, MusicNoteSimple } from '@phosphor-icons/react';
+import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp, PencilSimple, List, X, ArrowsDownUp, ArrowUp, ArrowDown, DotsThreeVertical, MusicNoteSimple } from '@phosphor-icons/react';
 import {
   MusicPlaylist, loadPlaylists, savePlaylists, parseLxFile, mergeImported, PLAYLISTS_CHANGED_EVENT, moveItem,
 } from '../../utils/music/lxList';
@@ -20,6 +20,7 @@ import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, loadNowPlayingSyncPrefs, 
 import { pushNowPlaying } from '../../components/os/NowPlayingSync';
 import { LX_QUALITY_ORDER, LX_QUALITY_LABEL, loadLxQualityPref, saveLxQualityPref, LxQualityPref } from '../../utils/music/lxQuality';
 
+const LS_LAST_PLAYLIST = 'sully_music_last_playlist_v1';
 const SOURCE_LABEL: Record<string, string> = { wy: '网易', kg: '酷狗', kw: '酷我', tx: 'QQ', mg: '咪咕' };
 
 const fmt = (s: number) => {
@@ -45,7 +46,18 @@ const LibraryPage: React.FC<{
 }> = ({ onClose, onOpenSearch, onOpenPlayer, toast }) => {
   const { current, playSong } = useMusic();
   const [lists, setLists] = usePlaylists();
-  const [openId, setOpenId] = useState<string | null>(null);
+  // 打开音乐 App 直接进上次看的歌单（没有就第一个）；歌单列表放进左侧抽屉
+  const [openId, setOpenIdRaw] = useState<string | null>(() => {
+    const ls = loadPlaylists();
+    let last: string | null = null;
+    try { last = localStorage.getItem(LS_LAST_PLAYLIST); } catch {}
+    return (last && ls.some(l => l.id === last)) ? last : (ls[0]?.id ?? null);
+  });
+  const setOpenId = (id: string | null) => {
+    setOpenIdRaw(id);
+    try { if (id) localStorage.setItem(LS_LAST_PLAYLIST, id); } catch {}
+  };
+  const [drawer, setDrawer] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const scriptFileRef = useRef<HTMLInputElement | null>(null);
@@ -72,7 +84,9 @@ const LibraryPage: React.FC<{
         all = all.concat(r.playlists);
         skipped += r.skippedLocal.length;
       }
-      setLists(mergeImported(lists, all));
+      const merged = mergeImported(lists, all);
+      setLists(merged);
+      if (!openId && merged[0]) setOpenId(merged[0].id);
       const n = all.reduce((a, p) => a + p.songs.length, 0);
       toast(`导入了 ${all.length} 个歌单、${n} 首歌${skipped ? `；${skipped} 首本地文件需要另外导入` : ''}`, 'success');
     } catch (e: any) {
@@ -97,8 +111,9 @@ const LibraryPage: React.FC<{
 
   const removePlaylist = (id: string) => {
     if (!confirm('删除这个歌单？')) return;
-    setLists(lists.filter(l => l.id !== id));
-    setOpenId(null);
+    const rest = lists.filter(l => l.id !== id);
+    setLists(rest);
+    setOpenIdRaw(rest[0]?.id ?? null);
   };
 
   const removeSong = (pl: MusicPlaylist, song: Song) => {
@@ -141,88 +156,8 @@ const LibraryPage: React.FC<{
 
   const bg = { background: `linear-gradient(180deg, #ffffff 0%, ${C.bg} 50%, ${C.bgDeep} 100%)` };
 
-  /* ───── 歌单详情 ───── */
-  if (open) {
-    return (
-      <div className="flex flex-col h-full relative" style={bg}>
-        <BokehBg />
-        <MizuHeader title={open.name} onBack={() => { setOpenId(null); setSorting(false); }}
-          right={
-            <div className="flex items-center">
-              <button onClick={renameOpen} className="p-1.5" style={{ color: C.muted }} title="改名"><PencilSimple size={16} /></button>
-              <button onClick={() => removePlaylist(open.id)} className="p-1.5" style={{ color: C.muted }} title="删除歌单"><Trash size={16} /></button>
-            </div>
-          } />
-        <div className="px-4 pb-2 flex items-center gap-2 relative z-10">
-          <button
-            disabled={!open.songs.length}
-            onClick={() => { playSong(open.songs[0], { replaceQueue: open.songs, startIdx: 0 }); onOpenPlayer(); }}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs text-white"
-            style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.accent})` }}>
-            <Play size={12} weight="fill" /> 播放全部
-          </button>
-          <span className="text-[11px] flex-1" style={{ color: C.muted }}>{open.songs.length} 首</span>
-          <button onClick={() => localFileRef.current?.click()} disabled={importingLocal}
-            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ color: C.primary, border: `1px solid ${C.primary}40` }}>
-            <MusicNoteSimple size={12} /> {importingLocal ? '导入中…' : '本地文件'}
-          </button>
-          <button onClick={() => setSorting(v => !v)}
-            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full"
-            style={{ color: sorting ? 'white' : C.primary, background: sorting ? C.primary : 'transparent', border: `1px solid ${C.primary}40` }}>
-            <ArrowsDownUp size={12} /> {sorting ? '完成' : '排序'}
-          </button>
-          <input ref={localFileRef} type="file" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" className="hidden"
-            onChange={e => { const fs = e.target.files; importLocal(fs).finally(() => { e.target.value = ''; }); }} />
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
-          {open.songs.map((s, i) => (
-            <div key={s.id} className={`relative ${sorting ? 'pr-16' : 'pr-7'}`}
-              onContextMenu={(e) => { e.preventDefault(); if (!sorting) setSheetSong(s); }}>
-              <SongRow
-                name={s.name}
-                artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
-                album={s.album}
-                albumPic={s.albumPic}
-                duration={s.interval || fmt(s.duration)}
-                isVip={false}
-                isActive={current?.id === s.id}
-                onClick={() => { if (!sorting) playSong(s, { replaceQueue: open.songs, startIdx: i }); }}
-              />
-              {sorting ? (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center" style={{ color: C.muted }}>
-                  <button onClick={() => moveSong(i, i - 1)} disabled={i === 0} className="p-1.5 disabled:opacity-20"><ArrowUp size={14} /></button>
-                  <button onClick={() => moveSong(i, i + 1)} disabled={i === open.songs.length - 1} className="p-1.5 disabled:opacity-20"><ArrowDown size={14} /></button>
-                </div>
-              ) : (
-                <button onClick={() => setSheetSong(s)} aria-label="更多"
-                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2" style={{ color: C.faint }}>
-                  <DotsThreeVertical size={16} weight="bold" />
-                </button>
-              )}
-            </div>
-          ))}
-          {!open.songs.length && <div className="text-center text-xs mt-16" style={{ color: C.faint }}>歌单还是空的</div>}
-        </div>
-        {sheetSong && (
-          <SongActionSheet song={sheetSong} toast={toast} onClose={() => setSheetSong(null)}
-            onRemoveFromPlaylist={() => removeSong(open, sheetSong)} />
-        )}
-      </div>
-    );
-  }
-
-  /* ───── 首页：音源 + 歌单列表 ───── */
-  return (
-    <div className="flex flex-col h-full relative" style={bg}>
-      <BokehBg />
-      <MizuHeader title="我的音乐" onClose={onClose}
-        right={
-          <div className="flex items-center gap-1">
-            <button onClick={onOpenSearch} className="p-1.5" style={{ color: C.primary }} title="搜索"><MagnifyingGlass size={16} weight="bold" /></button>
-            <button onClick={() => setShowSource(v => !v)} className="p-1.5" style={{ color: C.primary }} title="音源设置"><Gear size={16} weight="bold" /></button>
-          </div>
-        } />
-
+  /* 音源 + 歌单列表：没有选中歌单时是整页，选中后放进左侧抽屉 */
+  const homeBody = (
       <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-3 relative z-10 shizuku-scrollbar">
         {/* 音源卡片 */}
         <div className="rounded-2xl p-3.5 shizuku-glass">
@@ -325,7 +260,7 @@ const LibraryPage: React.FC<{
           const cover = l.songs.find(s => s.albumPic)?.albumPic;
           return (
             <div key={l.id} className="relative">
-            <button onClick={() => { if (!sorting) setOpenId(l.id); }}
+            <button onClick={() => { if (!sorting) { setOpenId(l.id); setDrawer(false); } }}
               className="w-full flex items-center gap-3 p-2 rounded-2xl shizuku-glass text-left">
               <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: C.bgDeep }}>
                 <Cover src={cover} seed={l.name} className="w-full h-full" />
@@ -345,6 +280,106 @@ const LibraryPage: React.FC<{
           );
         })}
       </div>
+  );
+
+  /* ───── 歌单详情 ───── */
+  if (open) {
+    return (
+      <div className="flex flex-col h-full relative" style={bg}>
+        <BokehBg />
+        <div className="flex items-center gap-1 px-2 h-12 shrink-0 shizuku-glass-strong relative z-20"
+          style={{ paddingTop: 'var(--safe-top)', boxSizing: 'content-box' }}>
+          <button onClick={() => { setDrawer(true); setSorting(false); }} className="p-2" style={{ color: C.primary }} title="歌单列表"><List size={18} weight="bold" /></button>
+          <div className="flex-1 min-w-0 text-sm font-semibold truncate" style={{ color: C.text }}>{open.name}</div>
+          <button onClick={onOpenSearch} className="p-1.5" style={{ color: C.primary }} title="搜索"><MagnifyingGlass size={16} weight="bold" /></button>
+          <button onClick={renameOpen} className="p-1.5" style={{ color: C.muted }} title="改名"><PencilSimple size={16} /></button>
+          <button onClick={() => removePlaylist(open.id)} className="p-1.5" style={{ color: C.muted }} title="删除歌单"><Trash size={16} /></button>
+          <button onClick={onClose} className="p-1.5" style={{ color: C.muted }} title="关闭"><X size={16} /></button>
+        </div>
+        <div className="px-4 pb-2 flex items-center gap-2 relative z-10">
+          <button
+            disabled={!open.songs.length}
+            onClick={() => { playSong(open.songs[0], { replaceQueue: open.songs, startIdx: 0 }); onOpenPlayer(); }}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs text-white"
+            style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.accent})` }}>
+            <Play size={12} weight="fill" /> 播放全部
+          </button>
+          <span className="text-[11px] flex-1" style={{ color: C.muted }}>{open.songs.length} 首</span>
+          <button onClick={() => localFileRef.current?.click()} disabled={importingLocal}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ color: C.primary, border: `1px solid ${C.primary}40` }}>
+            <MusicNoteSimple size={12} /> {importingLocal ? '导入中…' : '本地文件'}
+          </button>
+          <button onClick={() => setSorting(v => !v)}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full"
+            style={{ color: sorting ? 'white' : C.primary, background: sorting ? C.primary : 'transparent', border: `1px solid ${C.primary}40` }}>
+            <ArrowsDownUp size={12} /> {sorting ? '完成' : '排序'}
+          </button>
+          <input ref={localFileRef} type="file" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" className="hidden"
+            onChange={e => { const fs = e.target.files; importLocal(fs).finally(() => { e.target.value = ''; }); }} />
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
+          {open.songs.map((s, i) => (
+            <div key={s.id} className={`relative ${sorting ? 'pr-16' : 'pr-7'}`}
+              onContextMenu={(e) => { e.preventDefault(); if (!sorting) setSheetSong(s); }}>
+              <SongRow
+                name={s.name}
+                artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
+                album={s.album}
+                albumPic={s.albumPic}
+                duration={s.interval || fmt(s.duration)}
+                isVip={false}
+                isActive={current?.id === s.id}
+                onClick={() => { if (!sorting) playSong(s, { replaceQueue: open.songs, startIdx: i }); }}
+              />
+              {sorting ? (
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center" style={{ color: C.muted }}>
+                  <button onClick={() => moveSong(i, i - 1)} disabled={i === 0} className="p-1.5 disabled:opacity-20"><ArrowUp size={14} /></button>
+                  <button onClick={() => moveSong(i, i + 1)} disabled={i === open.songs.length - 1} className="p-1.5 disabled:opacity-20"><ArrowDown size={14} /></button>
+                </div>
+              ) : (
+                <button onClick={() => setSheetSong(s)} aria-label="更多"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2" style={{ color: C.faint }}>
+                  <DotsThreeVertical size={16} weight="bold" />
+                </button>
+              )}
+            </div>
+          ))}
+          {!open.songs.length && <div className="text-center text-xs mt-16" style={{ color: C.faint }}>歌单还是空的</div>}
+        </div>
+        {sheetSong && (
+          <SongActionSheet song={sheetSong} toast={toast} onClose={() => setSheetSong(null)}
+            onRemoveFromPlaylist={() => removeSong(open, sheetSong)} />
+        )}
+        {drawer && (
+          <div className="absolute inset-0 z-40 flex" onClick={() => setDrawer(false)}>
+            <style>{'@keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:none}}'}</style>
+            <div className="h-full w-[82%] max-w-[360px] flex flex-col shadow-2xl"
+              style={{ ...bg, animation: 'slideInLeft .2s ease-out' }} onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 h-12 shrink-0" style={{ paddingTop: 'var(--safe-top)', boxSizing: 'content-box' }}>
+                <span className="text-sm font-semibold" style={{ color: C.text }}>我的音乐</span>
+                <button onClick={() => setDrawer(false)} className="p-1.5" style={{ color: C.muted }}><X size={16} /></button>
+              </div>
+              {homeBody}
+            </div>
+            <div className="flex-1 bg-black/25" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* ───── 首页：音源 + 歌单列表 ───── */
+  return (
+    <div className="flex flex-col h-full relative" style={bg}>
+      <BokehBg />
+      <MizuHeader title="我的音乐" onClose={onClose}
+        right={
+          <div className="flex items-center gap-1">
+            <button onClick={onOpenSearch} className="p-1.5" style={{ color: C.primary }} title="搜索"><MagnifyingGlass size={16} weight="bold" /></button>
+            <button onClick={() => setShowSource(v => !v)} className="p-1.5" style={{ color: C.primary }} title="音源设置"><Gear size={16} weight="bold" /></button>
+          </div>
+        } />
+      {homeBody}
     </div>
   );
 };
