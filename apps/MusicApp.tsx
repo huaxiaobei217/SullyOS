@@ -13,6 +13,7 @@ import {
 import NeteaseProfilePage from './music/NeteaseProfilePage';
 import LibraryPage from './music/LibraryPage';
 import PlayerPage from './music/PlayerPage';
+import SearchPage from './music/SearchPage';
 import CharVisitPage from './music/CharVisitPage';
 import { shareOrDownloadBlob } from '../utils/shareExport';
 
@@ -573,8 +574,9 @@ const MusicApp: React.FC = () => {
         />
       )}
       {view === 'library' && renderMini()}
-      {view === 'search' && renderSearch()}
-      {view === 'player' && (current?.lxSource
+      {view === 'search' && <SearchPage onBack={() => setView('library')} toast={addToast} />}
+      {view === 'search' && renderMini()}
+      {view === 'player' && ((current?.lxSource || current?.localImported)
         ? <PlayerPage onBack={() => setView('library')} toast={addToast} />
         : renderPlayer())}
       {view === 'settings' && renderSettings()}

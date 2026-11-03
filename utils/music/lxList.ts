@@ -185,3 +185,37 @@ export const createPlaylist = (name: string): MusicPlaylist => {
   savePlaylists([...lists, pl]);
   return pl;
 };
+
+/** 换源：把所有歌单里的这首歌换成另一个平台的版本（保持原来的位置） */
+export const replaceSongEverywhere = (oldId: number, next: Song): number => {
+  const lists = loadPlaylists();
+  let n = 0;
+  for (const pl of lists) {
+    const i = pl.songs.findIndex(s => s.id === oldId);
+    if (i < 0) continue;
+    if (pl.songs.some(s => s.id === next.id)) pl.songs.splice(i, 1);
+    else pl.songs[i] = next;
+    pl.updatedAt = Date.now();
+    n++;
+  }
+  if (n) savePlaylists(lists);
+  return n;
+};
+
+export const renamePlaylist = (id: string, name: string) => {
+  const lists = loadPlaylists();
+  const pl = lists.find(p => p.id === id);
+  if (!pl) return;
+  pl.name = name;
+  pl.updatedAt = Date.now();
+  savePlaylists(lists);
+};
+
+/** 在数组里把一项上移 / 下移一格 */
+export const moveItem = <T,>(arr: T[], from: number, to: number): T[] => {
+  if (to < 0 || to >= arr.length || from === to) return arr;
+  const next = [...arr];
+  const [x] = next.splice(from, 1);
+  next.splice(to, 0, x);
+  return next;
+};

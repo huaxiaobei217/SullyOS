@@ -64,6 +64,8 @@ export interface Song {
   lxQualitys?: string[];
   /** 时长文本（mm:ss），LX 歌单自带 */
   interval?: string;
+  /** 用户从手机导入的本地音乐文件（和写歌 App 生成的歌区分开） */
+  localImported?: boolean;
 }
 
 export interface LyricLine { t: number; text: string; }
@@ -764,6 +766,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const onMeta = () => { distribute(); a.removeEventListener('loadedmetadata', onMeta); };
             a.addEventListener('loadedmetadata', onMeta);
           }
+        } else if (song.localImported) {
+          // 导入的本地文件：按歌名（+歌手）去网易云找歌词
+          setLyric([]); setTlyric([]);
+          import('../utils/music/lyrics').then(({ fetchLyricsForLxSong }) => fetchLyricsForLxSong(cfgRef.current, song))
+            .then(ly => {
+              if (!ly || requestedSongIdRef.current !== song.id) return;
+              setLyric(parseLyric(ly.lrc));
+              setTlyric(parseLyric(ly.tlrc));
+            }).catch(() => {});
         } else {
           setLyric([]);
           setTlyric([]);
@@ -800,7 +811,30 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           copyrightId: song.lxCopyrightId,
           source: song.lxSource,
         };
-        const url = await rt.getMusicUrl(song.lxSource, musicInfo, quality);
+        let url: string;
+        try {
+          url = await rt.getMusicUrl(song.lxSource, musicInfo, quality);
+        } catch (firstErr: any) {
+          // 原平台取不到：去别的平台找同一首（歌名+歌手+时长都对得上才用），这次播放临时换源
+          const { findAlternatives } = await import('../utils/music/search');
+          const alts = (await findAlternatives(song).catch(() => [])).filter(a => a.score >= 6).slice(0, 4);
+          let picked: string | null = null;
+          for (const alt of alts) {
+            const s2 = alt.song;
+            if (!s2.lxSource || !rt.supports(s2.lxSource)) continue;
+            try {
+              picked = await rt.getMusicUrl(s2.lxSource, {
+                songmid: s2.lxSongmid!, hash: s2.lxHash, name: s2.name, singer: s2.artists,
+                albumName: s2.album, interval: s2.interval, source: s2.lxSource,
+              }, pickLxQuality(rt.qualitys(s2.lxSource), s2.lxQualitys));
+              const label: Record<string, string> = { wy: '网易', kg: '酷狗', kw: '酷我', tx: 'QQ', mg: '咪咕' };
+              toast(`原来源放不了，这次自动换到${label[s2.lxSource] || s2.lxSource}`, 'info');
+              break;
+            } catch { /* 试下一个 */ }
+          }
+          if (!picked) throw firstErr;
+          url = picked;
+        }
         const a = audioRef.current!;
         a.src = url.replace(/^http:\/\//i, 'https://');
         a.play().catch(() => {});

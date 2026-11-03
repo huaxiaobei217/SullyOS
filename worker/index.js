@@ -4410,6 +4410,51 @@ export default {
       }
     }
 
+    // ========== 多平台搜索（酷狗 / 酷我；网易走 /netease/search） ==========
+    // POST /music2/search { source: 'kg'|'kw', keyword, page?, limit? } → { list: [{ source, songmid, hash?, name, singer, albumName, interval, picUrl }] }
+    if (url.pathname === '/music2/search' && request.method === 'POST') {
+      const q = await request.json().catch(() => ({}));
+      const kw = String(q.keyword || '').trim();
+      const page = Math.max(1, Number(q.page) || 1);
+      const limit = Math.min(50, Math.max(1, Number(q.limit) || 30));
+      if (!kw) return jsonResponse({ list: [] }, { origin });
+      const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36';
+      const fmtIv = (sec) => { const s = Math.max(0, Math.round(Number(sec) || 0)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+      const unesc = (t) => String(t || '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/<[^>]+>/g, '');
+      try {
+        let list = [];
+        if (q.source === 'kg') {
+          const r = await fetch(`https://songsearch.kugou.com/song_search_v2?keyword=${encodeURIComponent(kw)}&page=${page}&pagesize=${limit}&userid=0&clientver=&platform=WebFilter&filter=2&iscorrection=1&privilege_filter=0&area_code=1`,
+            { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+          const j = await r.json().catch(() => null);
+          list = (j?.data?.lists || []).map((s) => ({
+            source: 'kg', songmid: String(s.Audioid || s.ID || ''), hash: s.FileHash,
+            name: unesc(s.SongName), singer: unesc(s.SingerName), albumName: unesc(s.AlbumName),
+            interval: fmtIv(s.Duration), picUrl: String(s.Image || '').replace('{size}', '480'),
+          })).filter((s) => s.songmid && s.hash);
+        } else if (q.source === 'kw') {
+          const r = await fetch(`http://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(kw)}&pn=${page - 1}&rn=${limit}&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1&issubtitle=1`,
+            { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(10000) });
+          const text = await r.text();
+          let j = null;
+          try { j = JSON.parse(text); } catch { try { j = JSON.parse(text.replace(/'/g, '"')); } catch {} }
+          list = (j?.abslist || []).map((s) => {
+            const pic = s.web_albumpic_short ? `https://img4.kuwo.cn/star/albumcover/${String(s.web_albumpic_short).replace(/^120\//, '500/')}` : '';
+            return {
+              source: 'kw', songmid: String(s.MUSICRID || '').replace('MUSIC_', ''),
+              name: unesc(s.SONGNAME), singer: unesc(s.ARTIST).replace(/&/g, '、'), albumName: unesc(s.ALBUM),
+              interval: fmtIv(s.DURATION), picUrl: pic,
+            };
+          }).filter((s) => s.songmid);
+        } else {
+          return jsonResponse({ error: 'unsupported source' }, { status: 400, origin });
+        }
+        return jsonResponse({ list }, { origin });
+      } catch (e) {
+        return jsonResponse({ error: String(e && e.message || e) }, { status: 502, origin });
+      }
+    }
+
     // ========== 多平台歌词 ==========
     // POST /music2/lyric { source: 'kw'|'kg'|'tx', songmid, hash?, name?, interval? } → { lrc, tlrc }
     // 网易的歌词前端直接走 /netease/lyric；这里拿不到时前端会再去网易按歌名搜一次兜底。

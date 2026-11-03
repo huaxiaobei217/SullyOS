@@ -8,10 +8,11 @@ import { useMusic, Song } from '../../context/MusicContext';
 import { C, MizuHeader, SongRow, BokehBg } from './MusicUI';
 import SongActionSheet from './SongActionSheet';
 import Cover from './Cover';
-import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp } from '@phosphor-icons/react';
+import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp, PencilSimple, ArrowsDownUp, ArrowUp, ArrowDown, DotsThreeVertical, MusicNoteSimple } from '@phosphor-icons/react';
 import {
-  MusicPlaylist, loadPlaylists, savePlaylists, parseLxFile, mergeImported, PLAYLISTS_CHANGED_EVENT,
+  MusicPlaylist, loadPlaylists, savePlaylists, parseLxFile, mergeImported, PLAYLISTS_CHANGED_EVENT, moveItem,
 } from '../../utils/music/lxList';
+import { importAudioFiles } from '../../utils/music/localImport';
 import {
   loadSavedLxScript, saveLxScript, parseLxScriptInfo, getLxRuntime,
 } from '../../utils/music/lxRuntime';
@@ -55,6 +56,9 @@ const LibraryPage: React.FC<{
   const [sheetSong, setSheetSong] = useState<Song | null>(null);
   const [lyricPrefs, setLyricPrefs] = useState(() => loadDesktopLyricPrefs());
   const [syncPrefs, setSyncPrefs] = useState(() => loadNowPlayingSyncPrefs());
+  const [sorting, setSorting] = useState(false);
+  const [importingLocal, setImportingLocal] = useState(false);
+  const localFileRef = useRef<HTMLInputElement | null>(null);
 
   const open = lists.find(l => l.id === openId) || null;
 
@@ -101,6 +105,33 @@ const LibraryPage: React.FC<{
     setLists(lists.map(l => l.id === pl.id ? { ...l, songs: l.songs.filter(s => s.id !== song.id), updatedAt: Date.now() } : l));
   };
 
+  const renameOpen = () => {
+    if (!open) return;
+    const name = prompt('歌单名字', open.name)?.trim();
+    if (!name || name === open.name) return;
+    setLists(lists.map(l => l.id === open.id ? { ...l, name, updatedAt: Date.now() } : l));
+  };
+
+  const moveSong = (from: number, to: number) => {
+    if (!open) return;
+    setLists(lists.map(l => l.id === open.id ? { ...l, songs: moveItem(l.songs, from, to), updatedAt: Date.now() } : l));
+  };
+
+  const movePlaylist = (from: number, to: number) => setLists(moveItem(lists, from, to));
+
+  const importLocal = async (files: FileList | null) => {
+    if (!open || !files?.length) return;
+    setImportingLocal(true);
+    try {
+      const songs = await importAudioFiles(files);
+      if (!songs.length) { toast('没有可导入的音频文件', 'info'); return; }
+      setLists(loadPlaylists().map(l => l.id === open.id ? { ...l, songs: [...l.songs, ...songs], updatedAt: Date.now() } : l));
+      toast(`导入了 ${songs.length} 首本地音乐`, 'success');
+    } catch (e: any) {
+      toast(`导入失败：${e?.message || e}（手机空间可能不够）`, 'error');
+    } finally { setImportingLocal(false); }
+  };
+
   const newPlaylist = () => {
     const name = prompt('新歌单名字')?.trim();
     if (!name) return;
@@ -115,8 +146,13 @@ const LibraryPage: React.FC<{
     return (
       <div className="flex flex-col h-full relative" style={bg}>
         <BokehBg />
-        <MizuHeader title={open.name} onBack={() => setOpenId(null)}
-          right={<button onClick={() => removePlaylist(open.id)} className="p-1.5" style={{ color: C.muted }}><Trash size={16} /></button>} />
+        <MizuHeader title={open.name} onBack={() => { setOpenId(null); setSorting(false); }}
+          right={
+            <div className="flex items-center">
+              <button onClick={renameOpen} className="p-1.5" style={{ color: C.muted }} title="改名"><PencilSimple size={16} /></button>
+              <button onClick={() => removePlaylist(open.id)} className="p-1.5" style={{ color: C.muted }} title="删除歌单"><Trash size={16} /></button>
+            </div>
+          } />
         <div className="px-4 pb-2 flex items-center gap-2 relative z-10">
           <button
             disabled={!open.songs.length}
@@ -125,12 +161,23 @@ const LibraryPage: React.FC<{
             style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.accent})` }}>
             <Play size={12} weight="fill" /> 播放全部
           </button>
-          <span className="text-[11px]" style={{ color: C.muted }}>{open.songs.length} 首 · 长按歌曲有更多操作</span>
+          <span className="text-[11px] flex-1" style={{ color: C.muted }}>{open.songs.length} 首</span>
+          <button onClick={() => localFileRef.current?.click()} disabled={importingLocal}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ color: C.primary, border: `1px solid ${C.primary}40` }}>
+            <MusicNoteSimple size={12} /> {importingLocal ? '导入中…' : '本地文件'}
+          </button>
+          <button onClick={() => setSorting(v => !v)}
+            className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full"
+            style={{ color: sorting ? 'white' : C.primary, background: sorting ? C.primary : 'transparent', border: `1px solid ${C.primary}40` }}>
+            <ArrowsDownUp size={12} /> {sorting ? '完成' : '排序'}
+          </button>
+          <input ref={localFileRef} type="file" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" className="hidden"
+            onChange={e => { const fs = e.target.files; importLocal(fs).finally(() => { e.target.value = ''; }); }} />
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
           {open.songs.map((s, i) => (
-            <div key={s.id} className="relative"
-              onContextMenu={(e) => { e.preventDefault(); setSheetSong(s); }}>
+            <div key={s.id} className={`relative ${sorting ? 'pr-16' : 'pr-7'}`}
+              onContextMenu={(e) => { e.preventDefault(); if (!sorting) setSheetSong(s); }}>
               <SongRow
                 name={s.name}
                 artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
@@ -139,8 +186,19 @@ const LibraryPage: React.FC<{
                 duration={s.interval || fmt(s.duration)}
                 isVip={false}
                 isActive={current?.id === s.id}
-                onClick={() => playSong(s, { replaceQueue: open.songs, startIdx: i })}
+                onClick={() => { if (!sorting) playSong(s, { replaceQueue: open.songs, startIdx: i }); }}
               />
+              {sorting ? (
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center" style={{ color: C.muted }}>
+                  <button onClick={() => moveSong(i, i - 1)} disabled={i === 0} className="p-1.5 disabled:opacity-20"><ArrowUp size={14} /></button>
+                  <button onClick={() => moveSong(i, i + 1)} disabled={i === open.songs.length - 1} className="p-1.5 disabled:opacity-20"><ArrowDown size={14} /></button>
+                </div>
+              ) : (
+                <button onClick={() => setSheetSong(s)} aria-label="更多"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2" style={{ color: C.faint }}>
+                  <DotsThreeVertical size={16} weight="bold" />
+                </button>
+              )}
             </div>
           ))}
           {!open.songs.length && <div className="text-center text-xs mt-16" style={{ color: C.faint }}>歌单还是空的</div>}
@@ -250,6 +308,9 @@ const LibraryPage: React.FC<{
               <FileArrowUp size={12} /> 导入 LX 歌单
             </button>
             <button onClick={newPlaylist} className="p-1.5" style={{ color: C.primary }} title="新建歌单"><Plus size={14} weight="bold" /></button>
+            {lists.length > 1 && (
+              <button onClick={() => setSorting(v => !v)} className="p-1.5" style={{ color: sorting ? C.accent : C.primary }} title="调整顺序"><ArrowsDownUp size={14} weight="bold" /></button>
+            )}
           </div>
           <input ref={fileRef} type="file" multiple accept=".lxmc,.json,application/octet-stream" className="hidden"
             onChange={e => { const fs = e.target.files; importLx(fs).finally(() => { e.target.value = ''; }); }} />
@@ -260,10 +321,11 @@ const LibraryPage: React.FC<{
             在 LX 里「设置 → 备份与恢复 → 导出列表」，<br />再点上面的「导入 LX 歌单」选那个 .lxmc 文件
           </div>
         )}
-        {lists.map(l => {
+        {lists.map((l, li) => {
           const cover = l.songs.find(s => s.albumPic)?.albumPic;
           return (
-            <button key={l.id} onClick={() => setOpenId(l.id)}
+            <div key={l.id} className="relative">
+            <button onClick={() => { if (!sorting) setOpenId(l.id); }}
               className="w-full flex items-center gap-3 p-2 rounded-2xl shizuku-glass text-left">
               <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0" style={{ background: C.bgDeep }}>
                 <Cover src={cover} seed={l.name} className="w-full h-full" />
@@ -272,8 +334,14 @@ const LibraryPage: React.FC<{
                 <div className="text-sm truncate" style={{ color: C.text }}>{l.name}</div>
                 <div className="text-[10px]" style={{ color: C.muted }}>{l.songs.length} 首{l.origin ? ` · ${l.origin}` : ''}</div>
               </div>
-              <CaretLeft size={12} className="rotate-180" style={{ color: C.faint }} />
+              {sorting ? (
+                <span className="flex items-center" style={{ color: C.muted }}>
+                  <span role="button" onClick={e => { e.stopPropagation(); movePlaylist(li, li - 1); }} className={`p-1.5 ${li === 0 ? 'opacity-20' : ''}`}><ArrowUp size={14} /></span>
+                  <span role="button" onClick={e => { e.stopPropagation(); movePlaylist(li, li + 1); }} className={`p-1.5 ${li === lists.length - 1 ? 'opacity-20' : ''}`}><ArrowDown size={14} /></span>
+                </span>
+              ) : <CaretLeft size={12} className="rotate-180" style={{ color: C.faint }} />}
             </button>
+            </div>
           );
         })}
       </div>

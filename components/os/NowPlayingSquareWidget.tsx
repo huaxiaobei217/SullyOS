@@ -19,8 +19,15 @@ const formatTime = (sec: number) => {
 
 const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentColor }) => {
   const { openApp, theme } = useOS();
-  const { current, playing, progress, duration, togglePlay, nextSong, prevSong, lyric, activeLyricIdx } = useMusic();
-  const lyricLine = activeLyricIdx >= 0 ? (lyric[activeLyricIdx]?.text || '') : '';
+  const { current, playing, progress, duration, togglePlay, nextSong, prevSong, lyric, tlyric, activeLyricIdx } = useMusic();
+  const curLyric = activeLyricIdx >= 0 ? lyric[activeLyricIdx] : null;
+  const lyricLine = curLyric?.text || '';
+  const lyricTrans = (() => {
+    if (!curLyric || !tlyric.length) return '';
+    let best = tlyric[0];
+    for (const l of tlyric) if (Math.abs(l.t - curLyric.t) < Math.abs(best.t - curLyric.t)) best = l;
+    return Math.abs(best.t - curLyric.t) < 1.5 ? best.text : '';
+  })();
   const acnh = theme.skin === 'animalcrossing'; // 动森：奶油卡片 + 薄荷进度
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
 
@@ -214,8 +221,9 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       {/* 中间：有歌词时显示当前这一句，没有就显示均衡器条 */}
       {lyricLine ? (
         <div className="relative flex-1 flex items-center justify-center z-10 py-1 px-0.5 min-h-0">
-          <div key={lyricLine} className="text-[10.5px] font-medium leading-snug text-center opacity-90 line-clamp-2 animate-fade-in">
-            {lyricLine}
+          <div key={lyricLine} className="text-center animate-fade-in min-w-0 w-full">
+            <div className={`text-[10.5px] font-medium leading-snug opacity-90 ${lyricTrans ? 'truncate' : 'line-clamp-2'}`}>{lyricLine}</div>
+            {lyricTrans && <div className="text-[8.5px] leading-snug opacity-60 truncate mt-[1px]">{lyricTrans}</div>}
           </div>
         </div>
       ) : (
