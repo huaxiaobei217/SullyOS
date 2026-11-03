@@ -22,6 +22,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
   const { current, playing, progress, duration, togglePlay, nextSong, prevSong, lyric, tlyric, activeLyricIdx } = useMusic();
   const curLyric = activeLyricIdx >= 0 ? lyric[activeLyricIdx] : null;
   const lyricLine = curLyric?.text || '';
+  /** 有歌词时：歌词放大，上下两块缩小 */
+  const compact = !!lyricLine;
   const lyricTrans = (() => {
     if (!curLyric || !tlyric.length) return '';
     let best = tlyric[0];
@@ -92,7 +94,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           <button aria-label={playing ? 'Pause' : 'Play'} onClick={handlePlay} onMouseDown={stopProp}
             className="w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition"
             style={{ background: '#19c8b9', color: '#fff', boxShadow: '0 3px 0 0 #12a89b' }}>
-            {playing ? <Pause size={15} weight="fill" /> : <Play size={15} weight="fill" />}
+            {playing ? <Pause size={compact ? 12 : 15} weight="fill" /> : <Play size={compact ? 12 : 15} weight="fill" />}
           </button>
           <button aria-label="Next" onClick={handleNext} onMouseDown={stopProp} disabled={!hasSong}
             className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition disabled:opacity-30"
@@ -185,7 +187,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       {/* 顶部：封面 + 文字 */}
       <div className="relative flex items-center gap-2 z-10 min-w-0">
         <div
-          className="w-9 h-9 shrink-0 rounded-lg overflow-hidden relative"
+          className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} shrink-0 rounded-lg overflow-hidden relative`"
           style={{
             background: palette.thumbBg,
             border: palette.thumbBorder,
@@ -202,7 +204,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 mb-0.5">
+          <div className={`flex items-center gap-1 mb-0.5 ${compact ? 'hidden' : ''}`}>
             <span className="w-1 h-1 rounded-full shrink-0"
               style={{
                 background: dotColor,
@@ -213,8 +215,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
               {statusText}
             </span>
           </div>
-          <div className="text-[11.5px] font-semibold truncate leading-tight">{title}</div>
-          <div className="text-[9px] opacity-55 truncate leading-tight mt-[1px]">{artists}</div>
+          <div className={`${compact ? 'text-[10px]' : 'text-[11.5px]'} font-semibold truncate leading-tight`}>{title}</div>
+          <div className={`${compact ? 'text-[8px]' : 'text-[9px]'} opacity-55 truncate leading-tight mt-[1px]`}>{artists}</div>
         </div>
       </div>
 
@@ -222,8 +224,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       {lyricLine ? (
         <div className="relative flex-1 flex items-center justify-center z-10 py-1 px-0.5 min-h-0">
           <div key={lyricLine} className="text-center animate-fade-in min-w-0 w-full">
-            <div className={`text-[10.5px] font-medium leading-snug opacity-90 ${lyricTrans ? 'truncate' : 'line-clamp-2'}`}>{lyricLine}</div>
-            {lyricTrans && <div className="text-[8.5px] leading-snug opacity-60 truncate mt-[1px]">{lyricTrans}</div>}
+            <div className="text-[13px] font-semibold leading-snug opacity-95 line-clamp-2">{lyricLine}</div>
+            {lyricTrans && <div className="text-[10px] leading-snug opacity-65 line-clamp-2 mt-0.5">{lyricTrans}</div>}
           </div>
         </div>
       ) : (
@@ -244,7 +246,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
       )}
 
       {/* 底部：进度 + 控件 */}
-      <div className="relative z-10 flex flex-col gap-1.5">
+      <div className={`relative z-10 flex flex-col ${compact ? 'gap-1' : 'gap-1.5'}`}>
         {/* 进度条 */}
         <div className="flex flex-col gap-0.5">
           <div className="h-[3px] w-full rounded-full overflow-hidden"
@@ -256,14 +258,14 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
                 boxShadow: acnh || paper ? 'none' : '0 0 6px rgba(192,132,252,0.55)',
               }} />
           </div>
-          <div className="flex justify-between text-[7.5px] uppercase font-medium opacity-50" style={{ letterSpacing: '0.15em' }}>
+          <div className={`flex justify-between text-[7.5px] uppercase font-medium opacity-50 ${compact ? 'hidden' : ''}`} style={{ letterSpacing: '0.15em' }}>
             <span>{formatTime(progress)}</span>
             <span>{hasSong ? `-${formatTime(Math.max(0, duration - progress))}` : '--:--'}</span>
           </div>
         </div>
 
         {/* 播放控件 */}
-        <div className="flex justify-center items-center gap-3">
+        <div className={`flex justify-center items-center ${compact ? 'gap-4' : 'gap-3'}`}>
           <button
             aria-label="Previous"
             onClick={handlePrev}
@@ -277,7 +279,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
             aria-label={playing ? 'Pause' : 'Play'}
             onClick={handlePlay}
             onMouseDown={stopProp}
-            className="w-9 h-9 flex items-center justify-center rounded-full active:scale-95 transition"
+            className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} flex items-center justify-center rounded-full active:scale-95 transition`"
             style={{
               background: palette.playBg,
               color: palette.playColor,

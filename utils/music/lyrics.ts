@@ -49,13 +49,29 @@ const fromNeteaseSearch = async (cfg: MusicCfg, song: Song): Promise<LyricText |
   return fromNeteaseId(cfg, scored[0].id);
 };
 
+/** 歌词是不是外文（需要翻译）：日韩假名谚文，或拉丁字母占多数 */
+const needsTranslation = (lrc: string): boolean => {
+  const text = lrc.replace(/\[[^\]]*\]/g, '');
+  if (/[\u3040-\u30ff\uac00-\ud7af]/.test(text)) return true;
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  return latin > cjk * 3 && latin > 20;
+};
+
+const withTranslationPreferred = async (cfg: MusicCfg, song: Song, ly: LyricText | null): Promise<LyricText | null> => {
+  if (!ly || ly.tlrc.trim() || !needsTranslation(ly.lrc)) return ly;
+  // 外文歌但没翻译：去网易云找同一首，有翻译就用那一份（歌词和翻译来自同一来源，时间轴对得上）
+  const alt = await fromNeteaseSearch(cfg, song).catch(() => null);
+  return alt && alt.tlrc.trim() ? alt : ly;
+};
+
 export const fetchLyricsForLxSong = async (cfg: MusicCfg, song: Song): Promise<LyricText | null> => {
+  let ly: LyricText | null = null;
   if (song.lxSource === 'wy' && song.lxSongmid) {
-    const r = await fromNeteaseId(cfg, Number(song.lxSongmid));
-    if (r) return r;
+    ly = await fromNeteaseId(cfg, Number(song.lxSongmid));
   } else if (song.lxSource) {
-    const r = await fromPlatform(cfg, song);
-    if (r) return r;
+    ly = await fromPlatform(cfg, song);
   }
-  return fromNeteaseSearch(cfg, song);
+  if (!ly) return fromNeteaseSearch(cfg, song);
+  return song.lxSource === 'wy' ? ly : withTranslationPreferred(cfg, song, ly);
 };
