@@ -1,8 +1,8 @@
 /**
- * 正在播放（LX 歌曲用）：两屏左右滑动
+ * 正在播放（LX 歌曲用）：封面屏 / 歌词屏，点击切换（同 LX）
  *   第一屏：大封面 + 歌名 + 当前一句歌词
  *   第二屏：完整滚动歌词（点某句可跳到那里）
- * 点封面也能切到歌词屏，点歌词屏空白处回到封面。底部控制条两屏共用。
+ * 点封面进歌词，点歌词屏空白处回封面，点某句歌词跳到那里。底部控制条两屏共用。
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useMusic } from '../../context/MusicContext';
@@ -28,9 +28,9 @@ const PlayerPage: React.FC<{
     current, playing, progress, duration, loadingSong, lyric, tlyric, activeLyricIdx,
     togglePlay, nextSong, prevSong, seek, playMode, setPlayMode,
   } = useMusic();
-  const pagerRef = useRef<HTMLDivElement | null>(null);
   const lyricBoxRef = useRef<HTMLDivElement | null>(null);
   const [page, setPage] = useState(0);
+  const [padY, setPadY] = useState(200);
   const [liked, setLiked] = useState(() => (current ? isInFavorites(current.id) : false));
   const [menu, setMenu] = useState(false);
 
@@ -43,18 +43,25 @@ const PlayerPage: React.FC<{
 
   // 歌词屏：当前句滚到中间
   useEffect(() => {
-    if (page !== 1) return;
+    // 歌词屏隐藏时也同步位置，切过去时直接就在当前句
     const box = lyricBoxRef.current; if (!box || activeLyricIdx < 0) return;
     const el = box.querySelector<HTMLDivElement>(`[data-i="${activeLyricIdx}"]`);
     if (!el) return;
     const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
-    box.scrollTo({ top: top - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
-  }, [activeLyricIdx, page]);
+    box.scrollTo({ top: top - box.clientHeight / 2 + el.clientHeight / 2, behavior: page === 1 ? 'smooth' : 'auto' });
+  }, [activeLyricIdx, page, padY]);
 
-  const goPage = (p: number) => {
-    const el = pagerRef.current; if (!el) return;
-    el.scrollTo({ left: p * el.clientWidth, behavior: 'smooth' });
-  };
+  const goPage = (p: number) => setPage(p);
+
+  // 歌词上下留白 = 容器高度的一半，让第一句 / 最后一句也能停在正中间（按高度算，宽屏不会偏下）
+  useEffect(() => {
+    const box = lyricBoxRef.current; if (!box) return;
+    const update = () => setPadY(Math.round(box.clientHeight / 2));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [page]);
 
   if (!current) return null;
 
@@ -90,13 +97,11 @@ const PlayerPage: React.FC<{
 
       {companions}
 
-      {/* 两屏 */}
-      <div ref={pagerRef}
-        onScroll={e => { const el = e.currentTarget; setPage(Math.round(el.scrollLeft / Math.max(1, el.clientWidth))); }}
-        className="flex-1 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory relative z-10"
-        style={{ scrollbarWidth: 'none' }}>
+      {/* 封面屏 / 歌词屏：点击切换（同 LX） */}
+      <div className="flex-1 relative z-10 min-h-0">
         {/* 封面屏 */}
-        <div className="w-full shrink-0 snap-center flex flex-col items-center justify-center px-8 gap-5">
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-8 gap-5 transition-opacity duration-300"
+          style={{ opacity: page === 0 ? 1 : 0, pointerEvents: page === 0 ? 'auto' : 'none' }}>
           <button onClick={() => goPage(1)} className="w-full max-w-[300px] aspect-square rounded-3xl overflow-hidden shadow-xl">
             <Cover src={current.albumPic} seed={current.name} className="w-full h-full" iconSize={56} />
           </button>
@@ -112,7 +117,8 @@ const PlayerPage: React.FC<{
 
         {/* 歌词屏 */}
         <div ref={lyricBoxRef} onClick={() => goPage(0)}
-          className="w-full shrink-0 snap-center overflow-y-auto px-6 py-[40%] text-center shizuku-scrollbar">
+          className="absolute inset-0 overflow-y-auto px-6 text-center shizuku-scrollbar transition-opacity duration-300"
+          style={{ paddingTop: padY, paddingBottom: padY, opacity: page === 1 ? 1 : 0, pointerEvents: page === 1 ? 'auto' : 'none' }}>
           {lyric.length === 0 && <div className="text-sm" style={{ color: C.faint }}>暂无歌词</div>}
           {lyric.map((l, i) => {
             const active = i === activeLyricIdx;
@@ -129,10 +135,6 @@ const PlayerPage: React.FC<{
         </div>
       </div>
 
-      {/* 页码点 */}
-      <div className="flex justify-center gap-1.5 relative z-10 pb-1">
-        {[0, 1].map(p => <span key={p} className="w-1.5 h-1.5 rounded-full" style={{ background: page === p ? C.primary : `${C.muted}55` }} />)}
-      </div>
 
       {/* 控制条 */}
       <div className="relative z-10 px-6 pb-6 pt-1">
