@@ -49,6 +49,21 @@ export interface Song {
   localLyrics?: string;
   /** Manual timestamps (seconds) per visible lyric line — overrides auto distribution. */
   lyricLineTimings?: number[];
+  // ── LX 音源歌曲（导入的 LX 歌单 / 搜索结果） ──
+  /** 平台：wy 网易 / kg 酷狗 / kw 酷我 / tx QQ / mg 咪咕。有它就走 LX 音源取链接 */
+  lxSource?: 'wy' | 'kg' | 'kw' | 'tx' | 'mg';
+  /** 平台内的歌曲 ID（LX 的 songmid） */
+  lxSongmid?: string;
+  /** 酷狗 hash */
+  lxHash?: string;
+  /** QQ strMediaMid */
+  lxStrMediaMid?: string;
+  /** 咪咕 copyrightId */
+  lxCopyrightId?: string;
+  /** 平台提供的可用音质 */
+  lxQualitys?: string[];
+  /** 时长文本（mm:ss），LX 歌单自带 */
+  interval?: string;
 }
 
 export interface LyricLine { t: number; text: string; }
@@ -761,6 +776,53 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           } catch {}
         }
         setLoadingSong(false);
+        return;
+      }
+
+      // ── LX 音源歌曲：用户导入的音源脚本取链接 ──
+      if (song.lxSource && song.lxSongmid) {
+        const { getLxRuntime } = await import('../utils/music/lxRuntime');
+        const { pickLxQuality } = await import('../utils/music/lxQuality');
+        const rt = await getLxRuntime();
+        if (!rt.supports(song.lxSource)) throw new Error(`当前音源不支持这个平台（${song.lxSource}）`);
+        const quality = pickLxQuality(rt.qualitys(song.lxSource), song.lxQualitys);
+        const musicInfo = {
+          songmid: song.lxSongmid,
+          hash: song.lxHash,
+          name: song.name,
+          singer: song.artists,
+          albumName: song.album,
+          interval: song.interval,
+          strMediaMid: song.lxStrMediaMid,
+          copyrightId: song.lxCopyrightId,
+          source: song.lxSource,
+        };
+        const [url, lyricRes] = await Promise.all([
+          rt.getMusicUrl(song.lxSource, musicInfo, quality),
+          song.lxSource === 'wy'
+            ? musicApi.lyric(cfgRef.current, Number(song.lxSongmid)).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        const a = audioRef.current!;
+        a.src = url.replace(/^http:\/\//i, 'https://');
+        a.play().catch(() => {});
+        if (lyricRes) {
+          setLyric(parseLyric(lyricRes?.lrc?.lyric || ''));
+          setTlyric(parseLyric(lyricRes?.tlyric?.lyric || ''));
+        }
+        if ('mediaSession' in navigator) {
+          try {
+            (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+              title: song.name,
+              artist: song.artists,
+              album: song.album,
+              artwork: song.albumPic ? [
+                { src: song.albumPic, sizes: '300x300', type: 'image/jpeg' },
+                { src: song.albumPic, sizes: '512x512', type: 'image/jpeg' },
+              ] : [],
+            });
+          } catch {}
+        }
         return;
       }
 

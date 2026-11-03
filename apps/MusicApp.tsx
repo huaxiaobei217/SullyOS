@@ -11,6 +11,7 @@ import {
   MetaChip, SubActions,
 } from './music/MusicUI';
 import NeteaseProfilePage from './music/NeteaseProfilePage';
+import LibraryPage from './music/LibraryPage';
 import CharVisitPage from './music/CharVisitPage';
 import { shareOrDownloadBlob } from '../utils/shareExport';
 
@@ -22,7 +23,7 @@ const fmtTime = (s: number) => {
   return `${m}:${ss.toString().padStart(2, '0')}`;
 };
 
-type View = 'search' | 'settings' | 'player' | 'profile' | 'visit_char';
+type View = 'library' | 'search' | 'settings' | 'player' | 'profile' | 'visit_char';
 
 // ========================= 主组件 =========================
 const MusicApp: React.FC = () => {
@@ -94,14 +95,14 @@ const MusicApp: React.FC = () => {
   // 把 OS toast 注入到 Music Context（这样全局播放报错也能弹 toast）
   useEffect(() => { setToastHandler(addToast); }, [addToast, setToastHandler]);
 
-  const [view, setView] = useState<View>('profile');
+  const [view, setView] = useState<View>('library');
   // ── 手动对轴 modal state ──
   const [showLyricSync, setShowLyricSync] = useState(false);
   const [syncDraft, setSyncDraft] = useState<number[]>([]);
   const [visitCharId, setVisitCharId] = useState<string | null>(null);
   useAppShortcut(ShortcutAppID.Music, intent => {
     setVisitCharId(intent.characterId || null);
-    setView(intent.entryId === 'visit_char' ? (intent.characterId ? 'visit_char' : 'profile') : (intent.entryId || 'profile') as View);
+    setView(intent.entryId === 'visit_char' ? (intent.characterId ? 'visit_char' : 'library') : ((intent.entryId && intent.entryId !== 'profile') ? intent.entryId : 'library') as View);
   });
   const [keyword, setKeyword] = useState('');
   const [results, setResults] = useState<Song[]>([]);
@@ -156,11 +157,11 @@ const MusicApp: React.FC = () => {
       <BokehBg />
       <MizuHeader
         title="未来音楽"
-        onClose={closeApp}
+        onBack={() => setView('library')}
         right={
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setView('profile')}
+              onClick={() => setView('library')}
               className="p-1.5 rounded-full transition-all"
               style={{ color: C.primary }}
               title="我的"
@@ -194,7 +195,7 @@ const MusicApp: React.FC = () => {
           </button>
         </div>
       )}
-      {!cfg.cookie && (
+      {false && !cfg.cookie && (
         <div className="px-5 -mt-1 mb-1.5 relative z-10">
           <button
             onClick={() => setView('profile')}
@@ -271,7 +272,7 @@ const MusicApp: React.FC = () => {
       <div className="flex flex-col h-full relative"
         style={{ background: `linear-gradient(180deg, #ffffff 0%, ${C.bg} 60%, ${C.bgDeep} 100%)` }}>
         <BokehBg />
-        <MizuHeader title="Now Playing" onBack={() => setView('search')} />
+        <MizuHeader title="Now Playing" onBack={() => setView('library')} />
 
         <div className="flex-1 flex flex-col items-center px-5 pt-4 pb-3 relative z-10 overflow-hidden">
           <div className="shrink-0 mt-1 relative">
@@ -556,6 +557,14 @@ const MusicApp: React.FC = () => {
 
   return (
     <div className="absolute inset-0 overflow-hidden">
+      {view === 'library' && (
+        <LibraryPage
+          onClose={closeApp}
+          onOpenSearch={() => setView('search')}
+          onOpenPlayer={() => setView('player')}
+          toast={addToast}
+        />
+      )}
       {view === 'search' && renderSearch()}
       {view === 'player' && renderPlayer()}
       {view === 'settings' && renderSettings()}

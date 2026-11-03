@@ -4369,6 +4369,47 @@ export default {
       }
     }
 
+    // ========== LX 自定义音源请求转发 ==========
+    // 前端在沙箱里跑用户自己导入的 LX 音源脚本，脚本调用 lx.request 时经这里转发：
+    // 浏览器既不能设 User-Agent，也会被跨域拦住。只放行公网 https/http，不碰内网地址。
+    // POST /lx/request { url, method?, headers?, body?, timeout? } → { statusCode, headers, body }
+    if (url.pathname === '/lx/request' && request.method === 'POST') {
+      const req = await request.json().catch(() => null);
+      let target;
+      try { target = new URL(String(req?.url || '')); } catch { target = null; }
+      if (!target || !/^https?:$/.test(target.protocol)) {
+        return jsonResponse({ error: 'invalid url' }, { status: 400, origin });
+      }
+      const host = target.hostname.toLowerCase();
+      if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')
+        || /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.includes(':')) {
+        return jsonResponse({ error: 'host not allowed' }, { status: 403, origin });
+      }
+      const method = String(req.method || 'GET').toUpperCase();
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(req.headers || {})) {
+        if (typeof v === 'string' && !/^(host|cookie|origin|referer-policy)$/i.test(k)) headers.set(k, v);
+      }
+      let body;
+      if (method !== 'GET' && method !== 'HEAD' && req.body != null) {
+        body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      }
+      const timeoutMs = Math.min(Math.max(Number(req.timeout) || 15000, 1000), 30000);
+      try {
+        const res = await fetch(target.toString(), {
+          method, headers, body, redirect: 'follow',
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const text = await res.text();
+        const outHeaders = {};
+        res.headers.forEach((v, k) => { outHeaders[k] = v; });
+        return jsonResponse({ statusCode: res.status, headers: outHeaders, body: text }, { origin });
+      } catch (e) {
+        return jsonResponse({ error: String(e && e.message || e) }, { status: 502, origin });
+      }
+    }
+
     // ========== 网易云音乐代理 (转发到 api-enhanced, 带边缘缓存 + 多上游容灾) ==========
     // 前端 POST /netease/<action> { ...body }
     // Worker 翻译成 api-enhanced 的 GET 参数形式并转发
