@@ -335,7 +335,8 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
 
 /** 旧黄铜边的题目转盘：八格旧纸，每格一个小记号，中间一朵茉莉 */
 const Wheel: React.FC<{ angle: number }> = ({ angle }) => {
-  const glyphs = ['☾', '✦', '♪', '❀', '✎', '☂', '✉', '☕'];
+  // \uFE0E：强制按文字字形显示，不让 ☕ ✉ 变成彩色 emoji
+  const glyphs = ['☾', '✦', '♪', '❀', '✎', '☂', '✉', '☕'].map(g => g + '\uFE0E');
   const papers = ['#fbf4e6', '#f1e4cf', '#f8efdf', '#ead9bf'];
   const R = 92, C = 100;
   const pt = (deg: number, r: number) => [C + r * Math.sin(deg * Math.PI / 180), C - r * Math.cos(deg * Math.PI / 180)];
