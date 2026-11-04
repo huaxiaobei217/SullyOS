@@ -158,7 +158,7 @@ const zig = (() => {
 const Tape: React.FC<{ color: string; seed: number; wide?: boolean }> = ({ color, seed, wide }) => (
   <div className={`absolute left-1/2 -top-2.5 h-[18px] ${wide ? 'w-24' : 'w-16'}`}
     style={{
-      background: `linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.12)), ${color}`,
+      background: `linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0.15)), ${color.replace(/[\d.]+\)$/, '0.55)')}`,
       backdropFilter: 'blur(1px)', WebkitBackdropFilter: 'blur(1px)',
       transform: `translateX(-50%) rotate(${(seed % 9) - 4}deg)`,
       boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.4)', clipPath: zig,
@@ -283,9 +283,10 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-5" onClick={onClose}>
       <div className="absolute inset-0" style={{ background: 'rgba(40,32,24,0.35)', backdropFilter: 'blur(3px)' }} />
-      <div className="relative w-full max-w-sm max-h-[82%] overflow-y-auto no-scrollbar p-5 pt-7 shadow-2xl" onClick={e => e.stopPropagation()}
+      <div className="relative w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}
         style={{ background: tn.paper, borderRadius: 3, transform: 'rotate(-1deg)', animation: 'footDrop .3s ease-out both', ['--r' as any]: '-1deg' }}>
         <Tape color={tn.tape} seed={2} wide />
+        <div className="max-h-[78vh] overflow-y-auto no-scrollbar p-5 pt-7">
         <div className="text-[10px] mb-2" style={{ color: T.soft }}>{card.author === 'user' ? '我贴的' : `${char.name} · ${KIND_LABEL[card.kind]}`}{card.source ? ` · ${card.source}` : ''}</div>
         {card.quote && <div className="text-[12px] leading-relaxed italic mb-2" style={{ color: T.soft, fontFamily: serif }}>{card.kind === 'frame' ? card.quote : `「${card.quote}」`}</div>}
         <div className="leading-relaxed" style={{ fontFamily: fontCss(card.font), fontSize: 17, color: T.ink }}>{card.note}</div>
@@ -315,6 +316,7 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
           <button onClick={() => updateFootnote(s => ({ ...s, cards: s.cards.map(x => x.id === card.id ? { ...x, starred: !x.starred } : x) }))}
             className="flex items-center gap-1" style={{ color: T.candle }}><Star size={13} weight={card.starred ? 'fill' : 'regular'} />{card.starred ? '取消收藏' : '收藏'}</button>
           <button onClick={onClose} className="opacity-60">收起</button>
+        </div>
         </div>
       </div>
     </div>
@@ -613,12 +615,27 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         </div>
       )}
 
+      {pieces.length > 0 && (
+        <div className="relative mt-5 pb-2">
+          <div className="text-[10px] opacity-45 mb-1 tracking-[0.2em]">以前的节目</div>
+          {pieces.slice(0, 40).map(p => (
+            <div key={p.id} className="flex items-center gap-2 py-2 border-b" style={{ borderColor: 'rgba(233,226,214,0.08)', opacity: current?.id === p.id ? 1 : 0.85 }}>
+              <button onClick={() => startPiece(p)} className="flex-1 min-w-0 text-left">
+                <div className="text-[12px] truncate" style={{ fontFamily: serif, color: current?.id === p.id ? T.candle : undefined }}>{p.title}</div>
+                <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+              </button>
+              <button onClick={() => downloadPiece(p)} className="p-1.5 opacity-60" title="下载"><DownloadSimple size={15} /></button>
+              <button onClick={() => { if (current?.id === p.id) hangUp(); void deleteRadioPiece(p); }} className="p-1.5 opacity-50 text-rose-300" title="删除"><Trash size={15} /></button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex-1" />
 
-      {/* 底部按钮：像打电话那一排 */}
-      <div className="relative grid grid-cols-4 gap-2 pt-6 pb-4">
+      {/* 底部按钮：像打电话那一排（吸底） */}
+      <div className="sticky bottom-0 z-10 grid grid-cols-4 gap-2 pt-6 pb-2 -mx-5 px-5" style={{ background: 'linear-gradient(transparent, rgba(17,19,27,0.92) 35%)' }}>
         {[
-          { label: current ? '换台' : '以前的', icon: <ArrowsClockwise size={20} />, on: false, act: () => current ? hangUp() : setShowHistory(v => !v) },
+          { label: current ? '换台' : '随便听', icon: <ArrowsClockwise size={20} />, on: false, act: () => current ? hangUp() : tune(RADIO_CHANNELS[Math.floor(Math.random() * RADIO_CHANNELS.length)].id), disabled: !!busy },
           { label: playing && !paused ? '暂停' : '继续', icon: playing && !paused ? <Pause size={20} weight="fill" /> : <Play size={20} weight="fill" />, on: live, act: togglePause, disabled: !current },
           { label: bilingual ? '双语 ON' : '双语 OFF', icon: <Translate size={20} />, on: bilingual, act: () => setBilingual(v => !v) },
           { label: showTranscript ? '收起字幕' : '字幕记录', icon: <ChatCircle size={20} />, on: showTranscript, act: () => setShowTranscript(v => !v), disabled: !current },
@@ -634,21 +651,6 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         {live && <span className="inline-flex items-end gap-[2px] h-3 ml-2 align-middle">{[0, 1, 2, 3].map(k => <span key={k} className="w-[2px] rounded-sm" style={{ background: T.candle, animation: `footEq 0.${6 + k}s ease-in-out ${k * 0.1}s infinite alternate` }} />)}</span>}
       </div>
 
-      {(showHistory || current) && pieces.length > 0 && (
-        <div className="relative pb-6">
-          <div className="text-[10px] opacity-45 mb-1 tracking-[0.2em]">以前的节目</div>
-          {pieces.slice(0, 40).map(p => (
-            <div key={p.id} className="flex items-center gap-2 py-2 border-b" style={{ borderColor: 'rgba(233,226,214,0.08)', opacity: current?.id === p.id ? 1 : 0.85 }}>
-              <button onClick={() => startPiece(p)} className="flex-1 min-w-0 text-left">
-                <div className="text-[12px] truncate" style={{ fontFamily: serif, color: current?.id === p.id ? T.candle : undefined }}>{p.title}</div>
-                <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-              </button>
-              <button onClick={() => downloadPiece(p)} className="p-1.5 opacity-60" title="下载"><DownloadSimple size={15} /></button>
-              <button onClick={() => { if (current?.id === p.id) hangUp(); void deleteRadioPiece(p); }} className="p-1.5 opacity-50 text-rose-300" title="删除"><Trash size={15} /></button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };
