@@ -23,6 +23,7 @@ import { ContextBuilder } from './context';
 import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
+import { isStickerVisionEligible, readStickerVisionDescription, readStickerVisionName } from './stickerVision';
 import { normalizeMessageContent, stickerNameFromUrl, theaterWhenPhrase } from './messageFormat';
 import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
@@ -1411,8 +1412,29 @@ ${voiceActingGuide()}`;
                     }
                 }
                 else if (m.type === 'emoji') {
-                     const stickerName = stickerNameFromUrl(emojis, m.content);
-                     content = `${timeStr} [${m.role === 'user' ? '用户' : '你'} 发送了表情包: ${stickerName}]`;
+                     // 表情包识图：有资格（发送时开着识图）+ 已有描述 → 名称 + 画面；
+                     // 有资格没描述且没开独立识图 → 把图交给主模型直接看；其他 → 只报名字
+                     const speaker = m.role === 'user' ? '用户' : '你';
+                     const stickerName = readStickerVisionName(m, emojis);
+                     const eligible = isStickerVisionEligible(m);
+                     const stickerDescription = readStickerVisionDescription(m);
+                     if (eligible && stickerDescription) {
+                         let textPart = `${timeStr} [${speaker} 发送了表情包: ${stickerName}。画面内容：${stickerDescription}]`;
+                         if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
+                         content = textPart;
+                     } else if (eligible && !options?.useVisionDescriptions) {
+                         const hasImageData = typeof m.content === 'string'
+                             && (m.content.startsWith('data:') || m.content.startsWith('http') || isBlobRef(m.content));
+                         if (!hasImageData) {
+                             content = `${timeStr} [${speaker} 发送了表情包: ${stickerName}]`;
+                         } else {
+                             let textPart = `${timeStr} [${speaker} 发送了表情包: ${stickerName}。请结合随附的表情包图片理解它实际表达的语气和含义。]`;
+                             if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
+                             content = [{ type: 'text', text: textPart }, { type: 'image_url', image_url: { url: m.content } }];
+                         }
+                     } else {
+                         content = `${timeStr} [${speaker} 发送了表情包: ${stickerName}]`;
+                     }
                 }
                 else if ((m.type as string) === 'chat_forward') {
                     try {

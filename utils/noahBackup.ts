@@ -18,7 +18,7 @@ export const NOAH_LOCAL_KEYS: readonly string[] = [
   'sully_footnote_radio_bi_v1', 'sully_sleep_playlist_v1', 'sully_sleep_bgm_vol_v1', 'sully_sleep_mins_v1', 'sully_sleep_noise_v1',
   // 聊天相关
   'sully_trope_ban_v1', 'sully_trope_ban_mode_v1', 'sully_money_off_v1', 'sully_hate_counter_v1',
-  'sully_reroll_notes_v1', 'sully_news_taste_v1', 'sully_study_log_v1', 'sully_study_homeroom_v1', 'sully_shelf_v1', 'sully_shelf_font_v1', 'sully_shelf_stats_v1', 'sully_endearment_gate_v1', 'sully_amsg_cloud_api_v1', 'sully_amsg_save_calls_v1',
+  'sully_reroll_notes_v1', 'sully_news_taste_v1', 'sully_study_log_v1', 'sully_study_homeroom_v1', 'sully_shelf_v1', 'sully_shelf_font_v1', 'sully_shelf_stats_v1', 'sully_endearment_gate_v1', 'sully-sticker-vision-v1', 'sully_sticker_vision_archive_v1', 'sully_amsg_cloud_api_v1', 'sully_amsg_save_calls_v1',
 ];
 
 export const NOAH_BACKUP_LABELS: [string, string][] = [

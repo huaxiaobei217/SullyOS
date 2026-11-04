@@ -7,7 +7,8 @@ import React, { useMemo, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import type { APIConfig, ApiPreset } from '../../types';
 import { configFromPreset } from '../../utils/apiPresetSwitch';
-import { visionApiConfigFromPreset } from '../../utils/visionApi';
+import { visionApiConfigFromPreset, stickerArchiveCount } from '../../utils/visionApi';
+import { loadGlobalStickerVisionEnabled, saveGlobalStickerVisionEnabled } from '../../utils/stickerVision';
 import { getCheckPhoneApi, setCheckPhoneApi } from '../../utils/checkPhoneApi';
 import { loadListenApiConfig, saveListenApiConfig } from '../../utils/music/songListen';
 import { loadVertexStore, vertexBaseUrl, isVertexUrl, VERTEX_PLACEHOLDER_KEY } from '../../utils/vertexDirect';
@@ -131,6 +132,13 @@ const ApiOverviewPanel: React.FC<{ onCommitMain: (patch: Partial<APIConfig>) => 
 
           <Row title="识图（图片先转文字）" current={apiConfig?.visionApi?.enabled ? label(apiConfig.visionApi) : ''} follow="关闭（主模型自己看图）" choices={choices}
             onPick={c => { updateApiConfig({ visionApi: c?.preset ? visionApiConfigFromPreset(c.preset) : c ? { enabled: true, ...toApi(c) } : { ...(apiConfig.visionApi || { baseUrl: '', apiKey: '', model: '' }), enabled: false } }); ok('识图模型'); refresh(); }} />
+          <label className="flex items-start justify-between gap-3 p-2.5 rounded-xl bg-white border border-slate-100">
+            <span className="min-w-0">
+              <span className="block text-[11.5px] font-semibold text-slate-600">表情包也让角色看见</span>
+              <span className="block text-[10px] text-slate-400 leading-relaxed">开着以后发出去的表情包（你发的和他发的）：开了上面的识图，就先转成文字描述，同一张图只认一次、以后直接用存档（已存 {stickerArchiveCount()} 张）；没开识图，就把图直接交给聊天模型看。之前发过的旧表情包不补认。</span>
+            </span>
+            <input type="checkbox" className="mt-1" defaultChecked={loadGlobalStickerVisionEnabled()} onChange={e => saveGlobalStickerVisionEnabled(e.target.checked)} />
+          </label>
 
           <Row title="听歌（解读 / 听歌日记）" current={listen.baseUrl ? label(listen) : ''} choices={choices}
             note="解读要把整首歌的音频发给模型，选支持听音频的（比如 Gemini 系）。"

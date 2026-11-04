@@ -1,6 +1,7 @@
 import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
 import { extractNaiPhotos, naiPhotosEnabledFor, sendNaiPhoto } from './naiChatPhoto';
 import { consumeFootnoteTags } from './footnoteChat';
+import { buildStickerVisionMetadata, loadGlobalStickerVisionEnabled, resolveStickerVisionEnabled } from './stickerVision';
 import { dialogueMaxTokens } from './characterApi';
 /**
  * applyAssistantPostProcessing — 抽自 hooks/useChatAI.ts 的 sendMessage 后处理管线
@@ -868,7 +869,7 @@ export async function applyAssistantPostProcessing(
             await replyStep(async () => typingPause(Math.random() * 500 + 300));
             const foundEmoji = resolveEmojiForSend(name, emojis, ctx.categories);
             if (foundEmoji) {
-                await replyStep(async () => persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: takeMeta(mcdInheritMeta) } as any));
+                await replyStep(async () => persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: { ...(takeMeta(mcdInheritMeta) || {}), ...(buildStickerVisionMetadata(foundEmoji.name, resolveStickerVisionEnabled(loadGlobalStickerVisionEnabled(), (char as any).stickerVisionMode)) || {}) } } as any));
             } else {
                 console.warn('[emoji] 表情库里没有这个名字，落降级文本气泡', { name, charId: char.id });
                 await replyStep(async () => persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: `[表情：${name}]`, metadata: takeMeta(mcdInheritMeta) } as any));

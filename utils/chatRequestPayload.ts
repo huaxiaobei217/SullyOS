@@ -37,7 +37,7 @@ import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChang
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
-import { materializeVisionDescriptions } from './visionApi';
+import { materializeStickerVisionDescriptions, materializeVisionDescriptions } from './visionApi';
 import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
 import { isChatConversationEntry } from './memoryPalace/trace';
 import { loadCollaborationFileCabinetBlock } from '../features/collaboration/chatLibrary';
@@ -273,10 +273,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         const uniqueMessages = new Map<number, Message>();
         for (const message of rawRecentMsgsHint) uniqueMessages.set(message.id, message);
         for (const message of selectedHistory) uniqueMessages.set(message.id, message);
-        const prepared = await prepare('vision',()=>materializeVisionDescriptions(
+        const preparedImages = await prepare('vision',()=>materializeVisionDescriptions(
             [...uniqueMessages.values()],
             input.visionApiConfig,
         ));
+        // 二改 · 表情包识图：有资格的表情包平行识别（专用提示词、全程 fail-soft、按图存档）
+        const prepared = await materializeStickerVisionDescriptions(preparedImages, input.visionApiConfig);
         const preparedById = new Map(prepared.map(message => [message.id, message]));
         historyMsgsForPrompt = selectedHistory.map(message => preparedById.get(message.id) || message);
         recentMsgsHint = rawRecentMsgsHint.map(message => preparedById.get(message.id) || message);

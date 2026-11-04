@@ -1,5 +1,6 @@
 import {avatarFrameLayer} from '../utils/avatarFrameTarget';
 import { selfCheckReply } from '../utils/replySelfCheck';
+import { buildStickerVisionMetadata, loadGlobalStickerVisionEnabled, resolveStickerVisionEnabled } from '../utils/stickerVision';
 import ChatRuntimeStyle from '../components/chat/ChatRuntimeStyle';
 import {homePhoneAppearance,HOME_PHONE_BUBBLES} from './room3d/homePhoneAppearance';
 
@@ -1863,7 +1864,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'chrome-sound': setShowPanel('none'); setDecorationTab('sound'); setModalType('chrome-css'); break;
             case 'fine-tune': setShowPanel('none'); setDecorationTab('layout'); setModalType('chrome-css'); break;
             case 'emoji-import': setModalType('emoji-import'); break;
-            case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji'); break;
+            case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji', buildStickerVisionMetadata(payload.name, resolveStickerVisionEnabled(loadGlobalStickerVisionEnabled(), (char as any)?.stickerVisionMode))); break;
             case 'delete-emoji-req': setSelectedEmoji(payload); setModalType('delete-emoji'); break;
             case 'emoji-options': setSelectedEmoji(payload); setModalType('emoji-options'); break;
             case 'add-category': setModalType('add-category'); break;
