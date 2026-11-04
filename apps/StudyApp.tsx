@@ -57,6 +57,12 @@ const loadKatex = async (): Promise<KatexLike> => {
 };
 
 // --- Styles ---
+/** 二改：没有教材（按主题建课）时，告诉老师按自己的专业知识讲这一章 */
+const noSourceText = (course: StudyCourse, idx: number) => {
+    const ch = course.chapters[idx];
+    return `（这门课没有导入教材。请根据你对「${course.title}」的专业知识来讲这一章：「${ch?.title || ''}」${ch?.summary ? `，概要：${ch.summary}` : ''}。内容要准确，拿不准的地方直说。）`;
+};
+
 const GRADIENTS = [
     'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
     'linear-gradient(120deg, #f093fb 0%, #f5576c 100%)',
@@ -332,6 +338,10 @@ const StudyApp: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [processStatus, setProcessStatus] = useState('');
     const [showImportModal, setShowImportModal] = useState(false);
+    // 二改：没有 PDF 也能建课（写个主题，或者粘贴一段资料）
+    const [showTopicModal, setShowTopicModal] = useState(false);
+    const [topicTitle, setTopicTitle] = useState('');
+    const [topicText, setTopicText] = useState('');
     const [importPreference, setImportPreference] = useState('');
     const [tempPdfData, setTempPdfData] = useState<{name: string, text: string} | null>(null);
     const [katexRenderer, setKatexRenderer] = useState<KatexLike | null>(null);
@@ -561,13 +571,47 @@ const StudyApp: React.FC = () => {
         }
     };
 
+    const confirmTopicCourse = async () => {
+        const title = topicTitle.trim();
+        if (!title) return;
+        setShowTopicModal(false);
+        setIsProcessing(true);
+        setProcessStatus('老师正在排课...');
+        try {
+            const newCourse = await generateCurriculum(title, topicText.trim(), importPreference);
+            await DB.saveCourse(newCourse);
+            await loadCourses();
+            addToast('课程创建成功', 'success');
+            setTopicTitle(''); setTopicText('');
+        } catch (e: any) {
+            addToast(`生成失败: ${e.message}`, 'error');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const generateCurriculum = async (title: string, text: string, preference: string): Promise<StudyCourse> => {
         if (!effectiveApi.apiKey) throw new Error('API Key missing');
 
         // Truncate text for outline generation if too long
         const contextText = text.substring(0, 30000); 
 
-        const prompt = `
+        const prompt = !contextText.trim() ? `
+### Task: Create Course Outline (no document)
+Topic: "${title}"
+User Preference: "${preference || 'Standard'}"
+
+There is no source document. Design a course that teaches this topic from the basics, split into 4-8 chapters in a sensible learning order.
+If the topic is an exam (e.g. 公务员考试 行测 / 申论, professional certificates), organize chapters by exam modules and question types.
+Write chapter titles and summaries in Chinese.
+` + `
+### Output Format (Strict JSON)
+{
+  "chapters": [
+    { "title": "第一章 ...", "summary": "...", "difficulty": "easy" }
+  ]
+}
+` : `
 ### Task: Create Course Outline
 Document Title: "${title}"
 User Preference: "${preference || 'Standard'}"
@@ -677,7 +721,7 @@ For each chapter, provide a title, a brief summary of what it covers, and a diff
         const totalLen = course.rawText.length;
         const chunkSize = Math.floor(totalLen / course.chapters.length);
         const start = chapterIdx * chunkSize;
-        const chunkText = course.rawText.substring(start, start + chunkSize + 2000); // Overlap
+        const chunkText = course.rawText.substring(start, start + chunkSize + 2000) || noSourceText(course, chapterIdx); // Overlap
 
         const callApi = async (personaContext: string, isFallback: boolean = false) => {
             const prompt = `${personaContext}
@@ -814,7 +858,7 @@ You are now acting as a private tutor for ${userProfile.name}.
             const totalLen = activeCourse.rawText.length;
             const chunkSize = Math.floor(totalLen / activeCourse.chapters.length);
             const start = activeCourse.currentChapterIndex * chunkSize;
-            const chunkText = activeCourse.rawText.substring(start, start + chunkSize + 2000);
+            const chunkText = activeCourse.rawText.substring(start, start + chunkSize + 2000) || noSourceText(activeCourse, activeCourse.currentChapterIndex);
 
             // [MODIFIED]: Use Full Context for Q&A
             if (!homeroom) await injectMemoryPalace(selectedChar, undefined, question);
@@ -966,7 +1010,7 @@ Note: Use "我" (I) to refer to yourself.
         const totalLen = activeCourse.rawText.length;
         const chunkSize = Math.floor(totalLen / activeCourse.chapters.length);
         const start = activeCourse.currentChapterIndex * chunkSize;
-        const chunkText = activeCourse.rawText.substring(start, start + chunkSize + 2000);
+        const chunkText = activeCourse.rawText.substring(start, start + chunkSize + 2000) || noSourceText(activeCourse, activeCourse.currentChapterIndex);
 
         const typeLabels: Record<string, string> = {
             choice: '选择题 (4个选项，单选)',
@@ -1689,6 +1733,11 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                             )}
                         </button>
                         <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileSelect} disabled={isProcessing} />
+                        <button onClick={() => { setImportPreference(''); setShowTopicModal(true); }} disabled={isProcessing} className="aspect-[3/4] rounded-r-xl rounded-l-sm border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors bg-white">
+                            <span className="text-3xl">✎</span>
+                            <span className="text-xs font-bold">按主题建课</span>
+                            <span className="px-3 text-center text-[10px] leading-relaxed">没有 PDF 也行：写个主题，或者粘贴一段资料</span>
+                        </button>
 
                         {courses.map(course => (
                             <div key={course.id} onClick={() => startSession(course)} className="aspect-[3/4] rounded-r-xl rounded-l-sm shadow-md relative group cursor-pointer overflow-hidden transition-transform active:scale-95" style={{ background: course.coverStyle }}>
@@ -1712,6 +1761,19 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         ))}
                     </div>
                 </div>
+
+                <Modal isOpen={showTopicModal} title="按主题建课" onClose={() => setShowTopicModal(false)} footer={<button onClick={confirmTopicCourse} disabled={!topicTitle.trim()} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl disabled:opacity-40">开始排课</button>}>
+                    <div className="space-y-3">
+                        <input value={topicTitle} onChange={e => setTopicTitle(e.target.value)} placeholder="学什么？比如：行测 · 言语理解与表达" className="w-full bg-slate-100 rounded-xl p-3 text-sm outline-none" />
+                        <div className="flex flex-wrap gap-1.5">
+                            {['行测 · 言语理解与表达', '行测 · 数量关系', '行测 · 判断推理', '行测 · 资料分析', '行测 · 常识判断', '申论 · 归纳概括与大作文'].map(t => (
+                                <button key={t} onClick={() => setTopicTitle(t)} className="px-2.5 py-1 rounded-full text-[11px] bg-slate-100 text-slate-600">{t}</button>
+                            ))}
+                        </div>
+                        <textarea value={topicText} onChange={e => setTopicText(e.target.value)} placeholder="（可选）粘贴资料、笔记或真题，老师会照着讲；不填就按老师自己的知识讲" className="w-full h-28 bg-slate-100 rounded-xl p-3 text-sm outline-none resize-none" />
+                        <textarea value={importPreference} onChange={e => setImportPreference(e.target.value)} placeholder="（可选）讲课偏好：比如多讲做题技巧、多举真题例子" className="w-full h-16 bg-slate-100 rounded-xl p-3 text-sm outline-none resize-none" />
+                    </div>
+                </Modal>
 
                 <Modal isOpen={showImportModal} title="课程设置" onClose={() => setShowImportModal(false)} footer={<button onClick={confirmImport} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl">开始生成</button>}>
                     <div className="space-y-4">
