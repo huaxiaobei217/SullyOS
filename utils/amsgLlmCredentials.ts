@@ -1,3 +1,4 @@
+import { isVertexUrl } from './vertexDirect';
 import { resolveDialogueApi } from './characterApi';
 import { isAnthropicEndpoint, normalizeLlmBaseUrl, type LlmApiType } from './llmEndpoint';
 /**
@@ -100,6 +101,13 @@ export const isUsableCredentialValue = (
 export const toCredentialValue = (
   api: { baseUrl?: string; apiKey?: string; model?: string; apiType?: LlmApiType } | null | undefined,
 ): LlmCredentialValue | null => {
+  // 云端用不了本机直连的 Vertex（密钥不出本机）：用户在「API 总览」里给云端单独选了一套就换成它，
+  // 没选就宁可不上传，也不把 vertex-local 占位符传上去让每次触发都 401
+  if (api?.baseUrl && isVertexUrl(api.baseUrl)) api = loadCloudApiOverride();
+  else {
+    const forced = loadCloudApiOverride();
+    if (forced?.always) api = forced;
+  }
   if (!api?.baseUrl || !api.model) return null;
   const value = {
     apiUrl: normalizeChatApiUrl(api.baseUrl, api.apiType),
@@ -107,6 +115,28 @@ export const toCredentialValue = (
     primaryModel: api.model,
   };
   return isUsableCredentialValue(value) ? value : null;
+};
+
+/* ───────── 云端专用 API（主动消息 / 即时对话以外的后台活儿） ───────── */
+
+export const CLOUD_API_OVERRIDE_LS_KEY = 'sully_amsg_cloud_api_v1';
+export interface CloudApiOverride {
+  baseUrl: string; apiKey: string; model: string; apiType?: LlmApiType;
+  /** true：主动消息一律用这套；false：只在聊天用的是本机 Vertex 时顶上 */
+  always?: boolean;
+}
+export const loadCloudApiOverride = (): CloudApiOverride | null => {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CLOUD_API_OVERRIDE_LS_KEY) : null;
+    const v = raw ? JSON.parse(raw) : null;
+    return v?.baseUrl && v?.model && !isVertexUrl(v.baseUrl) ? v : null;
+  } catch { return null; }
+};
+export const saveCloudApiOverride = (v: CloudApiOverride | null): void => {
+  try {
+    if (v) localStorage.setItem(CLOUD_API_OVERRIDE_LS_KEY, JSON.stringify(v));
+    else localStorage.removeItem(CLOUD_API_OVERRIDE_LS_KEY);
+  } catch { /* ignore */ }
 };
 
 /** 定时主动消息跟随角色默认对话 API，未设置时跟随全局；旧主动消息副 API 字段不参与取值。 */
