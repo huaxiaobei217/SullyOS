@@ -7,6 +7,7 @@ import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { getBannedTropes, setBannedTropes, countHits, getTropeMode, setTropeMode, rewriteMemoryText, type TropeMode } from '../../utils/tropeBan';
 import { resolveDialogueApi } from '../../utils/characterApi';
+import { isMoneyOff, setMoneyOff } from '../../utils/moneyOff';
 import { MemoryNodeDB } from '../../utils/memoryPalace/db';
 import { updateStoredMemoryNode } from '../../utils/memoryPalace/vectorStore';
 
@@ -26,7 +27,8 @@ const TropeCleanPanel: React.FC = () => {
   const [scanning, setScanning] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
 
-  const pick = (id: string) => { setCharId(id); setList(getBannedTropes(id)); setScan(null); setEdits({}); };
+  const [moneyOff, setMoneyOffState] = useState(() => isMoneyOff(charId || defaultId));
+  const pick = (id: string) => { setCharId(id); setList(getBannedTropes(id)); setScan(null); setEdits({}); setMoneyOffState(isMoneyOff(id)); };
   const save = (next: string[]) => { setList(next); setBannedTropes(char.id, next); };
   const add = () => {
     const words = draft.split(/[，,、\n]/).map(s => s.trim()).filter(Boolean);
@@ -125,6 +127,15 @@ const TropeCleanPanel: React.FC = () => {
             <select value={char?.id || ''} onChange={e => pick(e.target.value)} className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
               {(characters || []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          )}
+          {char && (
+            <label className="flex items-start justify-between gap-3 p-2.5 rounded-xl bg-white border border-slate-100">
+              <span className="min-w-0">
+                <span className="block text-[11.5px] font-semibold text-slate-600">关掉{char.name}的转账和记账</span>
+                <span className="block text-[10px] text-slate-400">他看不到转账动作，也不会收到你的记账（支出）记录，话题少往钱上带。你还是可以给他转账。</span>
+              </span>
+              <input type="checkbox" className="mt-1" checked={moneyOff} onChange={e => { setMoneyOff(char.id, e.target.checked); setMoneyOffState(e.target.checked); }} />
+            </label>
           )}
           <div className="flex flex-wrap gap-1.5">
             {list.map(w => (
