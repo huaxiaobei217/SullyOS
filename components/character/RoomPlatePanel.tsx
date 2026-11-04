@@ -73,6 +73,8 @@ const RoomPlatePanel: React.FC<RoomPlatePanelProps> = ({ charId, userName }) => 
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState<{ room: PlateRoom; entryId: string; draft: string } | null>(null);
     const [menuEntryId, setMenuEntryId] = useState<string | null>(null);
+    // 二改：手动加一条（删错了能补回来，也能自己写进去）
+    const [adding, setAdding] = useState<{ room: PlateRoom; text: string; tag: string } | null>(null);
     /** 一句一次性提示（改写落空之类），显示在顶部说明卡下面。 */
     const [notice, setNotice] = useState<string | null>(null);
 
@@ -160,6 +162,23 @@ const RoomPlatePanel: React.FC<RoomPlatePanelProps> = ({ charId, userName }) => 
         return write;
     };
 
+    const addEntry = async () => {
+        if (!adding) return;
+        const text = adding.text.trim().slice(0, PLATE_ENTRY_HARD_MAX_CHARS);
+        if (!text) return;
+        const { room, tag } = adding;
+        setAdding(null);
+        const now = Date.now();
+        const entry: PlateEntry = {
+            id: `pe_${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            text, firstLearnedAt: now, updatedAt: now, sourceCount: 1,
+            ...(tag.trim() ? { tag: tag.trim().slice(0, 4) } : {}),
+        };
+        await editPlate(room, plate => plate.entries.length >= PLATE_ENTRY_CAPS[room]
+            ? null
+            : { ...plate, entries: [...plate.entries, entry], updatedAt: now, version: (plate.version || 0) + 1 });
+    };
+
     const removeEntry = (room: PlateRoom, entryId: string) => {
         setMenuEntryId(null);
         void editPlate(room, plate => (
@@ -242,7 +261,6 @@ const RoomPlatePanel: React.FC<RoomPlatePanelProps> = ({ charId, userName }) => 
             {PLATE_ROOMS.map((room, roomIdx) => {
                 const plate = plates.get(room);
                 const entries = plate?.entries || [];
-                if (entries.length === 0 && totalEntries === 0) return null;
                 const title = room === 'user_room' && userName ? `关于${userName}` : PLATE_TITLES[room];
                 return (
                     <React.Fragment key={room}>
@@ -341,6 +359,24 @@ const RoomPlatePanel: React.FC<RoomPlatePanelProps> = ({ charId, userName }) => 
                                         </li>
                                     ))}
                                 </ul>
+                            )}
+                            {adding?.room === room ? (
+                                <div className="mt-3 p-3 bg-white/80 rounded-2xl border border-violet-100/70">
+                                    <textarea value={adding.text} autoFocus rows={2} maxLength={PLATE_ENTRY_HARD_MAX_CHARS}
+                                        onChange={ev => setAdding({ ...adding, text: ev.target.value })}
+                                        placeholder={`写一条（${PLATE_ENTRY_HARD_MAX_CHARS} 字内）`}
+                                        className="w-full bg-white border-2 border-violet-200 rounded-xl px-3 py-2 text-sm text-slate-700 resize-none focus:outline-none" />
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <input value={adding.tag} maxLength={4} onChange={ev => setAdding({ ...adding, tag: ev.target.value })}
+                                            placeholder="标签（可不填）" className="w-28 bg-white border border-violet-100 rounded-xl px-2.5 py-1.5 text-xs outline-none" />
+                                        <div className="flex-1" />
+                                        <button onClick={() => setAdding(null)} className="text-xs font-bold text-slate-400 px-4 py-1.5 rounded-xl bg-violet-50 border border-violet-100">取消</button>
+                                        <button onClick={addEntry} disabled={!adding.text.trim()} className="text-xs font-bold text-white px-5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 disabled:opacity-40">添加</button>
+                                    </div>
+                                </div>
+                            ) : entries.length < PLATE_ENTRY_CAPS[room] && (
+                                <button onClick={() => { setEditing(null); setAdding({ room, text: '', tag: '' }); }}
+                                    className="mt-3 w-full text-[11px] font-bold text-violet-400 border border-dashed border-violet-200 rounded-2xl py-2">＋ 添加一条</button>
                             )}
                         </div>
                     </React.Fragment>
