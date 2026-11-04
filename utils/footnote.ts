@@ -70,16 +70,32 @@ export interface QaRound {
 export type RadioChannel = 'gossip' | 'sonnet' | 'travel' | 'record' | 'free' | 'patent';
 export interface RadioPiece { id: string; charId: string; channel: RadioChannel; title: string; text: string; createdAt: number; voiceLang?: string; }
 
-interface Store { cards: FootCard[]; qa: QaRound[]; radio: RadioPiece[]; qaPool?: { charId: string; q: string }[]; }
+/** 时间胶囊：写给未来的自己，他的话一起封进去，到日子才能拆 */
+export interface Capsule {
+  id: string; charId: string; createdAt: number;
+  /** 可以拆的日子（本地日期 YYYY-MM-DD） */
+  openOn: string;
+  title: string;
+  mine: string;
+  /** 他封进去的话（拆之前不给看） */
+  his?: string;
+  opened?: boolean; openedAt?: number;
+  /** 拆开那天他在旁边说的话 */
+  reaction?: string;
+}
+/** 他在聊天里出的题，等你去页脚答 */
+export interface AskedQuestion { id: string; charId: string; question: string; createdAt: number; }
+
+interface Store { cards: FootCard[]; qa: QaRound[]; radio: RadioPiece[]; qaPool?: { charId: string; q: string }[]; capsules?: Capsule[]; asked?: AskedQuestion[]; }
 
 export const loadFootnote = (): Store => {
   try {
     const j = JSON.parse(localStorage.getItem(FOOTNOTE_LS_KEY) || '{}');
-    return { cards: j.cards || [], qa: j.qa || [], radio: j.radio || [], qaPool: j.qaPool || [] };
-  } catch { return { cards: [], qa: [], radio: [], qaPool: [] }; }
+    return { cards: j.cards || [], qa: j.qa || [], radio: j.radio || [], qaPool: j.qaPool || [], capsules: j.capsules || [], asked: j.asked || [] };
+  } catch { return { cards: [], qa: [], radio: [], qaPool: [], capsules: [], asked: [] }; }
 };
 const saveFootnote = (s: Store) => {
-  const trimmed: Store = { cards: s.cards.slice(0, 300), qa: s.qa.slice(0, 200), radio: s.radio.slice(0, 80), qaPool: (s.qaPool || []).slice(0, 60) };
+  const trimmed: Store = { cards: s.cards.slice(0, 300), qa: s.qa.slice(0, 200), radio: s.radio.slice(0, 80), qaPool: (s.qaPool || []).slice(0, 60), capsules: (s.capsules || []).slice(0, 200), asked: (s.asked || []).slice(0, 30) };
   try { localStorage.setItem(FOOTNOTE_LS_KEY, JSON.stringify(trimmed)); } catch { /* 满了就算了 */ }
   try { window.dispatchEvent(new Event(FOOTNOTE_CHANGED_EVENT)); } catch { /* ignore */ }
 };
@@ -379,4 +395,68 @@ export async function drawCardImage(cardId: string, charId: string, onProgress?:
     updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, imaging: false } : c) }));
     throw e;
   }
+}
+
+
+/* ───────── 他自己在聊天里用页脚 ───────── */
+
+/** 他从聊天里贴一张纸条到墙上 */
+export function addCharNote(charId: string, text: string, source = ''): FootCard {
+  const tints = FOOT_TINTS.map(t => t.id);
+  const card: FootCard = {
+    id: uid('fc'), charId, kind: 'memo', source: source.trim().slice(0, 40), quote: '', note: text.trim().slice(0, 400),
+    createdAt: Date.now(), author: 'char', font: loadCharFont(), tint: tints[Math.floor(Math.random() * tints.length)],
+  };
+  updateFootnote(s => ({ ...s, cards: [card, ...s.cards] }));
+  return card;
+}
+/** 他出一道快问快答，等你去页脚答 */
+export function addAskedQuestion(charId: string, question: string): AskedQuestion {
+  const q: AskedQuestion = { id: uid('qq'), charId, question: question.trim().slice(0, 80), createdAt: Date.now() };
+  updateFootnote(s => ({ ...s, asked: [q, ...(s.asked || []).filter(a => !(a.charId === charId && a.question === q.question))] }));
+  return q;
+}
+export function removeAskedQuestion(id: string) {
+  updateFootnote(s => ({ ...s, asked: (s.asked || []).filter(a => a.id !== id) }));
+}
+
+/* ───────── 时间胶囊 ───────── */
+
+export const todayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const canOpenCapsule = (c: Capsule, today = todayKey()) => c.openOn <= today;
+
+/** 封一个胶囊；他看完你的信，写一段自己的话一起封进去（拆之前你看不到） */
+export async function sealCapsule(char: CharacterProfile, apiConfig: APIConfig, opts: { title: string; mine: string; openOn: string; withHim: boolean }): Promise<Capsule> {
+  let his = '';
+  if (opts.withHim) {
+    const { text } = await call(char, apiConfig,
+      `### 【页脚 · 时间胶囊】
+{{user}} 写了一封信给 ${opts.openOn} 那天的自己，要封进时间胶囊，到那天才能拆。你在旁边看完了这封信。
+写一段你自己的话一起封进去：写给到那天拆开它的 ta。可以回应信里的事、可以说你现在的心情、可以猜那时候的你们会是什么样、可以留一个小约定。
+照你平时的语气写，100–250 字，不要写成贺卡，也别剧透说「我知道你会……」。只输出你要封进去的话。`,
+      `胶囊标题：${opts.title || '（没写）'}\n拆开的日子：${opts.openOn}\n\n{{user}} 的信：\n${opts.mine}`, '时间胶囊·封存', 3000);
+    his = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 1500);
+  }
+  const cap: Capsule = { id: uid('tc'), charId: char.id, createdAt: Date.now(), openOn: opts.openOn, title: opts.title.trim().slice(0, 40), mine: opts.mine.trim().slice(0, 4000), ...(his ? { his } : {}) };
+  updateFootnote(s => ({ ...s, capsules: [cap, ...(s.capsules || [])] }));
+  return cap;
+}
+
+/** 拆胶囊：标记已拆，他在旁边说一句现在的感受 */
+export async function openCapsule(char: CharacterProfile, apiConfig: APIConfig, id: string): Promise<Capsule> {
+  const cap = (loadFootnote().capsules || []).find(c => c.id === id);
+  if (!cap) throw new Error('胶囊找不到了');
+  if (!canOpenCapsule(cap)) throw new Error('还没到拆的日子');
+  let reaction = '';
+  try {
+    const { text } = await call(char, apiConfig,
+      `### 【页脚 · 拆时间胶囊】
+今天是拆时间胶囊的日子。这个胶囊是 ${new Date(cap.createdAt).toLocaleDateString()} 封的，里面有 {{user}} 写给今天的自己的信${cap.his ? '，还有你当时封进去的话' : ''}。你们刚一起拆开。
+看完之后，用你现在的语气说几句：对照那时候和现在，有什么变了、什么没变；也可以回应你当时写的话。像在 ta 身边说话，60–150 字。只输出你要说的话。`,
+      `胶囊标题：${cap.title || '（没写）'}\n{{user}} 当时写的：\n${cap.mine}${cap.his ? `\n\n你当时封进去的：\n${cap.his}` : ''}`, '时间胶囊·拆开', 2500);
+    reaction = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 800);
+  } catch { /* 他没说话也能拆 */ }
+  const next: Capsule = { ...cap, opened: true, openedAt: Date.now(), ...(reaction ? { reaction } : {}) };
+  updateFootnote(s => ({ ...s, capsules: (s.capsules || []).map(c => c.id === id ? next : c) }));
+  return next;
 }

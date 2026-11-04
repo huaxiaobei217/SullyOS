@@ -19,6 +19,13 @@ export function buildRecentNotesBlock(charId: string, userName: string, now = Da
   for (const r of radio) lines.push(`- 你给 ${u} 深夜点播过一期「${CH[r.channel] || '电台'}」：《${r.title}》`);
   const qa = (st.qa || []).filter((q: any) => q.charId === charId && now - q.createdAt < 24 * 3600000).slice(0, 2);
   for (const q of qa) lines.push(`- 你们玩快问快答：「${q.question}」${u}答「${q.mine}」，你答「${q.his}」`);
+  const asked = (st.asked || []).filter((q: any) => q.charId === charId).slice(0, 2);
+  for (const q of asked) lines.push(`- 你在页脚出了一道快问快答「${q.question}」，${u}还没去答`);
+  const d = new Date(); const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  for (const c of (st.capsules || []).filter((c: any) => c.charId === charId)) {
+    if (!c.opened && c.openOn <= today) lines.push(`- 你们 ${new Date(c.createdAt).toLocaleDateString()} 封的时间胶囊「${c.title || '无题'}」已经到了能拆的日子，还没拆（里面写了什么你也记不清了，拆了才知道）`);
+    else if (c.opened && now - (c.openedAt || 0) < 2 * 86400000) lines.push(`- 你们刚拆了时间胶囊「${c.title || '无题'}」：${u}当时写给自己的是「${String(c.mine).slice(0, 200)}」${c.his ? `；你当时封进去的是「${String(c.his).slice(0, 200)}」` : ''}`);
+  }
   if (!lines.length) return '';
   return `### 【最近在「页脚」里一起做过的事】
 ${lines.join('\n')}

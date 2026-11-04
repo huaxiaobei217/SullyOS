@@ -4,7 +4,7 @@
  * 所以会跟着正常的记忆整理写进长期记忆。
  */
 import { DB } from './db';
-import type { FootCard, QaRound, RadioPiece } from './footnote';
+import type { FootCard, QaRound, RadioPiece, Capsule } from './footnote';
 import { RADIO_CHANNELS, parseRadioSegments, threadOf } from './footnote';
 
 const esc = (s: string) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -47,4 +47,17 @@ export async function shareQa(r: QaRound, charName: string, userName: string) {
   const body = `<div>${esc(userName)}：${esc(r.mine)}</div><div style="margin-top:4px">${esc(charName)}：${esc(r.his)}</div>${r.reaction ? `<div style="margin-top:6px;font-style:italic;color:#6f6a62">—— ${esc(r.reaction)}</div>` : ''}`;
   const preview = `【页脚·快问快答】题目「${r.question}」：${userName}答「${r.mine}」，${charName}答「${r.his}」${r.reaction ? `，${charName}看完说「${r.reaction}」` : ''}`;
   await save(r.charId, 'assistant', card('快问快答', r.question, body), preview);
+}
+
+export async function shareAsked(charId: string, question: string, charName: string, userName: string) {
+  const preview = `【页脚·快问快答】${charName}出了一道题等${userName}去答：「${question}」`;
+  await save(charId, 'assistant', card('快问快答', question, esc(`${charName}出的题，去「页脚」答，答完一起揭晓。`)), preview);
+}
+
+export async function shareCapsule(c: Capsule, charName: string, userName: string) {
+  const body = `<div style="font-size:10px;color:#6f6a62">那时候的${esc(userName)}写给今天：</div><div>${esc(c.mine.length > 220 ? c.mine.slice(0, 220) + '…' : c.mine)}</div>` +
+    (c.his ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed rgba(0,0,0,.15);font-size:10px;color:#6f6a62">${esc(charName)}当时封进去的：</div><div>${esc(c.his.length > 200 ? c.his.slice(0, 200) + '…' : c.his)}</div>` : '') +
+    (c.reaction ? `<div style="margin-top:8px;font-style:italic;color:#6f6a62">—— ${esc(c.reaction)}</div>` : '');
+  const preview = `【页脚·时间胶囊】${userName}和${charName}拆开了 ${new Date(c.createdAt).toLocaleDateString()} 封的时间胶囊「${c.title || '无题'}」。${userName}当时写给自己的是：「${c.mine.slice(0, 400)}」${c.his ? `；${charName}当时封进去的是：「${c.his.slice(0, 300)}」` : ''}${c.reaction ? `；拆开时${charName}说：「${c.reaction}」` : ''}`;
+  await save(c.charId, 'assistant', card('时间胶囊', c.title || '无题', body, `${new Date(c.createdAt).toLocaleDateString()} 封 · ${c.openOn} 拆`, '#f4ead6'), preview);
 }

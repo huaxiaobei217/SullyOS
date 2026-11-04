@@ -6,13 +6,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt, Sparkle } from '@phosphor-icons/react';
 import { isNaiReady, generateNaiImage } from '../utils/nai';
-import { shareNote, shareRadio, shareQa } from '../utils/footnoteShare';
+import { shareNote, shareRadio, shareQa, shareCapsule } from '../utils/footnoteShare';
+import { isFootnoteChatOn, setFootnoteChatOn } from '../utils/footnoteChat';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
   loadFootnote, updateFootnote, FOOTNOTE_CHANGED_EVENT, dropCards, QA_BANK, generateQuestion, answerQuestion,
   RADIO_CHANNELS, playRadio, addUserNote, addUserReply, replyToNote, threadOf, parseRadioSegments,
   getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio, drawCardImage,
+  removeAskedQuestion, sealCapsule, openCapsule, canOpenCapsule, todayKey, type Capsule,
   FOOT_FONTS, FOOT_TINTS, fontCss, tintOf, loadCharFont, saveCharFont,
   type FootCard, type RadioChannel, type RadioPiece,
 } from '../utils/footnote';
@@ -42,7 +44,7 @@ const ensureFonts = () => {
   document.head.appendChild(l2);
 };
 
-type Tab = 'wall' | 'qa' | 'radio';
+type Tab = 'wall' | 'qa' | 'radio' | 'capsule';
 
 /** 一小枝茉莉 */
 const Jasmine: React.FC = () => (
@@ -130,6 +132,7 @@ const FootnoteApp: React.FC = () => {
           : (night ? `linear-gradient(180deg, ${T.night1}, ${T.night2})` : T.bg),
         color: night ? '#e9e2d6' : T.ink,
       }}>
+      <style>{`@keyframes footDrop { 0% { opacity: 0; transform: translateY(-24px) rotate(var(--r)) scale(1.04) } 100% { opacity: 1; transform: rotate(var(--r)) } }`}</style>
       <div className="shrink-0 px-3 pb-2 flex items-center gap-2" style={{ paddingTop: 'calc(var(--safe-top) + 10px)' }}>
         <button onClick={closeApp} className="p-1.5 -ml-1 active:scale-90"><CaretLeft size={22} /></button>
         <div className="text-lg tracking-[0.35em] font-semibold flex items-center gap-1.5" style={{ fontFamily: serif }}><Jasmine />页脚</div>
@@ -161,8 +164,8 @@ const FootnoteApp: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="shrink-0 mx-4 mb-2 flex justify-center gap-6 text-[13px]" style={{ fontFamily: serif }}>
-        {([['wall', '便签墙'], ['qa', '快问快答'], ['radio', '深夜点播']] as [Tab, string][]).map(([k, n]) => (
+      <div className="shrink-0 mx-4 mb-2 flex justify-center gap-5 text-[13px]" style={{ fontFamily: serif }}>
+        {([['wall', '便签墙'], ['qa', '快问快答'], ['radio', '深夜点播'], ['capsule', '胶囊']] as [Tab, string][]).map(([k, n]) => (
           <button key={k} onClick={() => setTab(k)} className="pb-1 transition-opacity"
             style={{ opacity: tab === k ? 1 : 0.45, borderBottom: `1.5px solid ${tab === k ? T.candle : 'transparent'}` }}>{n}</button>
         ))}
@@ -171,7 +174,8 @@ const FootnoteApp: React.FC = () => {
       <div className="flex-1 overflow-y-auto no-scrollbar px-4 pb-10">
         {!char ? <div className="text-center text-xs mt-10 opacity-60">先去建一个角色吧</div>
           : tab === 'wall' ? <Wall char={char} apiConfig={apiConfig} cards={store.cards.filter(c => c.charId === char.id)} onErr={toastErr} bg={bgs.wall} userName={userName} onShared={onShared} />
-          : tab === 'qa' ? <Qa char={char} apiConfig={apiConfig} rounds={store.qa.filter(q => q.charId === char.id)} onErr={toastErr} userName={userName} onShared={onShared} />
+          : tab === 'qa' ? <Qa char={char} apiConfig={apiConfig} rounds={store.qa.filter(q => q.charId === char.id)} asked={(store.asked || []).filter(a => a.charId === char.id)} onErr={toastErr} userName={userName} onShared={onShared} />
+          : tab === 'capsule' ? <CapsuleTab char={char} apiConfig={apiConfig} capsules={(store.capsules || []).filter(c => c.charId === char.id)} onErr={toastErr} userName={userName} onShared={onShared} />
           : <RadioTab char={char} apiConfig={apiConfig} pieces={store.radio.filter(r => r.charId === char.id)} onErr={toastErr} bg={bgs.radio} userName={userName} onShared={onShared} />}
       </div>
     </div>
@@ -208,6 +212,7 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
   const [tint, setTint] = useState('rose');
   const [charFont, setCharFontState] = useState(loadCharFont());
   const [showFonts, setShowFonts] = useState(false);
+  const [fnChatOn, setFnChatOn] = useState(() => isFootnoteChatOn(char.id));
   const [fresh, setFresh] = useState<Set<string>>(new Set());
 
   const drop = () => {
@@ -241,6 +246,10 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
 
       {showFonts && (
         <div className="mb-3 p-3 rounded-xl text-[11px]" style={{ background: T.card, border: `1px solid ${T.line}` }}>
+          <label className="flex items-start justify-between gap-3 mb-3 pb-3 border-b" style={{ borderColor: T.line }}>
+            <span><span className="block font-semibold">{char.name}在聊天里也能用页脚</span><span className="block opacity-60 mt-0.5">他可以自己贴便签、出题、给你点播，聊天里会收到一张小卡片。</span></span>
+            <input type="checkbox" className="mt-1" checked={fnChatOn} onChange={e => { setFootnoteChatOn(char.id, e.target.checked); setFnChatOn(e.target.checked); }} />
+          </label>
           <div className="mb-1.5 opacity-70">{char.name}写字用的字体（只影响之后新贴的）</div>
           <div className="flex flex-wrap gap-1.5">
             {FOOT_FONTS.map(f => (
@@ -430,10 +439,10 @@ const Wheel: React.FC<{ angle: number }> = ({ angle }) => {
   );
 };
 
-const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) => void; userName: string; onShared?: () => void }> = ({ char, apiConfig, rounds, onErr, userName, onShared }) => {
+const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; asked: { id: string; question: string }[]; onErr: (e: any) => void; userName: string; onShared?: () => void }> = ({ char, apiConfig, rounds, asked, onErr, userName, onShared }) => {
   const [angle, setAngle] = useState(0);
   const [spinning, setSpinning] = useState(false);
-  const [q, setQ] = useState<{ text: string; fromBank: boolean } | null>(null);
+  const [q, setQ] = useState<{ text: string; fromBank: boolean; askedId?: string } | null>(null);
   const [mine, setMine] = useState('');
   const [revealing, setRevealing] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -459,11 +468,23 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
   const reveal = () => {
     if (!q || !mine.trim()) return;
     setRevealing(true);
-    answerQuestion(char, apiConfig, q.text, mine.trim(), q.fromBank).then(setResult).catch(onErr).finally(() => setRevealing(false));
+    answerQuestion(char, apiConfig, q.text, mine.trim(), q.fromBank).then(r => { setResult(r); if (q.askedId) removeAskedQuestion(q.askedId); }).catch(onErr).finally(() => setRevealing(false));
   };
 
   return (
     <>
+      {asked.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {asked.map(a => (
+            <button key={a.id} onClick={() => { setResult(null); setMine(''); setQ({ text: a.question, fromBank: false, askedId: a.id }); }}
+              className="w-full text-left p-3 rounded-xl flex items-center gap-2 active:scale-[0.99]" style={{ background: T.candleSoft, border: `1px solid ${T.candle}55` }}>
+              <span className="text-[10px] shrink-0 px-1.5 py-0.5 rounded" style={{ background: T.candle, color: '#fff' }}>{char.name}出的题</span>
+              <span className="text-[12.5px] flex-1 truncate" style={{ fontFamily: serif }}>{a.question}</span>
+              <span className="text-[10.5px] shrink-0" style={{ color: T.candle }}>去答</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-col items-center mt-2 mb-4">
         <Wheel angle={angle} />
         <button onClick={spin} disabled={spinning || revealing} className="mt-3 px-6 py-2 rounded-full text-sm text-white active:scale-95 disabled:opacity-60"
@@ -473,7 +494,7 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
       {q && (
         <div className="relative p-4 pt-5 mb-5 mx-1" style={{ background: '#fffcf3', borderRadius: 3, boxShadow: '0 3px 10px rgba(60,45,30,0.10)', transform: 'rotate(-0.6deg)' }}>
           <Tape color="rgba(222,190,140,0.32)" seed={4} wide />
-          <div className="text-[10px] mb-1" style={{ color: T.candle }}>{q.fromBank ? '从题罐里抽的' : `${char.name}现场出的题`}</div>
+          <div className="text-[10px] mb-1" style={{ color: T.candle }}>{q.askedId ? `${char.name}在聊天里出的题` : q.fromBank ? '从题罐里抽的' : `${char.name}现场出的题`}</div>
           <div className="text-[15px] font-semibold leading-relaxed mb-3" style={{ fontFamily: serif }}>{q.text}</div>
           {!result ? (
             <>
@@ -763,6 +784,150 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
       </div>
 
     </div>
+  );
+};
+
+/* ───────── 时间胶囊 ───────── */
+
+const addMonths = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() + n); return todayKey(d); };
+const daysUntil = (key: string) => {
+  const [y, m, d] = key.split('-').map(Number);
+  const t = new Date(y, m - 1, d).getTime(), n = new Date(); n.setHours(0, 0, 0, 0);
+  return Math.round((t - n.getTime()) / 86400000);
+};
+
+/** 火漆印：一朵茉莉压在深红蜡上 */
+const WaxSeal: React.FC<{ size?: number; glow?: boolean }> = ({ size = 44, glow }) => (
+  <svg width={size} height={size} viewBox="0 0 48 48" style={{ filter: glow ? 'drop-shadow(0 0 8px rgba(185,135,90,0.7))' : 'drop-shadow(0 2px 3px rgba(80,20,20,0.35))' }}>
+    <defs><radialGradient id="fnWax" cx=".4" cy=".35" r=".7"><stop offset="0" stopColor="#b5464a" /><stop offset=".7" stopColor="#7e2228" /><stop offset="1" stopColor="#5e171c" /></radialGradient></defs>
+    <path d="M24 3c4 0 6 3 9 4s7 1 8.5 4.5S41 18 42.5 21s3 6.5 1 9.5-5 3.5-6.5 6.5-1 7-4.5 8.5S27 44 24 45s-6 0-8.5-1.5-4-4.5-6.5-5.5-6-1.5-6.5-5S5 27 4.5 24 3 17.5 5 15s5-2.5 6.5-5S14 4.5 17 4s4-1 7-1z" fill="url(#fnWax)" />
+    <circle cx="24" cy="24" r="13" fill="none" stroke="rgba(255,220,200,0.25)" strokeWidth="1" />
+    {[0, 72, 144, 216, 288].map(a => <ellipse key={a} cx="24" cy="18.5" rx="2.6" ry="4.6" fill="rgba(255,225,205,0.32)" transform={`rotate(${a} 24 24)`} />)}
+    <circle cx="24" cy="24" r="1.8" fill="rgba(255,225,205,0.45)" />
+  </svg>
+);
+
+const CapsuleTab: React.FC<{ char: any; apiConfig: any; capsules: Capsule[]; onErr: (e: any) => void; userName: string; onShared?: () => void }> = ({ char, apiConfig, capsules, onErr, userName, onShared }) => {
+  const [writing, setWriting] = useState(false);
+  const [title, setTitle] = useState('');
+  const [mine, setMine] = useState('');
+  const [openOn, setOpenOn] = useState(addMonths(3));
+  const [withHim, setWithHim] = useState(true);
+  const [sealing, setSealing] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [viewId, setViewId] = useState<string | null>(null);
+  const today = todayKey();
+  const myFont = (() => { try { return localStorage.getItem('sully_footnote_my_font_v1') || 'kai'; } catch { return 'kai'; } })();
+
+  const seal = () => {
+    if (!mine.trim() || openOn <= today) return;
+    setSealing(true);
+    sealCapsule(char, apiConfig, { title, mine, openOn, withHim })
+      .then(() => { setWriting(false); setTitle(''); setMine(''); })
+      .catch(onErr).finally(() => setSealing(false));
+  };
+  const open = (c: Capsule) => {
+    setOpening(c.id);
+    openCapsule(char, apiConfig, c.id).then(() => setViewId(c.id)).catch(onErr).finally(() => setOpening(null));
+  };
+  const presets: [string, string][] = [['一个月后', addMonths(1)], ['三个月后', addMonths(3)], ['半年后', addMonths(6)], ['一年后', addMonths(12)]];
+  const view = capsules.find(c => c.id === viewId) || null;
+  const sorted = [...capsules].sort((a, b) => (a.opened === b.opened ? a.openOn.localeCompare(b.openOn) : a.opened ? 1 : -1));
+
+  return (
+    <>
+      {!writing ? (
+        <button onClick={() => setWriting(true)} className="w-full py-3 rounded-xl text-[13px] mb-4 active:scale-[0.99]" style={{ background: T.card, border: `1px dashed ${T.line}`, fontFamily: serif }}>
+          写一封信给以后的自己
+        </button>
+      ) : (
+        <div className="relative mb-5 p-4 pt-5" style={{ background: '#fffcf3', borderRadius: 3, boxShadow: '0 3px 12px rgba(60,45,30,0.12)' }}>
+          <Tape color="rgba(222,190,140,0.32)" seed={6} wide />
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="给这个胶囊起个名字（可不填）"
+            className="w-full bg-transparent outline-none text-[14px] font-semibold mb-2" style={{ fontFamily: serif, color: T.ink }} />
+          <textarea value={mine} onChange={e => setMine(e.target.value)} rows={7} placeholder="写给那天拆开它的你……"
+            className="w-full bg-transparent outline-none resize-none" style={{ fontFamily: fontCss(myFont), fontSize: 15, color: T.ink, lineHeight: '28px', backgroundImage: 'repeating-linear-gradient(transparent, transparent 27px, rgba(0,0,0,0.07) 27px, rgba(0,0,0,0.07) 28px)' }} />
+          <div className="text-[10.5px] mt-3 mb-1.5" style={{ color: T.soft }}>什么时候能拆</div>
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {presets.map(([n, k]) => (
+              <button key={n} onClick={() => setOpenOn(k)} className="px-2.5 py-1 rounded-full text-[11px]"
+                style={{ background: openOn === k ? T.candleSoft : 'transparent', border: `1px solid ${openOn === k ? T.candle : T.line}` }}>{n}</button>
+            ))}
+            <input type="date" value={openOn} min={addMonths(0)} onChange={e => setOpenOn(e.target.value)} className="text-[11px] bg-transparent outline-none px-1" style={{ color: T.ink }} />
+          </div>
+          <label className="flex items-start gap-2 mt-3 text-[11.5px]" style={{ color: T.ink }}>
+            <input type="checkbox" className="mt-0.5" checked={withHim} onChange={e => setWithHim(e.target.checked)} />
+            <span>让{char.name}看完也写一段，一起封进去<span className="block text-[10px] opacity-55">他写了什么，拆开那天才知道</span></span>
+          </label>
+          <div className="flex justify-end gap-3 mt-3">
+            <button onClick={() => setWriting(false)} className="text-[12px] opacity-60">先不封</button>
+            <button onClick={seal} disabled={!mine.trim() || openOn <= today || sealing} className="px-4 py-1.5 rounded-full text-[12px] text-white disabled:opacity-40" style={{ background: '#7e2228' }}>
+              {sealing ? (withHim ? `${char.name}在写…` : '封存中…') : '封起来'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!capsules.length && !writing && <div className="text-center text-[11px] opacity-50 mt-6" style={{ fontFamily: serif }}>还没有胶囊。写一封，过些日子再拆。</div>}
+
+      <div className="space-y-3 pb-6">
+        {sorted.map((c, i) => {
+          const ready = !c.opened && canOpenCapsule(c, today);
+          const left = daysUntil(c.openOn);
+          return (
+            <div key={c.id} className="relative p-4 flex items-center gap-3"
+              style={{
+                background: c.opened ? 'rgba(255,252,243,0.6)' : '#f4ead6', borderRadius: 4,
+                boxShadow: ready ? '0 0 0 1.5px rgba(185,135,90,0.6), 0 4px 16px rgba(185,135,90,0.25)' : '0 2px 8px rgba(60,45,30,0.10)',
+                transform: `rotate(${((i * 29) % 5 - 2) * 0.4}deg)`,
+                backgroundImage: c.opened ? undefined : 'linear-gradient(155deg, transparent 49.5%, rgba(120,90,50,0.10) 50%, transparent 50.5%), linear-gradient(25deg, transparent 49.5%, rgba(120,90,50,0.10) 50%, transparent 50.5%)',
+              }}>
+              {!c.opened ? <WaxSeal glow={ready} /> : <div className="w-11 h-11 flex items-center justify-center text-[18px] opacity-60">✉︎</div>}
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-semibold truncate" style={{ fontFamily: serif }}>{c.title || '无题'}</div>
+                <div className="text-[10.5px] mt-0.5" style={{ color: T.soft }}>
+                  {new Date(c.createdAt).toLocaleDateString()} 封 · {c.opened ? `${new Date(c.openedAt || 0).toLocaleDateString()} 拆开` : ready ? '今天可以拆了' : `还要 ${left} 天（${c.openOn}）`}
+                  {c.his ? ` · 里面有${char.name}的话` : ''}
+                </div>
+              </div>
+              {c.opened ? <button onClick={() => setViewId(c.id)} className="text-[11.5px] shrink-0" style={{ color: T.candle }}>再看看</button>
+                : ready ? <button onClick={() => open(c)} disabled={!!opening} className="px-3 py-1.5 rounded-full text-[11.5px] text-white shrink-0 disabled:opacity-60" style={{ background: T.candle }}>{opening === c.id ? '拆开中…' : '拆开'}</button>
+                : <span className="text-[10px] shrink-0 opacity-50">封着</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {view && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5" onClick={() => setViewId(null)}>
+          <div className="absolute inset-0" style={{ background: 'rgba(40,32,24,0.4)', backdropFilter: 'blur(3px)' }} />
+          <div className="relative w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()} style={{ background: '#fffcf3', borderRadius: 3, animation: 'footDrop .35s ease-out both', ['--r' as any]: '0deg' }}>
+            <div className="max-h-[80vh] overflow-y-auto no-scrollbar p-5">
+              <div className="text-[10px] tracking-[0.2em] mb-1" style={{ color: T.candle }}>时间胶囊 · {new Date(view.createdAt).toLocaleDateString()} 封</div>
+              <div className="text-[16px] font-semibold mb-3" style={{ fontFamily: serif }}>{view.title || '无题'}</div>
+              <div className="text-[10px] mb-1" style={{ color: T.soft }}>那时候的你写给今天的你</div>
+              <div className="whitespace-pre-wrap leading-relaxed" style={{ fontFamily: fontCss(myFont), fontSize: 15, color: T.ink }}>{view.mine}</div>
+              {view.his && (
+                <div className="mt-4 pt-3 border-t border-dashed" style={{ borderColor: 'rgba(0,0,0,0.14)' }}>
+                  <div className="text-[10px] mb-1" style={{ color: T.soft }}>{char.name}当时偷偷封进去的</div>
+                  <div className="whitespace-pre-wrap leading-relaxed" style={{ fontFamily: fontCss(loadCharFont()), fontSize: 15, color: T.ink }}>{view.his}</div>
+                </div>
+              )}
+              {view.reaction && (
+                <div className="mt-4 p-3 rounded-lg" style={{ background: T.candleSoft }}>
+                  <div className="text-[10px] mb-1" style={{ color: T.soft }}>拆开的时候，{char.name}在旁边说</div>
+                  <div className="leading-relaxed text-[13px]" style={{ fontFamily: serif }}>{view.reaction}</div>
+                </div>
+              )}
+              <div className="flex justify-between mt-4 text-[11px]">
+                <button onClick={() => shareCapsule(view, char.name, userName).then(() => onShared?.()).catch(onErr)} className="flex items-center gap-1"><PaperPlaneTilt size={13} />发到聊天</button>
+                <button onClick={() => setViewId(null)} className="opacity-60">收起</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
