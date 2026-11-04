@@ -1,4 +1,5 @@
 import { getMemoryPalaceHighWaterMarkForContext, selectCharacterContextMessages } from './chatContextRange';
+import { stripTrailingEndearments } from './endearmentGate';
 import { expandHomeContextHistory } from './homeContextSegments';
 import { protectPendingChatTurn } from './storyTheaterTimeline';
 /**
@@ -486,6 +487,11 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         ...messagesWithWorldbookDepth,
         { role: 'system', content: volatileTail },
     ];
+    // 二改 · 称呼频率闸：历史里他句尾的称呼不再发给模型，断掉「越学越甜」的循环
+    if (isChatConversationEntry(input.recallEntryPoint)) {
+        fullMessages = fullMessages.map(m => m.role === 'assistant' && typeof m.content === 'string'
+            ? { ...m, content: stripTrailingEndearments(char.id, m.content) } : m);
+    }
     if (bilingualActive) {
         fullMessages.push({
             role: 'system',
