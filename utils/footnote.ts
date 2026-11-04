@@ -8,6 +8,7 @@ import { DB } from './db';
 import { safeFetchJson, extractContent } from './safeApi';
 import { resolveDialogueApi } from './characterApi';
 import type { APIConfig, CharacterProfile } from '../types';
+import { voiceLanguagePromptLabel } from './voiceLanguage';
 
 export const FOOTNOTE_LS_KEY = 'sully_footnote_v1';
 export const FOOTNOTE_CHANGED_EVENT = 'sully:footnote-changed';
@@ -23,9 +24,13 @@ export interface FootCard {
   author?: 'char' | 'user';
   /** 字体 key（见 FOOT_FONTS），便签底色 key（见 FOOT_TINTS） */
   font?: string; tint?: string;
-  /** 对方在这张纸条下面回的一句 */
+  /** 旧版：纸条下面回的一句（现在用 thread） */
   reply?: string; replyAt?: number;
+  /** 纸条下面你来我往的回复 */
+  thread?: { by: 'char' | 'user'; text: string; at: number }[];
 }
+/** 新旧格式统一成一串回复 */
+export const threadOf = (c: FootCard) => c.thread?.length ? c.thread : (c.reply ? [{ by: 'char' as const, text: c.reply, at: c.replyAt || c.createdAt }] : []);
 
 export const FOOT_FONTS: { id: string; name: string; css: string; google?: string }[] = [
   { id: 'kai', name: '楷体', css: `'LXGW WenKai','KaiTi','STKaiti',serif` },
@@ -56,18 +61,18 @@ export interface QaRound {
   mine: string; his: string; reaction: string; createdAt: number;
 }
 export type RadioChannel = 'gossip' | 'sonnet' | 'patent';
-export interface RadioPiece { id: string; charId: string; channel: RadioChannel; title: string; text: string; createdAt: number; }
+export interface RadioPiece { id: string; charId: string; channel: RadioChannel; title: string; text: string; createdAt: number; voiceLang?: string; }
 
-interface Store { cards: FootCard[]; qa: QaRound[]; radio: RadioPiece[]; }
+interface Store { cards: FootCard[]; qa: QaRound[]; radio: RadioPiece[]; qaPool?: { charId: string; q: string }[]; }
 
 export const loadFootnote = (): Store => {
   try {
     const j = JSON.parse(localStorage.getItem(FOOTNOTE_LS_KEY) || '{}');
-    return { cards: j.cards || [], qa: j.qa || [], radio: j.radio || [] };
-  } catch { return { cards: [], qa: [], radio: [] }; }
+    return { cards: j.cards || [], qa: j.qa || [], radio: j.radio || [], qaPool: j.qaPool || [] };
+  } catch { return { cards: [], qa: [], radio: [], qaPool: [] }; }
 };
 const saveFootnote = (s: Store) => {
-  const trimmed: Store = { cards: s.cards.slice(0, 300), qa: s.qa.slice(0, 200), radio: s.radio.slice(0, 80) };
+  const trimmed: Store = { cards: s.cards.slice(0, 300), qa: s.qa.slice(0, 200), radio: s.radio.slice(0, 80), qaPool: (s.qaPool || []).slice(0, 60) };
   try { localStorage.setItem(FOOTNOTE_LS_KEY, JSON.stringify(trimmed)); } catch { /* 满了就算了 */ }
   try { window.dispatchEvent(new Event(FOOTNOTE_CHANGED_EVENT)); } catch { /* ignore */ }
 };
@@ -111,27 +116,36 @@ const KIND_TASK: Record<CardKind, string> = {
   memo: '小纸条：像情侣之间随手贴在冰箱、书里、镜子上的便签，写给 {{user}} 的一两句话。可以是想到 ta 的瞬间、一个小提醒、一句玩笑、一点想念。quote 留空，source 写贴在哪儿（比如「贴在台灯上」）。',
 };
 
-export async function dropCard(char: CharacterProfile, apiConfig: APIConfig): Promise<FootCard> {
-  const kinds: CardKind[] = ['note', 'excerpt', 'frame', 'memo', 'memo'];
-  const kind = kinds[Math.floor(Math.random() * kinds.length)];
-  const recent = loadFootnote().cards.filter(c => c.charId === char.id).slice(0, 20).map(c => c.source);
-  const instructions = `### 【页脚 · 书影批注墙】
-你在自己的书和片单边上随手写东西。现在掉落一张卡片。
-${KIND_TASK[kind]}
+/**
+ * 一次请求写好几张（省钱：每次请求都要带上整份人设，一张一张要太亏）。
+ * 返回这一批新卡，最新的在前。
+ */
+export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, count = 4): Promise<FootCard[]> {
+  const recent = loadFootnote().cards.filter(c => c.charId === char.id && c.author !== 'user').slice(0, 24).map(c => c.source).filter(Boolean);
+  const instructions = `### 【页脚 · 便签墙】
+你在家里到处贴便签。现在一口气写 ${count} 张，种类混着来（至少一张小纸条）：
+- note ${KIND_TASK.note}
+- excerpt ${KIND_TASK.excerpt}
+- frame ${KIND_TASK.frame}
+- memo ${KIND_TASK.memo}
+规矩：
 - 除了小纸条，作品必须真实存在，作者/导演和年份要对；拿不准原句就写「大意：……」，不要编造引文。
-- 批注是你自己的话：照你平时的语气、口味和偏见，可以刻薄、可以跑题、可以想到 {{user}}，40–120 字。
+- 写的话是你自己的：照你平时的语气、口味和偏见，可以刻薄、可以跑题、可以想到 {{user}}，每张 30–100 字。
 - 不要重复最近写过的作品：${recent.length ? recent.join('、') : '（还没有）'}
-只输出一个 JSON：{"source":"《作品名》作者或导演 · 年份","quote":"……","note":"……"}`;
-  const { text } = await call(char, apiConfig, instructions, '掉一张新卡片。', '书影批注卡片', 3000);
+只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……"}]}`;
+  const { text } = await call(char, apiConfig, instructions, `写 ${count} 张。`, '便签墙', 6000);
   const j = parseJson(text);
-  if (!j.source || !j.note) throw new Error('卡片缺内容，再试一次');
+  const list: any[] = Array.isArray(j.cards) ? j.cards : Array.isArray(j) ? j : [j];
   const tints = FOOT_TINTS.map(t => t.id);
-  const card: FootCard = {
-    id: uid('fc'), charId: char.id, kind, source: String(j.source).slice(0, 80), quote: String(j.quote || '').slice(0, 200),
-    note: String(j.note).slice(0, 400), createdAt: Date.now(), author: 'char', font: loadCharFont(), tint: tints[Math.floor(Math.random() * tints.length)],
-  };
-  updateFootnote(s => ({ ...s, cards: [card, ...s.cards] }));
-  return card;
+  const now = Date.now();
+  const cards: FootCard[] = list.filter(x => x && x.note).slice(0, count).map((x, i) => ({
+    id: uid('fc'), charId: char.id, kind: (['note', 'excerpt', 'frame', 'memo'].includes(x.kind) ? x.kind : 'memo') as CardKind,
+    source: String(x.source || '').slice(0, 80), quote: x.kind === 'memo' ? '' : String(x.quote || '').slice(0, 200),
+    note: String(x.note).slice(0, 400), createdAt: now - i, author: 'char', font: loadCharFont(), tint: tints[Math.floor(Math.random() * tints.length)],
+  }));
+  if (!cards.length) throw new Error('这次一张都没写出来，再试一次');
+  updateFootnote(s => ({ ...s, cards: [...cards, ...s.cards] }));
+  return cards;
 }
 
 /** 用户自己贴一张纸条 */
@@ -141,18 +155,26 @@ export function addUserNote(charId: string, text: string, font: string, tint: st
   return card;
 }
 
-/** 让角色在某张纸条下面回一句（用户的纸条或他自己的都行） */
+/** 用户在某张纸条下面写一句 */
+export function addUserReply(cardId: string, text: string) {
+  const t = text.trim().slice(0, 200);
+  if (!t) return;
+  updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, thread: [...threadOf(c), { by: 'user', text: t, at: Date.now() }] } : c) }));
+}
+
+/** 让角色在某张纸条下面接着回一句（看得到整串回复） */
 export async function replyToNote(char: CharacterProfile, apiConfig: APIConfig, cardId: string): Promise<string> {
   const card = loadFootnote().cards.find(c => c.id === cardId);
   if (!card) throw new Error('这张纸条找不到了');
-  const who = card.author === 'user' ? '{{user}} 贴给你的纸条' : '你自己以前贴的纸条';
+  const who = card.author === 'user' ? '{{user}} 贴给你的纸条' : '你自己贴的纸条';
+  const thread = threadOf(card).map(t => `${t.by === 'user' ? '{{user}}' : '你'}：${t.text}`).join('\n');
   const { text } = await call(char, apiConfig,
     `### 【页脚 · 便签墙】
-你在墙上看到一张${who}，拿笔在它下面回一句。像情侣之间的小纸条：短、自然、有你的语气，一两句，60 字以内。
+墙上有一张${who}，下面已经有你们你一句我一句的回复。拿笔接着往下写一句。像情侣之间的小纸条：短、自然、有你的语气，一两句，60 字以内。
 只输出你要写的那句话，不要引号。`,
-    `纸条内容：${card.quote ? `「${card.quote}」 ` : ''}${card.note}${card.source ? `（${card.source}）` : ''}`, '便签回复', 1500);
+    `纸条：${card.quote ? `「${card.quote}」 ` : ''}${card.note}${card.source ? `（${card.source}）` : ''}${thread ? `\n下面的回复：\n${thread}` : ''}`, '便签回复', 1500);
   const reply = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 200);
-  updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, reply, replyAt: Date.now() } : c) }));
+  updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, thread: [...threadOf(c), { by: 'char', text: reply, at: Date.now() }] } : c) }));
   return reply;
 }
 
@@ -201,14 +223,25 @@ export const QA_BANK: string[] = [
   '如果能给十年后的我们拍一张照片，画面里有什么？',
 ];
 
+/** 现场出题：一次出一批存着，转一次用一道，用完再出 */
 export async function generateQuestion(char: CharacterProfile, apiConfig: APIConfig): Promise<string> {
-  const recent = loadFootnote().qa.slice(0, 15).map(q => q.question);
+  const pool = (loadFootnote().qaPool || []).filter(p => p.charId === char.id);
+  if (pool.length) {
+    const q = pool[0].q;
+    updateFootnote(s => { let done = false; return { ...s, qaPool: (s.qaPool || []).filter(p => done || !(p.charId === char.id && p.q === q && (done = true))) }; });
+    return q;
+  }
+  const recent = loadFootnote().qa.slice(0, 20).map(q => q.question);
   const { text } = await call(char, apiConfig,
     `### 【页脚 · 快问快答转盘】
-你来出一道天马行空的快问快答题：轻松、好玩、有画面感，两个人都能马上答。一句话，30 字以内。
+你来出 8 道天马行空的快问快答题：轻松、好玩、有画面感，两个人都能马上答。每道一句话，30 字以内，彼此别太像。
 不要和这些重复：${recent.join(' / ') || '（还没有）'}
-只输出题目本身，不要引号、编号或解释。`, '出一道题。', '快问快答出题', 1500);
-  return text.split('\n')[0].replace(/^["“「]|["”」]$/g, '').trim().slice(0, 80);
+一行一道，只输出题目本身，不要编号、引号或解释。`, '出题。', '快问快答出题', 3000);
+  const qs = text.split('\n').map(l => l.replace(/^\s*(?:\d+[.、)]|[-*•])\s*/, '').replace(/^["“「]|["”」]$/g, '').trim()).filter(l => l.length > 3).slice(0, 8);
+  if (!qs.length) throw new Error('没出成题，再转一次');
+  const [first, ...rest] = qs;
+  updateFootnote(s => ({ ...s, qaPool: [...(s.qaPool || []), ...rest.map(q => ({ charId: char.id, q: q.slice(0, 80) }))] }));
+  return first.slice(0, 80);
 }
 
 export async function answerQuestion(char: CharacterProfile, apiConfig: APIConfig, question: string, mine: string, fromBank: boolean): Promise<QaRound> {
@@ -243,7 +276,26 @@ export const RADIO_CHANNELS: { id: RadioChannel; name: string; desc: string; tas
   },
 ];
 
-export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel): Promise<RadioPiece> {
+/** 双语电台：每段中文后面跟一个 <语音>外语</语音>，念外语、字幕两种都显示 */
+export const parseRadioSegments = (text: string): { zh: string; voice: string }[] => {
+  if (!/<语音/.test(text)) {
+    return text.split(/\n+/).map(t => t.trim()).filter(Boolean).map(t => ({ zh: t, voice: t }));
+  }
+  const out: { zh: string; voice: string }[] = [];
+  const re = /([\s\S]*?)<语音[^>]*>([\s\S]*?)<\/语音>/g;
+  let m: RegExpExecArray | null;
+  let last = 0;
+  while ((m = re.exec(text))) {
+    const zh = m[1].trim(); const v = m[2].trim();
+    if (zh || v) out.push({ zh: zh || v, voice: v || zh });
+    last = re.lastIndex;
+  }
+  const tail = text.slice(last).trim();
+  if (tail) out.push({ zh: tail, voice: tail });
+  return out;
+};
+
+export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = ''): Promise<RadioPiece> {
   const ch = RADIO_CHANNELS.find(c => c.id === channel)!;
   const recent = loadFootnote().radio.filter(r => r.charId === char.id && r.channel === channel).slice(0, 10).map(r => r.title);
   const { text } = await call(char, apiConfig,
@@ -252,10 +304,13 @@ export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, ch
 ${ch.task}
 这是要念出来的电台：用你自己说话的语气，压低声音、慢一点；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
 不要重复最近讲过的：${recent.join('、') || '（还没有）'}
-第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。`, '开始吧。', `深夜点播·${ch.name}`, 5000);
-  const lines = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').split('\n');
+第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `
+
+### 双语
+真正念出来的是${voiceLanguagePromptLabel(voiceLang)}。每一段先写中文（给 ta 看的字幕），紧接着换行写 <语音>这一段的${voiceLanguagePromptLabel(voiceLang)}说法</语音>。外语要自然口语，像你本人在说，不要机翻味；中文和外语意思一致。每段只有一个 <语音> 标签。` : ''}`, '开始吧。', `深夜点播·${ch.name}`, voiceLang ? 9000 : 5000);
+  const lines = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').trim().split('\n');
   const title = (lines.shift() || ch.name).replace(/^标题[:：]\s*/, '').trim().slice(0, 30);
-  const piece: RadioPiece = { id: uid('rd'), charId: char.id, channel, title, text: lines.join('\n').trim(), createdAt: Date.now() };
+  const piece: RadioPiece = { id: uid('rd'), charId: char.id, channel, title, text: lines.join('\n').trim(), createdAt: Date.now(), ...(voiceLang ? { voiceLang } : {}) };
   updateFootnote(s => ({ ...s, radio: [piece, ...s.radio] }));
   return piece;
 }
