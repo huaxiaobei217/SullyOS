@@ -52,7 +52,7 @@ import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatRead
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
 import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOL_NAMES, buildAmsg2Tools, createAmsg2ToolSession, executeAmsg2ToolWithOutcome, isAmsg2GlobalReady, type Amsg2ToolOutcome } from '../utils/amsg2ToolBridge';
-import { AMSG2_EMPTY_REPLY_PROMPT, AMSG2_WRAP_UP_PROMPT, createAmsg2StallTracker, extractToolRoundLeadIn, mergeToolRoundLeadIns } from '../utils/amsg2ToolLoop';
+import { AMSG2_EMPTY_REPLY_PROMPT, AMSG2_WRAP_UP_PROMPT, createAmsg2StallTracker, extractToolRoundLeadIn, mergeToolRoundLeadIns, isAmsg2SaveCallsOn } from '../utils/amsg2ToolLoop';
 import { buildLimitsBrief, resolveAmsgLimits } from '../utils/amsgLimits';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { isAnthropicEndpoint } from '../utils/llmEndpoint';
@@ -1867,6 +1867,20 @@ export const useChatAI = ({
                         if (mcpCallsThisRound === 0) {
                             const leadIn = extractToolRoundLeadIn(data.choices?.[0]?.message?.content);
                             if (leadIn) amsg2LeadIns.push(leadIn);
+                        }
+                        // 省次数：这一轮只排了主动消息、都排上了、话也已经说了 → 不再多问一次模型
+                        const thisRoundLeadIn = extractToolRoundLeadIn(data.choices?.[0]?.message?.content);
+                        if (
+                            isAmsg2SaveCallsOn()
+                            && mcpCallsThisRound === 0
+                            && !payload.flags.luckinChatActive
+                            && thisRoundLeadIn
+                            && amsg2Outcomes.length === toolCalls.length
+                            && amsg2Outcomes.every(o => o.status === 'done' || o.status === 'duplicate')
+                        ) {
+                            data = { ...data, choices: [{ ...data.choices[0], message: { role: 'assistant', content: '' }, finish_reason: 'stop' }] };
+                            appendInstantTraceEntry({ ts: new Date().toISOString(), event: 'amsg2-save-calls-skip', charId: char.id, toolRounds: amsg2ToolRounds });
+                            break;
                         }
                     }
                     const amsg2Stalled = amsg2Stall.record(amsg2Outcomes);

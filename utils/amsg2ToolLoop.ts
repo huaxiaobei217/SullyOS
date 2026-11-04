@@ -71,3 +71,15 @@ export const createAmsg2StallTracker = () => {
     },
   };
 };
+
+
+/* ───────── 省次数：排程成功、话也说完了，就不再为「确认排上了」多问一次模型 ───────── */
+export const AMSG2_SAVE_CALLS_LS_KEY = 'sully_amsg_save_calls_v1';
+/** 默认开：这一轮只调了主动消息工具、全部成功、而且角色已经在这一轮把话说了，就直接收尾。
+ *  角色下一轮从排程清单里照样看得到自己排了什么。 */
+export const isAmsg2SaveCallsOn = (): boolean => {
+  try { return localStorage.getItem(AMSG2_SAVE_CALLS_LS_KEY) !== '0'; } catch { return true; }
+};
+export const setAmsg2SaveCalls = (on: boolean): void => {
+  try { localStorage.setItem(AMSG2_SAVE_CALLS_LS_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+};

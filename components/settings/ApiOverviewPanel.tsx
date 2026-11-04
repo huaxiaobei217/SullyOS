@@ -14,6 +14,7 @@ import { loadVertexStore, vertexBaseUrl, isVertexUrl, VERTEX_PLACEHOLDER_KEY } f
 import { loadCloudApiOverride, saveCloudApiOverride } from '../../utils/amsgLlmCredentials';
 import { syncAmsgLlmCredentials } from '../../utils/amsgStateSync';
 import VertexDirectPanel from './VertexDirectPanel';
+import { isAmsg2SaveCallsOn, setAmsg2SaveCalls } from '../../utils/amsg2ToolLoop';
 
 type Choice = { id: string; name: string; baseUrl: string; apiKey: string; model: string; apiType?: APIConfig['apiType']; preset?: ApiPreset };
 
@@ -119,6 +120,14 @@ const ApiOverviewPanel: React.FC<{ onCommitMain: (patch: Partial<APIConfig>) => 
               syncAmsgLlmCredentials({ ...apiConfig });
               ok('主动消息模型'); refresh();
             }} />
+
+          <label className="flex items-start justify-between gap-3 py-2.5 border-b border-slate-100">
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-slate-700">排主动消息时省一次调用</span>
+              <span className="block text-[10px] text-slate-400 leading-relaxed">聊天里角色排了主动消息、都排上了、话也说完了，就不再为「确认排上了」多问一次模型。下一轮他照样看得到自己排了什么；排失败时仍会照常追问。</span>
+            </span>
+            <input type="checkbox" className="mt-1" defaultChecked={isAmsg2SaveCallsOn()} onChange={e => setAmsg2SaveCalls(e.target.checked)} />
+          </label>
 
           <Row title="识图（图片先转文字）" current={apiConfig?.visionApi?.enabled ? label(apiConfig.visionApi) : ''} follow="关闭（主模型自己看图）" choices={choices}
             onPick={c => { updateApiConfig({ visionApi: c?.preset ? visionApiConfigFromPreset(c.preset) : c ? { enabled: true, ...toApi(c) } : { ...(apiConfig.visionApi || { baseUrl: '', apiKey: '', model: '' }), enabled: false } }); ok('识图模型'); refresh(); }} />

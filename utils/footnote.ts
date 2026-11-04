@@ -12,14 +12,45 @@ import type { APIConfig, CharacterProfile } from '../types';
 export const FOOTNOTE_LS_KEY = 'sully_footnote_v1';
 export const FOOTNOTE_CHANGED_EVENT = 'sully:footnote-changed';
 
-export type CardKind = 'note' | 'excerpt' | 'frame';
+export type CardKind = 'note' | 'excerpt' | 'frame' | 'memo';
 export interface FootCard {
   id: string; charId: string; kind: CardKind;
   source: string;      // 《书名》/ 片名 + 作者 / 导演 + 年份
   quote: string;       // 摘录原文 / 被批注的那句 / 画面描述
   note: string;        // 他的批注
   createdAt: number; starred?: boolean;
+  /** 谁贴的：没写就是角色（旧数据） */
+  author?: 'char' | 'user';
+  /** 字体 key（见 FOOT_FONTS），便签底色 key（见 FOOT_TINTS） */
+  font?: string; tint?: string;
+  /** 对方在这张纸条下面回的一句 */
+  reply?: string; replyAt?: number;
 }
+
+export const FOOT_FONTS: { id: string; name: string; css: string; google?: string }[] = [
+  { id: 'kai', name: '楷体', css: `'LXGW WenKai','KaiTi','STKaiti',serif` },
+  { id: 'song', name: '宋体', css: `'Noto Serif SC','Songti SC',serif` },
+  { id: 'mashan', name: '毛笔', css: `'Ma Shan Zheng',cursive`, google: 'Ma+Shan+Zheng' },
+  { id: 'longcang', name: '行书', css: `'Long Cang',cursive`, google: 'Long+Cang' },
+  { id: 'zhimang', name: '草写', css: `'Zhi Mang Xing',cursive`, google: 'Zhi+Mang+Xing' },
+  { id: 'kuaile', name: '圆趣', css: `'ZCOOL KuaiLe',cursive`, google: 'ZCOOL+KuaiLe' },
+  { id: 'hand-en', name: 'English', css: `'Caveat','Long Cang',cursive`, google: 'Caveat' },
+];
+export const FOOT_TINTS: { id: string; paper: string; tape: string }[] = [
+  { id: 'cream', paper: '#fbf5e6', tape: 'rgba(214,170,120,0.45)' },
+  { id: 'rose', paper: '#fbe9e7', tape: 'rgba(206,140,150,0.45)' },
+  { id: 'sage', paper: '#eaf0e3', tape: 'rgba(140,165,120,0.45)' },
+  { id: 'sky', paper: '#e7eef6', tape: 'rgba(120,150,190,0.40)' },
+  { id: 'lilac', paper: '#efe8f5', tape: 'rgba(160,135,190,0.40)' },
+  { id: 'lemon', paper: '#fbf6d8', tape: 'rgba(210,185,90,0.45)' },
+];
+export const fontCss = (id?: string) => (FOOT_FONTS.find(f => f.id === id) || FOOT_FONTS[0]).css;
+export const tintOf = (id?: string) => FOOT_TINTS.find(t => t.id === id) || FOOT_TINTS[0];
+
+/** 角色写纸条用的默认字体 */
+const LS_CHAR_FONT = 'sully_footnote_char_font_v1';
+export const loadCharFont = () => { try { return localStorage.getItem(LS_CHAR_FONT) || 'longcang'; } catch { return 'longcang'; } };
+export const saveCharFont = (id: string) => { try { localStorage.setItem(LS_CHAR_FONT, id); } catch { /* ignore */ } };
 export interface QaRound {
   id: string; charId: string; question: string; fromBank: boolean;
   mine: string; his: string; reaction: string; createdAt: number;
@@ -77,25 +108,52 @@ const KIND_TASK: Record<CardKind, string> = {
   note: '批注：挑一本你真的读过、真实存在的书里的一句话（简短，40 字以内），写下你在页边的批注。',
   excerpt: '摘录：从一本真实存在的书或诗里摘一小段你会抄下来的句子（40 字以内），再写一句你为什么抄它。',
   frame: '电影截帧：挑一部真实存在的电影或剧，描述某一帧画面（不是台词，是你看到的构图、光线、人物动作，40 字以内），再写你的批注。',
+  memo: '小纸条：像情侣之间随手贴在冰箱、书里、镜子上的便签，写给 {{user}} 的一两句话。可以是想到 ta 的瞬间、一个小提醒、一句玩笑、一点想念。quote 留空，source 写贴在哪儿（比如「贴在台灯上」）。',
 };
 
 export async function dropCard(char: CharacterProfile, apiConfig: APIConfig): Promise<FootCard> {
-  const kinds: CardKind[] = ['note', 'excerpt', 'frame'];
+  const kinds: CardKind[] = ['note', 'excerpt', 'frame', 'memo', 'memo'];
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const recent = loadFootnote().cards.filter(c => c.charId === char.id).slice(0, 20).map(c => c.source);
   const instructions = `### 【页脚 · 书影批注墙】
 你在自己的书和片单边上随手写东西。现在掉落一张卡片。
 ${KIND_TASK[kind]}
-- 作品必须真实存在，作者/导演和年份要对；拿不准原句就写「大意：……」，不要编造引文。
+- 除了小纸条，作品必须真实存在，作者/导演和年份要对；拿不准原句就写「大意：……」，不要编造引文。
 - 批注是你自己的话：照你平时的语气、口味和偏见，可以刻薄、可以跑题、可以想到 {{user}}，40–120 字。
 - 不要重复最近写过的作品：${recent.length ? recent.join('、') : '（还没有）'}
 只输出一个 JSON：{"source":"《作品名》作者或导演 · 年份","quote":"……","note":"……"}`;
   const { text } = await call(char, apiConfig, instructions, '掉一张新卡片。', '书影批注卡片', 3000);
   const j = parseJson(text);
   if (!j.source || !j.note) throw new Error('卡片缺内容，再试一次');
-  const card: FootCard = { id: uid('fc'), charId: char.id, kind, source: String(j.source).slice(0, 80), quote: String(j.quote || '').slice(0, 200), note: String(j.note).slice(0, 400), createdAt: Date.now() };
+  const tints = FOOT_TINTS.map(t => t.id);
+  const card: FootCard = {
+    id: uid('fc'), charId: char.id, kind, source: String(j.source).slice(0, 80), quote: String(j.quote || '').slice(0, 200),
+    note: String(j.note).slice(0, 400), createdAt: Date.now(), author: 'char', font: loadCharFont(), tint: tints[Math.floor(Math.random() * tints.length)],
+  };
   updateFootnote(s => ({ ...s, cards: [card, ...s.cards] }));
   return card;
+}
+
+/** 用户自己贴一张纸条 */
+export function addUserNote(charId: string, text: string, font: string, tint: string): FootCard {
+  const card: FootCard = { id: uid('fc'), charId, kind: 'memo', source: '', quote: '', note: text.trim().slice(0, 400), createdAt: Date.now(), author: 'user', font, tint };
+  updateFootnote(s => ({ ...s, cards: [card, ...s.cards] }));
+  return card;
+}
+
+/** 让角色在某张纸条下面回一句（用户的纸条或他自己的都行） */
+export async function replyToNote(char: CharacterProfile, apiConfig: APIConfig, cardId: string): Promise<string> {
+  const card = loadFootnote().cards.find(c => c.id === cardId);
+  if (!card) throw new Error('这张纸条找不到了');
+  const who = card.author === 'user' ? '{{user}} 贴给你的纸条' : '你自己以前贴的纸条';
+  const { text } = await call(char, apiConfig,
+    `### 【页脚 · 便签墙】
+你在墙上看到一张${who}，拿笔在它下面回一句。像情侣之间的小纸条：短、自然、有你的语气，一两句，60 字以内。
+只输出你要写的那句话，不要引号。`,
+    `纸条内容：${card.quote ? `「${card.quote}」 ` : ''}${card.note}${card.source ? `（${card.source}）` : ''}`, '便签回复', 1500);
+  const reply = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 200);
+  updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, reply, replyAt: Date.now() } : c) }));
+  return reply;
 }
 
 /* ───────── 快问快答转盘 ───────── */
@@ -192,7 +250,8 @@ export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, ch
     `### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
 ${ch.task}
-用你自己的语气，不要写成报告。不要重复最近讲过的：${recent.join('、') || '（还没有）'}
+这是要念出来的电台：用你自己说话的语气，压低声音、慢一点；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
+不要重复最近讲过的：${recent.join('、') || '（还没有）'}
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。`, '开始吧。', `深夜点播·${ch.name}`, 5000);
   const lines = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').split('\n');
   const title = (lines.shift() || ch.name).replace(/^标题[:：]\s*/, '').trim().slice(0, 30);
