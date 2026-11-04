@@ -114,7 +114,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Appearance, name: '外观', icon: 'Appearance', color: 'slate' },
   { id: AppID.Settings, name: '设置', icon: 'Settings', color: 'slate' },
   { id: AppID.Guidebook, name: '攻略本', icon: 'Guidebook', color: 'slate' },
-  { id: AppID.LifeSim, name: '都市人生', icon: 'LifeSim', color: 'purple' },
+  // { id: AppID.LifeSim, name: '都市人生', icon: 'LifeSim', color: 'purple' }, // 二改：用不上，先藏起来（代码保留，取消注释即恢复）
   { id: AppID.SpecialMoments, name: '特别时光', icon: 'SpecialMoments', color: 'pink' },
   { id: AppID.Music, name: '音乐', icon: 'Music', color: 'rose' },
   { id: AppID.Footnote, name: '页脚', icon: 'Footnote', color: 'sky' },
