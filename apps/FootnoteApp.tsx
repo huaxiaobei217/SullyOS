@@ -9,13 +9,14 @@ import { isNaiReady, generateNaiImage } from '../utils/nai';
 import { shareNote, shareRadio, shareQa, shareCapsule } from '../utils/footnoteShare';
 import { isFootnoteChatOn, setFootnoteChatOn } from '../utils/footnoteChat';
 import { computeHateStats, saveHateTotal, type HateStats } from '../utils/hateCounter';
+import { startNoise, NOISE_NAMES, type NoiseKind, type NoisePlayer } from '../utils/sleepNoise';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
   loadFootnote, updateFootnote, FOOTNOTE_CHANGED_EVENT, dropCards, QA_BANK, generateQuestion, answerQuestion,
   RADIO_CHANNELS, playRadio, addUserNote, addUserReply, replyToNote, threadOf, parseRadioSegments,
   getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio, drawCardImage,
-  removeAskedQuestion, sealCapsule, openCapsule, canOpenCapsule, todayKey, sleepStageNote, type Capsule,
+  removeAskedQuestion, sealCapsule, openCapsule, canOpenCapsule, todayKey, SLEEP_SCRIPT_NOTE, type Capsule,
   FOOT_FONTS, FOOT_TINTS, fontCss, tintOf, loadCharFont, saveCharFont,
   type FootCard, type RadioChannel, type RadioPiece,
 } from '../utils/footnote';
@@ -645,83 +646,123 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
       duck(false);
       while (pausedRef.current && runRef.current === my) await new Promise(r => setTimeout(r, 200));
       // 哄睡模式：越往后，句子之间停得越久
-      if (runRef.current === my) await new Promise(r => setTimeout(r, sleepRef.current.on ? 600 + sleepFraction() * 5000 : 350));
+      if (runRef.current === my) await new Promise(r => setTimeout(r, sleepRef.current.on ? (sleepRef.current.gaps[i] ?? 3000) : 350));
     }
     if (runRef.current === my) { setPlaying(false); setSpeaking(-1); void onPieceEnd(piece); }
   };
 
-  /* ── 哄睡模式 ── */
+  /* ── 哄睡模式：一份睡前稿分段慢慢念 + 白噪音 / 自己的歌单 ── */
   const [sleepOn, setSleepOn] = useState(false);
   const [sleepMins, setSleepMins] = useState(() => { try { return Number(localStorage.getItem('sully_sleep_mins_v1')) || 30; } catch { return 30; } });
   const [sleepPanel, setSleepPanel] = useState(false);
   const [sleepMsg, setSleepMsg] = useState('');
-  const sleepRef = useRef<{ on: boolean; start: number; mins: number }>({ on: false, start: 0, mins: 30 });
+  const [sleepSource, setSleepSource] = useState<'new' | 'old'>('new');
+  const [sleepOldId, setSleepOldId] = useState('');
+  const sleepRef = useRef<{ on: boolean; start: number; mins: number; gaps: number[] }>({ on: false, start: 0, mins: 30, gaps: [] });
   const sleepFraction = () => sleepRef.current.on ? Math.min(1, (Date.now() - sleepRef.current.start) / (sleepRef.current.mins * 60000)) : 0;
+  /** 段与段之间的间隔：几何级数越拉越长，加起来约占总时长的六成 */
+  const planGaps = (n: number, mins: number) => {
+    const w = Array.from({ length: Math.max(0, n - 1) }, (_, i) => Math.pow(1.55, i));
+    const sum = w.reduce((x, y) => x + y, 0) || 1;
+    const total = Math.max(60, mins * 60 * 0.6 - n * 12) * 1000;
+    return w.map(x => Math.min(15 * 60000, (x / sum) * total));
+  };
+  // 背景声：白噪音（现场生成）+ 自己的歌单（多首，顺序循环）
+  const [noiseKind, setNoiseKind] = useState<NoiseKind | ''>(() => { try { return (localStorage.getItem('sully_sleep_noise_v1') as NoiseKind) || 'rain'; } catch { return 'rain'; } });
+  const noiseRef = useRef<NoisePlayer | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
-  const [bgmName, setBgmName] = useState('');
+  const [playlist, setPlaylist] = useState<{ id: string; name: string }[]>(() => { try { return JSON.parse(localStorage.getItem('sully_sleep_playlist_v1') || '[]'); } catch { return []; } });
+  const playlistRef = useRef(playlist);
   const [bgmVol, setBgmVol] = useState(() => { try { return Number(localStorage.getItem('sully_sleep_bgm_vol_v1') || '0.35'); } catch { return 0.35; } });
   const bgmVolRef = useRef(bgmVol);
-  useEffect(() => { bgmVolRef.current = bgmVol; if (bgmRef.current) bgmRef.current.volume = bgmVol; try { localStorage.setItem('sully_sleep_bgm_vol_v1', String(bgmVol)); } catch { /* ignore */ } }, [bgmVol]);
-  useEffect(() => { try { localStorage.setItem('sully_sleep_mins_v1', String(sleepMins)); } catch { /* ignore */ } }, [sleepMins]);
-  const bgmFileRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { playlistRef.current = playlist; try { localStorage.setItem('sully_sleep_playlist_v1', JSON.stringify(playlist)); } catch { /* ignore */ } }, [playlist]);
   useEffect(() => {
-    DB.getAssetRaw('footnote_sleep_bgm').then((v: any) => { if (v?.blob) setBgmName(v.name || '背景音乐'); }).catch(() => {});
-    return () => { bgmRef.current?.pause(); };
-  }, []);
-  const pickBgm = async (f?: File) => {
-    if (!f) return;
-    await DB.saveAssetRaw('footnote_sleep_bgm', { blob: f, mimeType: f.type, name: f.name });
-    setBgmName(f.name);
-    if (bgmRef.current) { bgmRef.current.pause(); bgmRef.current = null; }
-    if (sleepRef.current.on) void startBgm();
+    bgmVolRef.current = bgmVol;
+    if (bgmRef.current) bgmRef.current.volume = bgmVol;
+    noiseRef.current?.setVolume(bgmVol * 0.6);
+    try { localStorage.setItem('sully_sleep_bgm_vol_v1', String(bgmVol)); } catch { /* ignore */ }
+  }, [bgmVol]);
+  useEffect(() => { try { localStorage.setItem('sully_sleep_mins_v1', String(sleepMins)); localStorage.setItem('sully_sleep_noise_v1', noiseKind); } catch { /* ignore */ } }, [sleepMins, noiseKind]);
+  useEffect(() => () => { bgmRef.current?.pause(); void noiseRef.current?.stop(); }, []);
+  const bgmFileRef = useRef<HTMLInputElement | null>(null);
+  const addSongs = async (files?: FileList | null) => {
+    if (!files?.length) return;
+    const added: { id: string; name: string }[] = [];
+    for (const f of Array.from(files)) {
+      const id = `sleep_bgm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      await DB.saveAssetRaw(id, { blob: f, mimeType: f.type, name: f.name });
+      added.push({ id, name: f.name.replace(/\.[^.]+$/, '') });
+    }
+    setPlaylist(p => [...p, ...added]);
   };
-  const startBgm = async () => {
-    const v: any = await DB.getAssetRaw('footnote_sleep_bgm').catch(() => null);
-    if (!v?.blob) return;
+  const removeSong = (id: string) => { setPlaylist(p => p.filter(x => x.id !== id)); void DB.deleteAsset(id).catch(() => {}); };
+  const playSongAt = async (k: number) => {
+    const list = playlistRef.current;
+    if (!list.length || !sleepRef.current.on) return;
+    const item = list[k % list.length];
+    const v: any = await DB.getAssetRaw(item.id).catch(() => null);
+    if (!v?.blob) { void playSongAt(k + 1); return; }
     const a = new Audio(URL.createObjectURL(v.blob));
-    a.loop = true; a.volume = bgmVolRef.current;
+    a.volume = bgmVolRef.current;
+    a.onended = () => { void playSongAt(k + 1); };
     bgmRef.current = a;
     a.play().catch(() => {});
   };
-  /** 他说话时背景音乐压低 */
+  const startBackground = () => {
+    if (noiseKind) { try { noiseRef.current = startNoise(noiseKind, bgmVolRef.current * 0.6); } catch { /* 不支持 WebAudio */ } }
+    void playSongAt(0);
+  };
+  /** 他说话时背景声压低 */
   const duck = (speaking: boolean) => {
-    const a = bgmRef.current; if (!a) return;
-    a.volume = speaking ? bgmVolRef.current * 0.3 : bgmVolRef.current;
+    if (bgmRef.current) bgmRef.current.volume = speaking ? bgmVolRef.current * 0.3 : bgmVolRef.current;
+    noiseRef.current?.setVolume(bgmVolRef.current * (speaking ? 0.25 : 0.6));
   };
-  const fadeOutBgm = async () => {
-    const a = bgmRef.current; if (!a) return;
-    for (let k = 20; k >= 0; k--) { a.volume = bgmVolRef.current * (k / 20); await new Promise(r => setTimeout(r, 400)); }
-    a.pause(); bgmRef.current = null;
+  const fadeOutBackground = async () => {
+    const a = bgmRef.current;
+    const n = noiseRef.current; noiseRef.current = null;
+    const jobs: Promise<void>[] = [];
+    if (n) jobs.push(n.stop(8000));
+    if (a) jobs.push((async () => { for (let k = 20; k >= 0; k--) { a.volume = bgmVolRef.current * (k / 20); await new Promise(r => setTimeout(r, 400)); } a.pause(); })());
+    bgmRef.current = null;
+    await Promise.all(jobs);
   };
-  const startSleep = () => {
-    sleepRef.current = { on: true, start: Date.now(), mins: sleepMins };
-    setSleepOn(true); setSleepPanel(false); setSleepMsg('');
-    void startBgm();
-    if (!current || !playing) tune(current?.channel && current.channel !== 'patent' ? current.channel : 'free');
+  const sleepTimer = useRef<number | null>(null);
+  const [, sleepTick] = useState(0);
+  useEffect(() => { if (!sleepOn) return; const t = setInterval(() => sleepTick(x => x + 1), 30000); return () => clearInterval(t); }, [sleepOn]);
+  const startSleep = async () => {
+    setSleepPanel(false); setSleepMsg('');
+    let piece: RadioPiece | null = null;
+    if (sleepSource === 'old') piece = pieces.find(p => p.id === sleepOldId) || pieces[0] || null;
+    if (!piece) {
+      setBusy('free');
+      try {
+        const ch: RadioChannel = current?.channel && current.channel !== 'patent' ? current.channel : 'free';
+        piece = await playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '', SLEEP_SCRIPT_NOTE);
+        setTopic('');
+      } catch (e) { onErr(e); setBusy(null); return; }
+      setBusy(null);
+    }
+    const n = parseRadioSegments(piece.text).length;
+    sleepRef.current = { on: true, start: Date.now(), mins: sleepMins, gaps: planGaps(n, sleepMins) };
+    setSleepOn(true);
+    startBackground();
+    if (sleepTimer.current) window.clearTimeout(sleepTimer.current);
+    sleepTimer.current = window.setTimeout(() => stopSleep('陪你到这儿了，晚安。'), sleepMins * 60000);
+    startPiece(piece);
   };
   const stopSleep = (msg = '') => {
     sleepRef.current.on = false; setSleepOn(false); setSleepMsg(msg);
-    void fadeOutBgm();
+    if (sleepTimer.current) { window.clearTimeout(sleepTimer.current); sleepTimer.current = null; }
+    void fadeOutBackground();
   };
-  /** 一段念完：哄睡模式下，时间没到就接着点下一段（越来越短、越来越轻） */
-  const onPieceEnd = async (piece: RadioPiece) => {
-    if (!sleepRef.current.on) return;
-    const f = sleepFraction();
-    if (f >= 1) { stopSleep('陪你到这儿了，晚安。'); return; }
-    await new Promise(r => setTimeout(r, 2500 + f * 8000));
-    if (!sleepRef.current.on) return;
-    try {
-      const next = await playRadio(char, apiConfig, piece.channel === 'patent' ? 'free' : piece.channel, bilingual ? lang : '', '', sleepStageNote(f, userName));
-      if (sleepRef.current.on) startPiece(next);
-    } catch (e) { onErr(e); stopSleep(); }
-  };
+  /** 一份稿子念完：哄睡模式下不再生成新的，只剩背景声陪到时间结束 */
+  const onPieceEnd = async (_piece: RadioPiece) => { /* 背景声继续，计时器到点淡出 */ };
 
   const startPiece = (p: RadioPiece) => { stopAll(); setCurrent(p); setShown(0); setElapsed(0); setShowHistory(false); setTimeout(() => run(p, 0), 50); };
   const [topic, setTopic] = useState('');
   const tune = (ch: RadioChannel) => {
     stopAll(); setBusy(ch);
-    const extra = sleepRef.current.on ? sleepStageNote(sleepFraction(), userName) : '';
-    playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '', extra).then(p => { setTopic(''); startPiece(p); }).catch(onErr).finally(() => setBusy(null));
+    playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '').then(p => { setTopic(''); startPiece(p); }).catch(onErr).finally(() => setBusy(null));
   };
   const togglePause = () => {
     if (!current) return;
@@ -843,7 +884,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         {sleepOn ? (
           <div className="flex items-center gap-2 p-2.5 rounded-2xl text-[11.5px]" style={{ background: 'rgba(185,135,90,0.14)', border: '1px solid rgba(185,135,90,0.35)' }}>
             <Moon size={15} weight="fill" style={{ color: T.candle }} />
-            <span className="flex-1">哄睡中 · 还剩 {Math.max(0, Math.ceil(sleepMins - (Date.now() - sleepRef.current.start) / 60000))} 分钟 · 越往后越安静</span>
+            <span className="flex-1">哄睡中 · 还剩 {Math.max(0, Math.ceil(sleepMins - (Date.now() - sleepRef.current.start) / 60000))} 分钟{!playing && current ? ' · 他讲完了，背景声陪着你' : ' · 越往后越安静'}</span>
             <button onClick={() => stopSleep()} className="opacity-70">停下</button>
           </div>
         ) : (
@@ -862,15 +903,35 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
               </div>
             </div>
             <div>
-              <div className="opacity-60 mb-1.5">背景音乐（他说话时会自动压低）</div>
-              <input ref={bgmFileRef} type="file" accept="audio/*" className="hidden" onChange={e => { pickBgm(e.target.files?.[0]); e.target.value = ''; }} />
-              <div className="flex items-center gap-2">
-                <button onClick={() => bgmFileRef.current?.click()} className="px-3 py-1 rounded-full shrink-0" style={{ border: '1px solid rgba(233,226,214,0.25)' }}>{bgmName ? '换一首' : '选本地音乐'}</button>
-                <span className="truncate opacity-60 flex-1">{bgmName || '不放也行'}</span>
+              <div className="opacity-60 mb-1.5">今晚讲什么</div>
+              <div className="flex gap-1.5">
+                <button onClick={() => setSleepSource('new')} className="flex-1 py-1 rounded-full" style={{ background: sleepSource === 'new' ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>新写一份</button>
+                <button onClick={() => { setSleepSource('old'); if (!sleepOldId && pieces[0]) setSleepOldId(pieces[0].id); }} disabled={!pieces.length} className="flex-1 py-1 rounded-full disabled:opacity-30" style={{ background: sleepSource === 'old' ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>重听以前的（不花钱）</button>
               </div>
-              {bgmName && <input type="range" className="w-full mt-2" min={0} max={1} step={0.05} value={bgmVol} onChange={e => setBgmVol(Number(e.target.value))} />}
+              {sleepSource === 'old' && pieces.length > 0 && (
+                <select value={sleepOldId} onChange={e => setSleepOldId(e.target.value)} className="w-full mt-1.5 bg-transparent rounded-lg px-2 py-1" style={{ border: '1px solid rgba(233,226,214,0.2)', color: 'inherit' }}>
+                  {pieces.slice(0, 30).map(p => <option key={p.id} value={p.id} style={{ color: T.ink }}>{p.title}</option>)}
+                </select>
+              )}
+              <div className="opacity-45 mt-1 leading-relaxed">{sleepSource === 'new' ? '只调一次模型写一份睡前稿，分成七八小段慢慢念；每段语音只合成一次，存下来以后重听不再花钱。' : '用存好的音频重念一遍，段与段之间照样越停越久。'}</div>
             </div>
-            <div className="opacity-50 leading-relaxed">开始后他会一段接一段地讲（频道沿用现在这个，没选就他看着办），越往后越短、停得越久、声音越轻；到时间音乐慢慢淡出。</div>
+            <div>
+              <div className="opacity-60 mb-1.5">背景声（他说话时会自动压低）</div>
+              <div className="flex flex-wrap gap-1.5">
+                {(['rain', 'pink', 'brown', 'white'] as NoiseKind[]).map(k => (
+                  <button key={k} onClick={() => setNoiseKind(noiseKind === k ? '' : k)} className="px-2.5 py-1 rounded-full" style={{ background: noiseKind === k ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>{NOISE_NAMES[k]}</button>
+                ))}
+              </div>
+              <div className="mt-2 space-y-1">
+                {playlist.map((x, i) => (
+                  <div key={x.id} className="flex items-center gap-2"><span className="opacity-40 w-4">{i + 1}</span><span className="flex-1 truncate">{x.name}</span><button onClick={() => removeSong(x.id)} className="opacity-50">×</button></div>
+                ))}
+              </div>
+              <input ref={bgmFileRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => { addSongs(e.target.files); e.target.value = ''; }} />
+              <button onClick={() => bgmFileRef.current?.click()} className="mt-1.5 px-3 py-1 rounded-full" style={{ border: '1px solid rgba(233,226,214,0.25)' }}>+ 加几首本地音乐（按顺序轮流放）</button>
+              <div className="flex items-center gap-2 mt-2"><span className="opacity-50 shrink-0">音量</span><input type="range" className="flex-1" min={0} max={1} step={0.05} value={bgmVol} onChange={e => setBgmVol(Number(e.target.value))} /></div>
+            </div>
+            <div className="opacity-50 leading-relaxed">开始后：他一小段一小段地念，段与段之间越停越久，后半段基本只剩背景声；到时间背景声慢慢淡出。</div>
             <button onClick={startSleep} disabled={!!busy} className="w-full py-2 rounded-full text-white disabled:opacity-50" style={{ background: T.candle }}>开始哄睡</button>
           </div>
         )}
@@ -971,6 +1032,53 @@ const WaxSeal: React.FC<{ size?: number; glow?: boolean }> = ({ size = 44, glow 
   </svg>
 );
 
+/** 带划线批注的信：被划的句子下面一道波浪线 + 圈号，点一下在原地展开他的批注；全部批注也列在信后面 */
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'];
+const AnnotatedLetter: React.FC<{ text: string; notes: { quote: string; note: string }[]; font: string; noteFont: string }> = ({ text, notes, font, noteFont }) => {
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  // 按在原文里出现的位置排好，重叠的后一个跳过
+  const spans: { start: number; end: number; idx: number }[] = [];
+  notes.forEach((n, idx) => {
+    const start = text.indexOf(n.quote);
+    if (start < 0) return;
+    const end = start + n.quote.length;
+    if (spans.some(s => start < s.end && end > s.start)) return;
+    spans.push({ start, end, idx });
+  });
+  spans.sort((a, b) => a.start - b.start);
+  const order = spans.map(s => s.idx);
+  const parts: React.ReactNode[] = [];
+  let pos = 0;
+  spans.forEach((sp, k) => {
+    if (sp.start > pos) parts.push(<span key={`t${k}`}>{text.slice(pos, sp.start)}</span>);
+    parts.push(
+      <span key={`m${k}`} onClick={() => setOpenIdx(openIdx === sp.idx ? null : sp.idx)} className="cursor-pointer"
+        style={{ textDecoration: 'underline wavy rgba(181,70,74,0.75)', textUnderlineOffset: 4, textDecorationThickness: 1.2, background: openIdx === sp.idx ? 'rgba(181,70,74,0.08)' : undefined }}>
+        {text.slice(sp.start, sp.end)}<sup className="ml-0.5" style={{ color: '#b5464a', fontSize: 10 }}>{CIRCLED[k] || '·'}</sup>
+      </span>,
+    );
+    if (openIdx === sp.idx) parts.push(
+      <span key={`n${k}`} className="block my-1 ml-3 pl-2" style={{ borderLeft: '2px solid rgba(181,70,74,0.5)', fontFamily: noteFont, fontSize: 14, color: '#7e2228' }}>{notes[sp.idx].note}</span>,
+    );
+    pos = sp.end;
+  });
+  if (pos < text.length) parts.push(<span key="tail">{text.slice(pos)}</span>);
+  return (
+    <>
+      <div className="whitespace-pre-wrap leading-relaxed" style={{ fontFamily: font, fontSize: 15, color: T.ink }}>{parts}</div>
+      {order.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {order.map((idx, k) => (
+            <div key={idx} className="text-[13.5px] leading-snug" style={{ fontFamily: noteFont, color: '#7e2228' }}>
+              <span className="mr-1" style={{ fontSize: 11 }}>{CIRCLED[k]}</span>{notes[idx].note}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+};
+
 const CapsuleTab: React.FC<{ char: any; apiConfig: any; capsules: Capsule[]; onErr: (e: any) => void; userName: string; onShared?: () => void }> = ({ char, apiConfig, capsules, onErr, userName, onShared }) => {
   const [writing, setWriting] = useState(false);
   const [title, setTitle] = useState('');
@@ -1021,7 +1129,7 @@ const CapsuleTab: React.FC<{ char: any; apiConfig: any; capsules: Capsule[]; onE
           </div>
           <label className="flex items-start gap-2 mt-3 text-[11.5px]" style={{ color: T.ink }}>
             <input type="checkbox" className="mt-0.5" checked={withHim} onChange={e => setWithHim(e.target.checked)} />
-            <span>让{char.name}看完也写一段，一起封进去<span className="block text-[10px] opacity-55">他写了什么，拆开那天才知道</span></span>
+            <span>让{char.name}看完在信上划线批注，再写一段，一起封进去<span className="block text-[10px] opacity-55">他划了哪里、写了什么，拆开那天才知道</span></span>
           </label>
           <div className="flex justify-end gap-3 mt-3">
             <button onClick={() => setWriting(false)} className="text-[12px] opacity-60">先不封</button>
@@ -1069,8 +1177,8 @@ const CapsuleTab: React.FC<{ char: any; apiConfig: any; capsules: Capsule[]; onE
             <div className="max-h-[80vh] overflow-y-auto no-scrollbar p-5">
               <div className="text-[10px] tracking-[0.2em] mb-1" style={{ color: T.candle }}>时间胶囊 · {new Date(view.createdAt).toLocaleDateString()} 封</div>
               <div className="text-[16px] font-semibold mb-3" style={{ fontFamily: serif }}>{view.title || '无题'}</div>
-              <div className="text-[10px] mb-1" style={{ color: T.soft }}>那时候的你写给今天的你</div>
-              <div className="whitespace-pre-wrap leading-relaxed" style={{ fontFamily: fontCss(myFont), fontSize: 15, color: T.ink }}>{view.mine}</div>
+              <div className="text-[10px] mb-1" style={{ color: T.soft }}>那时候的你写给今天的你{view.notes?.length ? `（${char.name}在上面划了线）` : ''}</div>
+              <AnnotatedLetter text={view.mine} notes={view.notes || []} font={fontCss(myFont)} noteFont={fontCss(loadCharFont())} />
               {view.his && (
                 <div className="mt-4 pt-3 border-t border-dashed" style={{ borderColor: 'rgba(0,0,0,0.14)' }}>
                   <div className="text-[10px] mb-1" style={{ color: T.soft }}>{char.name}当时偷偷封进去的</div>

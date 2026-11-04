@@ -58,6 +58,6 @@ export async function shareCapsule(c: Capsule, charName: string, userName: strin
   const body = `<div style="font-size:10px;color:#6f6a62">那时候的${esc(userName)}写给今天：</div><div>${esc(c.mine.length > 220 ? c.mine.slice(0, 220) + '…' : c.mine)}</div>` +
     (c.his ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed rgba(0,0,0,.15);font-size:10px;color:#6f6a62">${esc(charName)}当时封进去的：</div><div>${esc(c.his.length > 200 ? c.his.slice(0, 200) + '…' : c.his)}</div>` : '') +
     (c.reaction ? `<div style="margin-top:8px;font-style:italic;color:#6f6a62">—— ${esc(c.reaction)}</div>` : '');
-  const preview = `【页脚·时间胶囊】${userName}和${charName}拆开了 ${new Date(c.createdAt).toLocaleDateString()} 封的时间胶囊「${c.title || '无题'}」。${userName}当时写给自己的是：「${c.mine.slice(0, 400)}」${c.his ? `；${charName}当时封进去的是：「${c.his.slice(0, 300)}」` : ''}${c.reaction ? `；拆开时${charName}说：「${c.reaction}」` : ''}`;
+  const preview = `【页脚·时间胶囊】${userName}和${charName}拆开了 ${new Date(c.createdAt).toLocaleDateString()} 封的时间胶囊「${c.title || '无题'}」。${userName}当时写给自己的是：「${c.mine.slice(0, 400)}」${c.notes?.length ? `；${charName}当时在信上划线批注：${c.notes.map(n => `「${n.quote}」旁边写着「${n.note}」`).join('，')}` : ''}${c.his ? `；${charName}当时封进去的是：「${c.his.slice(0, 300)}」` : ''}${c.reaction ? `；拆开时${charName}说：「${c.reaction}」` : ''}`;
   await save(c.charId, 'assistant', card('时间胶囊', c.title || '无题', body, `${new Date(c.createdAt).toLocaleDateString()} 封 · ${c.openOn} 拆`, '#f4ead6'), preview);
 }

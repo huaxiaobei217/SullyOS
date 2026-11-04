@@ -79,6 +79,8 @@ export interface Capsule {
   mine: string;
   /** 他封进去的话（拆之前不给看） */
   his?: string;
+  /** 他在你信上的划线批注：quote 必须是信里的原文片段 */
+  notes?: { quote: string; note: string }[];
   opened?: boolean; openedAt?: number;
   /** 拆开那天他在旁边说的话 */
   reaction?: string;
@@ -428,16 +430,29 @@ export const canOpenCapsule = (c: Capsule, today = todayKey()) => c.openOn <= to
 /** 封一个胶囊；他看完你的信，写一段自己的话一起封进去（拆之前你看不到） */
 export async function sealCapsule(char: CharacterProfile, apiConfig: APIConfig, opts: { title: string; mine: string; openOn: string; withHim: boolean }): Promise<Capsule> {
   let his = '';
+  let notes: { quote: string; note: string }[] = [];
+  const mine = opts.mine.trim().slice(0, 4000);
   if (opts.withHim) {
     const { text } = await call(char, apiConfig,
       `### 【页脚 · 时间胶囊】
-{{user}} 写了一封信给 ${opts.openOn} 那天的自己，要封进时间胶囊，到那天才能拆。你在旁边看完了这封信。
-写一段你自己的话一起封进去：写给到那天拆开它的 ta。可以回应信里的事、可以说你现在的心情、可以猜那时候的你们会是什么样、可以留一个小约定。
-照你平时的语气写，100–250 字，不要写成贺卡，也别剧透说「我知道你会……」。只输出你要封进去的话。`,
-      `胶囊标题：${opts.title || '（没写）'}\n拆开的日子：${opts.openOn}\n\n{{user}} 的信：\n${opts.mine}`, '时间胶囊·封存', 3000);
-    his = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 1500);
+{{user}} 写了一封信给 ${opts.openOn} 那天的自己，要封进时间胶囊，到那天才能拆。你拿着笔在旁边看完了这封信。
+1. 在信上划线批注：挑 2–6 处让你有话想说的句子，在旁边写批注——可以是回应、吐槽、心疼、补充、给那时候的 ta 的话。quote 必须原封不动地从信里复制（一小段，5–40 字），note 是你写在页边的话（一两句）。
+2. 再写一段你自己的话一起封进去：写给到那天拆开它的 ta。可以说你现在的心情、猜那时候的你们会是什么样、留一个小约定。100–250 字。
+照你平时的语气，不要写成贺卡，也别剧透说「我知道你会……」。
+只输出一个 JSON：{"notes":[{"quote":"信里的原文片段","note":"你的批注"}],"letter":"你封进去的话"}`,
+      `胶囊标题：${opts.title || '（没写）'}\n拆开的日子：${opts.openOn}\n\n{{user}} 的信：\n${mine}`, '时间胶囊·封存', 5000);
+    try {
+      const j = parseJson(text);
+      his = String(j.letter || '').trim().slice(0, 1500);
+      notes = (Array.isArray(j.notes) ? j.notes : [])
+        .map((n: any) => ({ quote: String(n?.quote || '').trim(), note: String(n?.note || '').trim().slice(0, 200) }))
+        .filter((n: any) => n.quote && n.note && mine.includes(n.quote))
+        .slice(0, 8);
+    } catch {
+      his = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 1500);
+    }
   }
-  const cap: Capsule = { id: uid('tc'), charId: char.id, createdAt: Date.now(), openOn: opts.openOn, title: opts.title.trim().slice(0, 40), mine: opts.mine.trim().slice(0, 4000), ...(his ? { his } : {}) };
+  const cap: Capsule = { id: uid('tc'), charId: char.id, createdAt: Date.now(), openOn: opts.openOn, title: opts.title.trim().slice(0, 40), mine, ...(his ? { his } : {}), ...(notes.length ? { notes } : {}) };
   updateFootnote(s => ({ ...s, capsules: [cap, ...(s.capsules || [])] }));
   return cap;
 }
@@ -453,7 +468,7 @@ export async function openCapsule(char: CharacterProfile, apiConfig: APIConfig, 
       `### 【页脚 · 拆时间胶囊】
 今天是拆时间胶囊的日子。这个胶囊是 ${new Date(cap.createdAt).toLocaleDateString()} 封的，里面有 {{user}} 写给今天的自己的信${cap.his ? '，还有你当时封进去的话' : ''}。你们刚一起拆开。
 看完之后，用你现在的语气说几句：对照那时候和现在，有什么变了、什么没变；也可以回应你当时写的话。像在 ta 身边说话，60–150 字。只输出你要说的话。`,
-      `胶囊标题：${cap.title || '（没写）'}\n{{user}} 当时写的：\n${cap.mine}${cap.his ? `\n\n你当时封进去的：\n${cap.his}` : ''}`, '时间胶囊·拆开', 2500);
+      `胶囊标题：${cap.title || '（没写）'}\n{{user}} 当时写的：\n${cap.mine}${cap.notes?.length ? `\n\n你当时在信上的批注：\n${cap.notes.map(n => `「${n.quote}」→ ${n.note}`).join('\n')}` : ''}${cap.his ? `\n\n你当时封进去的：\n${cap.his}` : ''}`, '时间胶囊·拆开', 2500);
     reaction = text.replace(/^["“「]|["”」]$/g, '').trim().slice(0, 800);
   } catch { /* 他没说话也能拆 */ }
   const next: Capsule = { ...cap, opened: true, openedAt: Date.now(), ...(reaction ? { reaction } : {}) };
@@ -462,9 +477,8 @@ export async function openCapsule(char: CharacterProfile, apiConfig: APIConfig, 
 }
 
 
-/** 哄睡模式：按「已经陪了多久」给下一段加的要求——越往后越短、越慢、越少说 */
-export function sleepStageNote(fraction: number, userName = '{{user}}'): string {
-  if (fraction < 0.34) return `【哄睡中 · 刚开始】${userName} 已经躺下准备睡了。这一段照常讲，但别讲得太刺激，别抛问题让 ta 回答。`;
-  if (fraction < 0.67) return `【哄睡中 · 过了一半】${userName} 可能已经有点困了。这一段短一点（150–250 字），节奏更慢，句子更短，内容更平淡、更安静，不要转折和悬念。`;
-  return `【哄睡中 · 快睡着了】${userName} 大概快睡着了。只说很短的一小段（60–120 字），像在耳边轻轻说，几句话就停；最后一句可以是晚安，或者只是安静地陪着。`;
-}
+/** 哄睡模式：一次写好整份睡前稿，分成好几小段，播的时候段与段之间越停越久（只调一次模型、每段只合成一次语音） */
+export const SLEEP_SCRIPT_NOTE = `【哄睡稿】这份稿子会分段慢慢念：每段之间会停很久，越往后停得越久，中间只有背景音。
+- 写 7–9 小段，段与段之间空一行。
+- 第一段三四句，之后每段越来越短、越来越慢、越来越安静；最后两段只有一两句，最后一句是很轻的晚安。
+- 不提问、不要悬念和转折，不要让 ta 需要回应；内容平淡、温柔、有画面感。`;
