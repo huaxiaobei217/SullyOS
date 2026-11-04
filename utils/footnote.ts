@@ -65,7 +65,7 @@ export interface QaRound {
   id: string; charId: string; question: string; fromBank: boolean;
   mine: string; his: string; reaction: string; createdAt: number;
 }
-export type RadioChannel = 'gossip' | 'sonnet' | 'patent';
+export type RadioChannel = 'gossip' | 'sonnet' | 'travel' | 'record' | 'free' | 'patent';
 export interface RadioPiece { id: string; charId: string; channel: RadioChannel; title: string; text: string; createdAt: number; voiceLang?: string; }
 
 interface Store { cards: FootCard[]; qa: QaRound[]; radio: RadioPiece[]; qaPool?: { charId: string; q: string }[]; }
@@ -270,20 +270,32 @@ export async function answerQuestion(char: CharacterProfile, apiConfig: APIConfi
 
 /* ───────── 深夜点播机 ───────── */
 
-export const RADIO_CHANNELS: { id: RadioChannel; name: string; desc: string; task: string }[] = [
+export const RADIO_CHANNELS: { id: RadioChannel; name: string; desc: string; task: string; hidden?: boolean }[] = [
   {
-    id: 'gossip', name: '历史狗血八卦', desc: '真实历史里的离谱往事，用讲八卦的口气说',
-    task: '挑一段真实历史里狗血、离谱的往事（宫廷、文人、科学家、艺术家都行），用你讲八卦的口气说给 {{user}} 听，压低声音、慢慢讲，像睡前闲聊。只讲有史料的事；传说或有争议的地方要说明「据说」。300–500 字。',
+    id: 'gossip', name: '历史狗血八卦', desc: '真实历史里的离谱往事，讲八卦的口气',
+    task: '挑一段真实历史里狗血、离谱的往事（宫廷、文人、科学家、艺术家都行），用你讲八卦的口气说给 {{user}} 听，像睡前闲聊。只讲有史料的事；传说或有争议的地方要说明「据说」。300–500 字。',
   },
   {
-    id: 'sonnet', name: '十四行诗', desc: '他念一首十四行，原创或公版名篇',
-    task: '给 {{user}} 念一首十四行诗：可以是你自己写的原创中文十四行（写给 ta 也行），也可以是莎士比亚这类已进入公版的名篇（附中文大意）。念完用一两句话低声说说你为什么选它。',
+    id: 'sonnet', name: '十四行诗', desc: '原创，或公版名篇',
+    task: '给 {{user}} 念一首十四行诗：可以是你自己写的原创中文十四行（写给 ta 也行），也可以是莎士比亚这类已进入公版的名篇（附中文大意）。念完用一两句话说说你为什么选它。',
   },
   {
-    id: 'patent', name: '催眠专利附录', desc: '一份一本正经又荒诞的助眠专利附录',
-    task: '用一本正经的专利文书口气，写一份荒诞又温柔的「助眠装置专利 · 附录」：装置名称、技术领域、实施例 1–3、注意事项。读起来要越来越慢、越来越困，最后一条注意事项是对 {{user}} 说的晚安。300–450 字。',
+    id: 'travel', name: '远行手记', desc: '他去过的某个地方、某一晚',
+    task: '讲一段你自己远行时的经历：一个你真的去过的地方（按你的人设和经历来，地点要真实存在），某个具体的夜晚或清晨——当时的天气、气味、声音、遇到的人、你在想什么。像翻开旧手账念给 {{user}} 听，可以讲到一半想起 ta。300–500 字。',
   },
-];
+  {
+    id: 'record', name: '唱片背面', desc: '一张他喜欢的唱片和它背后的事',
+    task: '从你的唱片架上抽一张你真心喜欢的专辑或单曲（真实存在，符合你的口味），讲它背后的故事：录音时的轶事、歌手当时的处境、你第一次听它是在哪里、为什么想今晚放给 {{user}} 听。轶事只讲确实有记载的，拿不准就说「据说」。300–500 字。',
+  },
+  {
+    id: 'free', name: '他看着办', desc: '今晚讲什么他自己决定，也可以点个题',
+    task: '今晚讲什么由你决定：可以是最近你们聊过的事的后续、你最近在看的书或电影、某个突然想起来的小事、一个你一直想跟 ta 说的念头……挑一个你此刻真的想讲的，用你的方式讲给 {{user}} 听。300–500 字。',
+  },
+  {
+    id: 'patent', name: '催眠专利附录', desc: '', hidden: true,
+    task: '讲一个让人放松的小故事。300 字。',
+  },
+]
 
 /** 双语电台：每段中文后面跟一个 <语音>外语</语音>，念外语、字幕两种都显示 */
 export const parseRadioSegments = (text: string): { zh: string; voice: string }[] => {
@@ -304,13 +316,13 @@ export const parseRadioSegments = (text: string): { zh: string; voice: string }[
   return out;
 };
 
-export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = ''): Promise<RadioPiece> {
+export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = '', topic = ''): Promise<RadioPiece> {
   const ch = RADIO_CHANNELS.find(c => c.id === channel)!;
   const recent = loadFootnote().radio.filter(r => r.charId === char.id && r.channel === channel).slice(0, 10).map(r => r.title);
   const { text } = await call(char, apiConfig,
     `### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
-${ch.task}
+${ch.task}${topic.trim() ? `\n{{user}} 今晚点了个题：「${topic.trim().slice(0, 100)}」——围绕它讲，怎么理解、从哪讲起由你。` : ''}
 这是要念出来的睡前电台：就用你平时说话的声音和语气，自然、放松，像睡前躺着跟 ta 聊天——不用刻意压嗓子、装温柔或发嗲；只是别突然拔高音量、大笑或惊呼，少用感叹号，情绪放在字里；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
 不要重复最近讲过的：${recent.join('、') || '（还没有）'}
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `

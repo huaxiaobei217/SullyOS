@@ -572,9 +572,10 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
   };
 
   const startPiece = (p: RadioPiece) => { stopAll(); setCurrent(p); setShown(0); setElapsed(0); setShowHistory(false); setTimeout(() => run(p, 0), 50); };
+  const [topic, setTopic] = useState('');
   const tune = (ch: RadioChannel) => {
     stopAll(); setBusy(ch);
-    playRadio(char, apiConfig, ch, bilingual ? lang : '').then(startPiece).catch(onErr).finally(() => setBusy(null));
+    playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '').then(p => { setTopic(''); startPiece(p); }).catch(onErr).finally(() => setBusy(null));
   };
   const togglePause = () => {
     if (!current) return;
@@ -638,15 +639,24 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
             <div className={`${isBi && line.voice !== line.zh ? 'text-[11.5px] opacity-65 mt-1' : 'text-[14px]'} leading-relaxed`} style={{ fontFamily: serif }}>{displayText(line.zh)}</div>
           </div>
         ) : !current && (
-          <div className="grid grid-cols-3 gap-2 w-full">
-            {RADIO_CHANNELS.map(ch => (
-              <button key={ch.id} onClick={() => tune(ch.id)} disabled={!!busy}
-                className="p-2.5 rounded-2xl text-left active:scale-95 disabled:opacity-60"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(233,226,214,0.14)' }}>
-                <div className="text-[12px] font-semibold" style={{ fontFamily: serif }}>{busy === ch.id ? '调频中…' : ch.name}</div>
-                <div className="text-[9.5px] opacity-55 mt-0.5 leading-snug">{ch.desc}</div>
+          <div className="w-full">
+            <div className="grid grid-cols-2 gap-2">
+              {RADIO_CHANNELS.filter(ch => !ch.hidden && ch.id !== 'free').map(ch => (
+                <button key={ch.id} onClick={() => tune(ch.id)} disabled={!!busy}
+                  className="p-2.5 rounded-2xl text-left active:scale-95 disabled:opacity-60"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(233,226,214,0.14)' }}>
+                  <div className="text-[12px] font-semibold" style={{ fontFamily: serif }}>{busy === ch.id ? '调频中…' : ch.name}</div>
+                  <div className="text-[9.5px] opacity-55 mt-0.5 leading-snug">{ch.desc}</div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 p-2.5 rounded-2xl flex items-center gap-2" style={{ background: 'rgba(185,135,90,0.12)', border: '1px solid rgba(185,135,90,0.3)' }}>
+              <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="想听什么？不填就让他看着办"
+                className="flex-1 min-w-0 bg-transparent outline-none text-[12px] placeholder:opacity-50" style={{ fontFamily: serif, color: 'inherit' }} />
+              <button onClick={() => tune('free')} disabled={!!busy} className="shrink-0 px-3 py-1.5 rounded-full text-[11.5px] disabled:opacity-60" style={{ background: T.candle, color: '#fff' }}>
+                {busy === 'free' ? '他在想…' : topic.trim() ? '点这个' : '他看着办'}
               </button>
-            ))}
+            </div>
           </div>
         )}
       </div>
@@ -671,7 +681,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
             <div key={p.id} className="flex items-center gap-2 py-2 border-b" style={{ borderColor: 'rgba(233,226,214,0.08)', opacity: current?.id === p.id ? 1 : 0.85 }}>
               <button onClick={() => startPiece(p)} className="flex-1 min-w-0 text-left">
                 <div className="text-[12px] truncate" style={{ fontFamily: serif, color: current?.id === p.id ? T.candle : undefined }}>{p.title}</div>
-                <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name || '电台'}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </button>
               <button onClick={() => shareRadio(p, char.name, userName).then(() => onShared?.()).catch(onErr)} className="p-1.5 opacity-60" title="发到聊天"><PaperPlaneTilt size={15} /></button>
               <button onClick={() => downloadPiece(p)} className="p-1.5 opacity-60" title="下载"><DownloadSimple size={15} /></button>
@@ -685,7 +695,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
       {/* 底部按钮：像打电话那一排（吸底） */}
       <div className="sticky bottom-0 z-10 grid grid-cols-4 gap-2 pt-6 pb-2 -mx-5 px-5" style={{ background: 'linear-gradient(transparent, rgba(17,19,27,0.92) 35%)' }}>
         {[
-          { label: current ? '换台' : '随便听', icon: <ArrowsClockwise size={20} />, on: false, act: () => current ? hangUp() : tune(RADIO_CHANNELS[Math.floor(Math.random() * RADIO_CHANNELS.length)].id), disabled: !!busy },
+          { label: current ? '换台' : '随便听', icon: <ArrowsClockwise size={20} />, on: false, act: () => current ? hangUp() : (() => { const pool = RADIO_CHANNELS.filter(c => !c.hidden); tune(pool[Math.floor(Math.random() * pool.length)].id); })(), disabled: !!busy },
           { label: playing && !paused ? '暂停' : '继续', icon: playing && !paused ? <Pause size={20} weight="fill" /> : <Play size={20} weight="fill" />, on: live, act: togglePause, disabled: !current },
           { label: bilingual ? '双语 ON' : '双语 OFF', icon: <Translate size={20} />, on: bilingual, act: () => setBilingual(v => !v) },
           { label: showTranscript ? '收起字幕' : '字幕记录', icon: <ChatCircle size={20} />, on: showTranscript, act: () => setShowTranscript(v => !v), disabled: !current },

@@ -2,7 +2,7 @@
  * 聊天提示词用：最近两天用户在「页脚」便签墙上贴给角色的纸条。
  * 单独一个文件、不引 ContextBuilder，免得 chatPrompts ↔ context 循环引用。
  */
-const CH: Record<string, string> = { gossip: '历史狗血八卦', sonnet: '十四行诗', patent: '催眠专利附录' };
+const CH: Record<string, string> = { gossip: '历史狗血八卦', sonnet: '十四行诗', travel: '远行手记', record: '唱片背面', free: '睡前闲聊', patent: '电台' };
 
 /** 「页脚」里最近发生的事，作为聊天的背景（不进长期记忆，过一阵自然消失） */
 export function buildRecentNotesBlock(charId: string, userName: string, now = Date.now()): string {
