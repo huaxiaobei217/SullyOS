@@ -131,8 +131,8 @@ const TropeCleanPanel: React.FC = () => {
           {char && (
             <label className="flex items-start justify-between gap-3 p-2.5 rounded-xl bg-white border border-slate-100">
               <span className="min-w-0">
-                <span className="block text-[11.5px] font-semibold text-slate-600">关掉{char.name}的转账和记账</span>
-                <span className="block text-[10px] text-slate-400">他看不到转账动作，也不会收到你的记账（支出）记录，话题少往钱上带。你还是可以给他转账。</span>
+                <span className="block text-[11.5px] font-semibold text-slate-600">关掉{char.name}的转账</span>
+                <span className="block text-[10px] text-slate-400">他不会再主动给你转账、也不处理转账。生活记录里的支出和帮你记账照常。你还是可以给他转账。</span>
               </span>
               <input type="checkbox" className="mt-1" checked={moneyOff} onChange={e => { setMoneyOff(char.id, e.target.checked); setMoneyOffState(e.target.checked); }} />
             </label>
@@ -143,7 +143,7 @@ const TropeCleanPanel: React.FC = () => {
                 {w}<button className="ml-1 opacity-60" onClick={() => save(list.filter(x => x !== w))}>×</button>
               </span>
             ))}
-            {!list.length && <span className="text-[10px] text-slate-400">还没有，比如：记账、连本带利、包工头</span>}
+            {!list.length && <span className="text-[10px] text-slate-400">还没有，比如：连本带利、包工头</span>}
           </div>
           <div className="flex gap-2">
             <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }}

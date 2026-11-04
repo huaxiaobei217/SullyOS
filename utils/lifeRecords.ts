@@ -1,6 +1,5 @@
 import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
 
-import { isMoneyOff } from './moneyOff';
 import { DB } from './db';
 import {
     BankTransaction, CharacterProfile, LifeRecord, LifeRecordModule,
@@ -387,7 +386,7 @@ export const buildLifeRecordInjection = async (
     // 全局隐藏优先级高于角色小开关：隐藏的模块数据、指令说明、医疗引导一律不注入
     const settings = await DB.getLifeRecordSettings().catch(() => null);
     const hidden = getHiddenLifeModules(settings);
-    const moduleActive = (m: LifeRecordModule) => isLifeModuleOn(char, m) && !hidden.has(m) && !(m === 'expense' && isMoneyOff(char.id));
+    const moduleActive = (m: LifeRecordModule) => isLifeModuleOn(char, m) && !hidden.has(m);
     if (!(['period', 'med', 'expense', 'exercise'] as LifeRecordModule[]).some(moduleActive)) return '';
 
     const [records, plans, txs] = await Promise.all([
