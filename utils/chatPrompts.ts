@@ -4,6 +4,7 @@ import { buildTropeBanBlock } from './tropeBan';
 import { buildNaiPhotoBlock } from './naiChatPhoto';
 import { buildFootnoteAbilityBlock } from './footnoteChat';
 import { buildHateBlock } from './hateCounter';
+import { getNewsTaste } from './newsTaste';
 import { buildRecentListenBlock, buildUserSongNoteBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
@@ -412,6 +413,7 @@ export const ChatPrompts = {
                     const realtimeContext = await RealtimeContextManager.buildFullContext(config, charTz, {
                         includeTime: char.timeAwarenessEnabled !== false,
                         userLocation: userLocationPromise,
+                        newsTaste: getNewsTaste(char.id),
                     });
                     return `\n${realtimeContext}\n`;
                 }

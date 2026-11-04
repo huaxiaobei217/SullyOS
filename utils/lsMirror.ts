@@ -91,6 +91,9 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_trope_ban_mode_v1',
     'sully_money_off_v1',
     'sully_footnote_chat_on_v1',
+    'sully_news_taste_v1',
+    'sully_sleep_playlist_v1',
+    'sully_hate_counter_v1',
     'sully_reroll_notes_v1',                // 口癖清洗：每个角色用腻了的梗
     'sully_footnote_char_font_v1',
     'sully_footnote_my_font_v1',                 // 页脚：批注卡片 / 快问快答 / 深夜点播

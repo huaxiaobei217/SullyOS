@@ -3,6 +3,7 @@
  * Real-time Context Manager - Give AI characters awareness of the real world
  */
 
+import { pickNewsByTaste, TASTE_FRAMING } from './newsTaste';
 import { safeResponseJson } from './safeApi';
 import { DB } from './db';
 import { getProxyWorkerUrl } from './proxyWorker';
@@ -424,7 +425,7 @@ export const RealtimeContextManager = {
         tz: string | undefined,
         // includeTime=false：角色关掉了「时间感知」。天气/新闻还要，但当前时间和今日节日
         // 属于时间感知的范畴，这个开关关着就不该从这一段里漏出去。
-        opts: { includeTime: boolean; userLocation?: Promise<string> },
+        opts: { includeTime: boolean; userLocation?: Promise<string>; newsTaste?: string[] },
     ): Promise<string> => {
         const includeTime = opts.includeTime;
 
@@ -441,9 +442,11 @@ export const RealtimeContextManager = {
         // 3. 新闻热点（背景认知）
         //    完整快照存 IndexedDB 给「热点」App；这里每轮随机抽几条打散注入，控 token + 保持新鲜感。
         const newsPool = config.newsEnabled ? await RealtimeContextManager.fetchNews(config) : [];
-        const picks = pickRandomNews(newsPool, REALTIME_NEWS_PICK_COUNT);
+        const tasteOn = !!opts.newsTaste?.length;
+        const picks = tasteOn ? pickNewsByTaste(newsPool, REALTIME_NEWS_PICK_COUNT, opts.newsTaste!).picks : pickRandomNews(newsPool, REALTIME_NEWS_PICK_COUNT);
 
-        const fullContext = renderRealtimeWorldBlock({ timeLine, specialDates, weather, news: picks, userLocationText: await opts.userLocation });
+        let fullContext = renderRealtimeWorldBlock({ timeLine, specialDates, weather, news: picks, userLocationText: await opts.userLocation });
+        if (tasteOn && picks.length) fullContext += `\n${TASTE_FRAMING}`;
 
         // ── F12 探针：本轮真正注入 prompt 的热点 + 文本量（评估 token 用）──
         try {
