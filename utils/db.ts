@@ -31,6 +31,7 @@ import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
 import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
 import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportMcpLocal, importMcpLocal } from './mcpClient';
+import { exportNoahLocal, importNoahLocal } from './noahBackup';
 import { exportHome3DLocal, importHome3DLocal, HOME3D_LOCAL_KEYS } from './home3DBackup';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
@@ -3705,6 +3706,7 @@ export const DB = {
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
           home3DLocal: exportHome3DLocal(),
           mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
+          noahLocal: exportNoahLocal(),           // 二改：音乐 / 歌曲解读 / 页脚 / 口癖清洗等（存 localStorage）
           amsg2GlobalConfig: await exportAmsg2GlobalConfig(options), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
           beautyAuthorLocal: exportBeautyAuthorBackup(),
           beautyPreferences: exportBeautyPreferences(),
@@ -4243,6 +4245,10 @@ export const DB = {
           data.home3DLocal = undefined;
       });
 
+      await runSection('二改数据', (data as any).noahLocal !== undefined, async () => {
+          importNoahLocal((data as any).noahLocal);
+          (data as any).noahLocal = undefined;
+      }, 1);
       await runSection('MCP 服务器配置', (data as any).mcpLocal !== undefined, async () => {
           importMcpLocal((data as any).mcpLocal); // 用户自配的 MCP 服务器列表
           (data as any).mcpLocal = undefined;

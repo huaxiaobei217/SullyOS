@@ -119,6 +119,7 @@ import { exportWorldHomeLocal } from '../utils/worldHome/localBackup';
 import { exportLuckinLocal } from '../utils/luckinMcpClient';
 import { exportMcdLocal } from '../utils/mcdMcpClient';
 import { exportMcpLocal } from '../utils/mcpClient';
+import { exportNoahLocal } from '../utils/noahBackup';
 import { exportHome3DLocal } from '../utils/home3DBackup';
 import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
 import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
@@ -4382,6 +4383,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               mcdLocal: (mode === 'text_only' || mode === 'full') ? exportMcdLocal() : undefined,
               home3DLocal: (mode === 'text_only' || mode === 'full') ? exportHome3DLocal() : undefined,
               mcpLocal: (mode === 'text_only' || mode === 'full') ? exportMcpLocal() : undefined,
+              noahLocal: (mode === 'text_only' || mode === 'full') ? exportNoahLocal() : undefined,
 
               // 梦境盲盒收藏册（账号级 localStorage，不挂在角色上，需单独随备份带走）
               dreamCollection: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_dream_collection'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,

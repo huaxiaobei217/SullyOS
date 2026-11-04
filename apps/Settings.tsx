@@ -58,6 +58,7 @@ import McpConnectionConsole from '../components/settings/McpConnectionConsole';
 import ApiOverviewPanel from '../components/settings/ApiOverviewPanel';
 import TropeCleanPanel from '../components/settings/TropeCleanPanel';
 import NewsTastePanel from '../components/settings/NewsTastePanel';
+import NoahBackupPanel from '../components/settings/NoahBackupPanel';
 import NaiSettingsPanel from '../components/settings/NaiSettingsPanel';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
@@ -2169,6 +2170,7 @@ const Settings: React.FC = () => {
         <ApiOverviewPanel onCommitMain={(patch) => commitApiConfig(patch)} />
         <TropeCleanPanel />
         <NewsTastePanel />
+        <NoahBackupPanel />
         <NaiSettingsPanel />
 
         <NavigationBallSettings characters={characters} loadWorlds={() => DB.getWorlds()} />

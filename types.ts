@@ -4014,6 +4014,7 @@ export interface FullBackupData {
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
     home3DLocal?: Record<string, string>;    // 3D 家园显示偏好与拍照滤镜收藏
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
+    noahLocal?: Record<string, string>;        // 二改：音乐 / 歌曲解读 / 页脚 / 口癖清洗等（存 localStorage）
     chatInputPreferences?: import('./utils/chatInputPreferences').ChatInputPreferences;
     beautyPreferences?: import('./utils/beautyPreferencesBackup').BeautyPreferencesBackup;
     beautyAuthorLocal?: import('./utils/beautyAuthorBackup').BeautyAuthorBackup; // 仅个人完整备份，公开美化包不携带
