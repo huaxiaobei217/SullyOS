@@ -8,6 +8,7 @@ import { DB } from '../../utils/db';
 import { getBannedTropes, setBannedTropes, countHits, getTropeMode, setTropeMode, rewriteMemoryText, type TropeMode } from '../../utils/tropeBan';
 import { resolveDialogueApi } from '../../utils/characterApi';
 import { isMoneyOff, setMoneyOff } from '../../utils/moneyOff';
+import EndearmentGateRow from './EndearmentGateRow';
 import { MemoryNodeDB } from '../../utils/memoryPalace/db';
 import { updateStoredMemoryNode } from '../../utils/memoryPalace/vectorStore';
 
@@ -137,6 +138,7 @@ const TropeCleanPanel: React.FC = () => {
               <input type="checkbox" className="mt-1" checked={moneyOff} onChange={e => { setMoneyOff(char.id, e.target.checked); setMoneyOffState(e.target.checked); }} />
             </label>
           )}
+          {char && <EndearmentGateRow charId={char.id} charName={char.name} />}
           <div className="flex flex-wrap gap-1.5">
             {list.map(w => (
               <span key={w} className="px-2 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
