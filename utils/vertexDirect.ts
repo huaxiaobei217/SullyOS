@@ -153,6 +153,28 @@ const listVertexModels = async (transport: typeof fetch, token: string): Promise
   } catch { return FALLBACK_MODELS; }
 };
 
+const SCHEMA_KEYS = new Set(['type', 'description', 'properties', 'required', 'items', 'enum', 'format', 'nullable', 'minimum', 'maximum', 'minItems', 'maxItems', 'anyOf', 'title']);
+const cleanSchema = (node: any): any => {
+  if (Array.isArray(node)) return node.map(cleanSchema);
+  if (!node || typeof node !== 'object') return node;
+  const out: any = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (!SCHEMA_KEYS.has(k)) continue;
+    if (k === 'properties' && v && typeof v === 'object') {
+      out.properties = Object.fromEntries(Object.entries(v as any).map(([pk, pv]) => [pk, cleanSchema(pv)]));
+    } else if (k === 'type' && Array.isArray(v)) {
+      // ["string","null"] → string + nullable
+      const types = (v as string[]).filter(x => x !== 'null');
+      out.type = types[0] || 'string';
+      if ((v as string[]).includes('null')) out.nullable = true;
+    } else if (k === 'format' && !['enum', 'date-time'].includes(String(v))) {
+      continue;
+    } else out[k] = (k === 'items' || k === 'anyOf') ? cleanSchema(v) : v;
+  }
+  if (Array.isArray(out.required) && out.properties) out.required = out.required.filter((r: string) => r in out.properties);
+  return out;
+};
+
 /** 由 fetchLlm 调用：所有打到 aiplatform.googleapis.com 的请求都从这里走 */
 export async function fetchVertex(resource: RequestInfo | URL, init: RequestInit | undefined, transport: typeof fetch): Promise<Response> {
   const url = typeof resource === 'string' ? resource : resource instanceof URL ? resource.href : resource.url;
@@ -173,11 +195,27 @@ export async function fetchVertex(resource: RequestInfo | URL, init: RequestInit
   if (method === 'POST' && typeof body === 'string') {
     try {
       const j = JSON.parse(body);
+      let changed = false;
       // Vertex 的 OpenAI 端点要求带发布方前缀：gemini-2.5-pro → google/gemini-2.5-pro
       if (typeof j?.model === 'string' && !j.model.includes('/')) {
         j.model = `google/${j.model}`;
-        body = JSON.stringify(j);
+        changed = true;
       }
+      // Gemini 的工具参数只认 OpenAPI 子集：去掉不认识的字段、空参数对象，不然整个 tools 被拒，
+      // 只能退回「正文写工具调用」的兼容模式
+      if (Array.isArray(j?.tools)) {
+        j.tools = j.tools.map((t: any) => {
+          const fn = t?.function;
+          if (!fn) return t;
+          const params = fn.parameters ? cleanSchema(fn.parameters) : undefined;
+          const next = { ...fn };
+          if (!params || (params.type === 'object' && !Object.keys(params.properties || {}).length)) delete next.parameters;
+          else next.parameters = params;
+          return { ...t, function: next };
+        });
+        changed = true;
+      }
+      if (changed) body = JSON.stringify(j);
     } catch { /* 非 JSON 原样发 */ }
   }
   const target = resource instanceof Request ? resource.url : resource;

@@ -93,6 +93,19 @@ const chronologicalPrivateMessages = <T extends Pick<Message, 'id' | 'groupId'>>
         .sort((a, b) => a.id - b.id);
 
 /**
+ * 手动上限的窗口按 MANUAL_WINDOW_STEP 条一档往后挪，而不是每来一条就挤掉最旧的一条。
+ * 每轮都挤掉一条会让请求开头（人设 + 历史）每轮都变，模型的前缀缓存就永远命中不了历史那一段；
+ * 一档一档挪的话，窗口在 (上限 - 步长, 上限] 之间浮动，每 50 条才变一次开头。
+ */
+export const MANUAL_WINDOW_STEP = 50;
+const sliceManualWindow = <T,>(all: T[], limit: number): T[] => {
+    if (all.length <= limit) return all;
+    const step = Math.min(MANUAL_WINDOW_STEP, Math.max(1, Math.floor(limit / 5)));
+    const drop = Math.ceil((all.length - limit) / step) * step;
+    return all.slice(drop);
+};
+
+/**
  * 纯边界计算。方向不变式（Message.id 越大越新）：
  * - 最大范围起点越大，可读范围越小；
  * - 用户断点只能 >= 最大范围起点；
@@ -107,7 +120,7 @@ const computeContextRangeFromRefs = <T extends Pick<Message, 'id' | 'groupId'>>(
     const mode = resolveContextRangeMode(char);
     const maxRangeMessages = mode === 'adaptive'
         ? allMessages.filter(message => message.id > hwm)
-        : allMessages.slice(-clampManualContextLimit(char.contextLimit));
+        : sliceManualWindow(allMessages, clampManualContextLimit(char.contextLimit));
 
     const maxRangeStartMessageId = maxRangeMessages[0]?.id;
     const latestMessageId = maxRangeMessages[maxRangeMessages.length - 1]?.id;
