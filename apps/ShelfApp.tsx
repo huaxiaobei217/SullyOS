@@ -7,7 +7,8 @@ import { useOS } from '../context/OSContext';
 import type { CharacterProfile } from '../types';
 import {
   loadShelf, SHELF_EVENT, importBook, loadChapters, deleteBook, savePosition, annotateChapter, chatAboutBook, toggleAutoNote,
-  type ShelfBook, type ShelfChapter, type ShelfNote,
+  summarizeChapter, addReadingSeconds, markFinishedIfDone, loadStats, readingStreak, fmtMinutes, dayKeyOf, shareShelfNote, shareShelfTalk,
+  type ShelfBook, type ShelfChapter, type ShelfNote, type ShelfChat,
 } from '../utils/shelf';
 import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
@@ -92,9 +93,21 @@ const ShelfApp: React.FC = () => {
     return () => { alive = false; };
   }, [bookId]);
 
+  /* 读书时长：打开着、最近 90 秒内有翻动或点按，就每 15 秒记一次 */
+  const lastActive = useRef(Date.now());
+  useEffect(() => {
+    if (!bookId) return;
+    lastActive.current = Date.now();
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible' && Date.now() - lastActive.current < 90_000) addReadingSeconds(bookId, 15);
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [bookId]);
+
   /* 记进度：最上面那段；读到章末自动请他批注 */
   const lastSaved = useRef(0);
   const onScroll = () => {
+    lastActive.current = Date.now();
     if (!book || !scrollRef.current) return;
     const top = scrollRef.current.getBoundingClientRect().top + 60;
     const bottom = scrollRef.current.getBoundingClientRect().bottom;
@@ -117,8 +130,16 @@ const ShelfApp: React.FC = () => {
   const finishChapter = () => {
     if (!book) return;
     savePosition(book.id, ch, Math.max(0, (chapters[ch]?.paras.length || 1) - 1));
+    markFinishedIfDone(book.id);
     const long = (chapters[ch]?.paras.join('').length || 0) >= 200;
-    if (long && store.autoNote && char && !book.annotatedChapters?.includes(ch) && !busy) runAnnotate();
+    if (!long) return;
+    if (store.autoNote && char && !book.annotatedChapters?.includes(ch) && !busy) runAnnotate();
+    // 没开自动批注：悄悄写一段这章的梗概，伴读时他记得前情（批注那次会顺手写，所以只在不批注时单独写）
+    else if (!store.autoNote && !store.outlines[book.id]?.[ch]) summarizeChapter(apiConfig, book, ch).catch(() => {});
+  };
+
+  const share = async (fn: () => Promise<void>) => {
+    try { await fn(); addToast?.('发到聊天了', 'success'); } catch (e: any) { addToast?.(`没发出去：${e?.message || e}`, 'error'); }
   };
 
   const runAnnotate = async (upTo?: number) => {
@@ -207,6 +228,32 @@ const ShelfApp: React.FC = () => {
           <span>读完一章，他自动在页边写批注（每章一次）</span>
           <input type="checkbox" checked={store.autoNote} onChange={e => toggleAutoNote(e.target.checked)} />
         </label>
+        {(() => {
+          const st = loadStats();
+          const now = Date.now();
+          const days = Array.from({ length: 14 }, (_, i) => { const t = now - (13 - i) * 86400000; return { k: dayKeyOf(t), sec: st.days[dayKeyOf(t)] || 0, d: new Date(t).getDate() }; });
+          const week = days.slice(-7).reduce((a, x) => a + x.sec, 0);
+          const total = Object.values(st.days).reduce((a, x) => a + x, 0);
+          const max = Math.max(600, ...days.map(x => x.sec));
+          if (!total) return null;
+          return (
+            <div className="mx-5 mb-4 rounded-2xl p-3.5" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }}>
+              <div className="flex text-center">
+                {[['今天', fmtMinutes(days[13].sec)], ['这周', fmtMinutes(week)], ['一共', fmtMinutes(total)], ['读完', `${Object.keys(st.finished).length} 本`], ['连续', `${readingStreak()} 天`]].map(([k, v]) => (
+                  <div key={k} className="flex-1"><div className="text-[12.5px] font-serif" style={{ color: T.ink }}>{v}</div><div className="text-[9.5px]" style={{ color: T.faint }}>{k}</div></div>
+                ))}
+              </div>
+              <div className="flex items-end gap-1 h-12 mt-3">
+                {days.map(x => (
+                  <div key={x.k} className="flex-1 flex flex-col items-center gap-0.5">
+                    <div className="w-full rounded-sm" style={{ height: `${Math.max(2, (x.sec / max) * 40)}px`, background: x.sec ? T.accent : T.paperDeep, opacity: x.sec ? 0.85 : 1 }} title={fmtMinutes(x.sec)} />
+                    <div className="text-[8px]" style={{ color: T.faint }}>{x.d}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <div className="flex-1 overflow-y-auto px-5 pb-10">
           {!store.books.length && (
             <div className="text-center text-xs leading-relaxed mt-16" style={{ color: T.faint }}>
@@ -224,7 +271,7 @@ const ShelfApp: React.FC = () => {
                     <div className="flex-1 font-serif font-bold text-[13px] leading-snug line-clamp-4">{b.title}</div>
                     {b.author && <div className="text-[9.5px] opacity-75 truncate">{b.author}</div>}
                   </button>
-                  <div className="mt-1 text-[10px] flex justify-between" style={{ color: T.muted }}><span>{pct}%</span>{n > 0 && <span>✎ {n}</span>}</div>
+                  <div className="mt-1 text-[10px] flex justify-between" style={{ color: T.muted }}><span>{loadStats().finished[b.id] ? '读完' : `${pct}%`}{loadStats().books[b.id] ? ` · ${fmtMinutes(loadStats().books[b.id])}` : ''}</span>{n > 0 && <span>✎ {n}</span>}</div>
                   <button onClick={() => { if (confirm(`把《${b.title}》从书架拿下来？他的批注和你们的伴读记录也会一起删掉。`)) deleteBook(b.id); }}
                     className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] bg-black/40 text-white">×</button>
                 </div>
@@ -257,7 +304,7 @@ const ShelfApp: React.FC = () => {
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28 font-serif">
         {chapter?.paras.map((p, i) => (
           <div key={i} ref={el => { paraRefs.current[i] = el; }}>
-            <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => setTapped(tapped === i ? null : i)} />
+            <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { lastActive.current = Date.now(); setTapped(tapped === i ? null : i); }} />
             {tapped === i && (
               <div className="flex gap-2 -mt-1.5 mb-3 font-sans">
                 <button onClick={() => { setQuote(p.length > 60 ? p.slice(0, 60) + '…' : p); setTapped(null); setShowChat(true); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>💬 跟他吐槽这段</button>
@@ -287,11 +334,14 @@ const ShelfApp: React.FC = () => {
               <TokenImg value={char.avatar} className="w-7 h-7 rounded-full object-cover shrink-0" />
               <div className="flex-1 text-[14px] leading-relaxed" style={{ color: T.pencil, fontFamily: `'Caveat','Long Cang','Ma Shan Zheng',cursive` }}>{openNote.zh}</div>
             </div>
-            {hasVoice && (openNote.voice || openNote.zh) && (
-              <button onClick={() => play(openNote.id, openNote.voice || openNote.zh)} className="mt-3 text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>
-                {playing === openNote.id ? '■ 停' : `▶ 听他念${openNote.voice ? `（${voiceLanguageLabel(lang)}）` : ''}`}
-              </button>
-            )}
+            <div className="flex gap-2 mt-3">
+              {hasVoice && (openNote.voice || openNote.zh) && (
+                <button onClick={() => play(openNote.id, openNote.voice || openNote.zh)} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>
+                  {playing === openNote.id ? '■ 停' : `▶ 听他念${openNote.voice ? `（${voiceLanguageLabel(lang)}）` : ''}`}
+                </button>
+              )}
+              <button onClick={() => share(() => shareShelfNote(openNote, book, char.name, userName))} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>发到聊天</button>
+            </div>
           </div>
         </div>
       )}
@@ -334,7 +384,10 @@ const ShelfApp: React.FC = () => {
                 <TokenImg value={char.avatar} className="w-6 h-6 rounded-full object-cover shrink-0" />
                 <div className="max-w-[85%]">
                   <div className="text-[13px] rounded-2xl rounded-tl-sm px-3 py-2 leading-relaxed" style={{ background: T.paperDeep, color: T.ink }}>{c.text}</div>
-                  {hasVoice && <button onClick={() => play(c.id, c.voice || c.text)} className="text-[10.5px] mt-0.5 ml-1" style={{ color: T.accent }}>{playing === c.id ? '■ 停' : `▶ 听${c.voice ? voiceLanguageLabel(lang) : ''}`}</button>}
+                  <div className="flex gap-3 mt-0.5 ml-1">
+                    {hasVoice && <button onClick={() => play(c.id, c.voice || c.text)} className="text-[10.5px]" style={{ color: T.accent }}>{playing === c.id ? '■ 停' : `▶ 听${c.voice ? voiceLanguageLabel(lang) : ''}`}</button>}
+                    <button onClick={() => share(() => shareShelfTalk(c as ShelfChat, book, char.name, userName))} className="text-[10.5px]" style={{ color: T.faint }}>发到聊天</button>
+                  </div>
                 </div>
               </div>
             ))}
