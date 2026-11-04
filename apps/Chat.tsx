@@ -1756,6 +1756,28 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         triggerAI(newHistory, undefined, { skipEmotionInjection: true, ...(rerollNote?.trim() ? { rerollNote: rerollNote.trim() } : {}) });
     };
     const [rerollNoteOpen, setRerollNoteOpen] = useState(false);
+    const [selfCheck, setSelfCheck] = useState<null | { phase: 'ask' | 'running' | 'done'; focus: string; result?: import('../utils/replySelfCheck').SelfCheckResult; error?: string }>(null);
+    const runSelfCheck = async () => {
+        if (!char || !selfCheck) return;
+        const focus = selfCheck.focus;
+        setSelfCheck({ phase: 'running', focus });
+        try {
+            const { selfCheckReply } = await import('../utils/replySelfCheck');
+            const result = await selfCheckReply(char, apiConfig, messages, focus);
+            setSelfCheck({ phase: 'done', focus, result });
+        } catch (e: any) {
+            setSelfCheck({ phase: 'done', focus, error: e?.message || String(e) });
+        }
+    };
+    const applySelfCheck = async () => {
+        const r = selfCheck?.result;
+        if (!r || !char) return;
+        for (const [id, text] of Object.entries(r.rewrites)) await DB.updateMessage(Number(id), text);
+        setSelfCheck(null);
+        await reloadMessages(visibleCountRef.current);
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        addToast('改好了', 'success');
+    };
     const [rerollNoteDraft, setRerollNoteDraft] = useState('');
     const RECENT_NOTES_KEY = 'sully_reroll_notes_v1';
     const recentRerollNotes = (): string[] => { try { return JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) || '[]'); } catch { return []; } };
@@ -1820,6 +1842,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'reroll-note': setRerollNoteOpen(true); break;
+            case 'self-check': setShowPanel('none'); setSelfCheck({ phase: 'ask', focus: '' }); break;
             case 'share-music': {
                 const cur = loadMusicPlaybackSnapshot()?.current;
                 if (!cur) { addToast('现在没有在放歌，先去音乐里放一首吧', 'info'); break; }
@@ -3912,6 +3935,60 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 message="检测到分享链接，要关闭自动转卡片吗？关闭后，本条及之后的链接会按原文发送，方便角色用你配置的 MCP 读取。保留卡片也会带上原链接。两类解析可在加号 → 设置中分别调整。"
                 confirmText="关闭，发送原文" cancelText="保留卡片"
                 onConfirm={() => answerLinkCard(false)} onCancel={() => answerLinkCard(true)} />
+            {selfCheck && createPortal(
+                <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={() => selfCheck.phase !== 'running' && setSelfCheck(null)}>
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+20px)]" onClick={e => e.stopPropagation()}>
+                        <div className="text-sm font-bold text-slate-700 mb-1">自查最近一轮回复</div>
+                        {selfCheck.phase === 'ask' && (
+                            <>
+                                <div className="text-[11px] text-slate-400 mb-3">让模型当编辑，对照{char?.name}的人设挑出不像他、出戏、套路或老梗的地方，给改写建议。你看过再决定用不用，不用就什么都不变。</div>
+                                <input value={selfCheck.focus} onChange={e => setSelfCheck({ ...selfCheck, focus: e.target.value })} placeholder="特别在意什么？（可不填）比如：称呼、太乖了"
+                                    className="w-full rounded-xl border border-slate-200 p-3 text-[13px] outline-none" />
+                                <div className="flex gap-2 mt-4">
+                                    <button onClick={() => setSelfCheck(null)} className="flex-1 py-2.5 rounded-xl text-sm text-slate-500 bg-slate-100">算了</button>
+                                    <button onClick={runSelfCheck} className="flex-[2] py-2.5 rounded-xl text-sm font-bold text-white bg-primary">开始检查</button>
+                                </div>
+                            </>
+                        )}
+                        {selfCheck.phase === 'running' && <div className="py-8 text-center text-[12px] text-slate-400">正在逐句看…</div>}
+                        {selfCheck.phase === 'done' && (
+                            <>
+                                {selfCheck.error ? <div className="text-[12px] text-rose-500 my-3">{selfCheck.error}</div>
+                                : selfCheck.result && !selfCheck.result.issues.length ? <div className="text-[12px] text-emerald-600 my-4">没挑出问题，这一轮挺像他的。</div>
+                                : selfCheck.result && (
+                                    <div className="space-y-2 my-3">
+                                        {selfCheck.result.issues.map((it, i) => (
+                                            <div key={i} className="p-2.5 rounded-xl bg-amber-50 border border-amber-100 text-[12px]">
+                                                {it.quote && <div className="text-slate-500 mb-0.5">「{it.quote}」</div>}
+                                                <div className="text-slate-700">{it.problem}</div>
+                                            </div>
+                                        ))}
+                                        {Object.entries(selfCheck.result.rewrites).map(([id, text]) => {
+                                            const orig = messages.find(m => m.id === Number(id));
+                                            return (
+                                                <div key={id} className="p-2.5 rounded-xl border border-slate-100 text-[12px]">
+                                                    <div className="text-[10px] text-slate-400 mb-1">原来</div>
+                                                    <div className="text-slate-400 line-through decoration-slate-300 whitespace-pre-wrap">{String(orig?.content || '')}</div>
+                                                    <div className="text-[10px] text-slate-400 mt-2 mb-1">建议改成</div>
+                                                    <div className="text-slate-700 whitespace-pre-wrap">{text}</div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <div className="flex gap-2 mt-2">
+                                    <button onClick={() => setSelfCheck(null)} className="flex-1 py-2.5 rounded-xl text-sm text-slate-500 bg-slate-100">{selfCheck.result && Object.keys(selfCheck.result.rewrites).length ? '不用了' : '关闭'}</button>
+                                    {selfCheck.result && Object.keys(selfCheck.result.rewrites).length > 0 && (
+                                        <button onClick={applySelfCheck} className="flex-[2] py-2.5 rounded-xl text-sm font-bold text-white bg-primary">采用改写</button>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>,
+                document.body,
+            )}
             {rerollNoteOpen && createPortal(
                 <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={() => setRerollNoteOpen(false)}>
                     <div className="absolute inset-0 bg-black/30" />
