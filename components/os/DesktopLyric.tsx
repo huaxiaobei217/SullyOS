@@ -3,7 +3,7 @@
  * - 平时显示当前这一句（+ 翻译）
  * - 点一下展开：下一句预览 + 上一首 / 播放暂停 / 下一首；再点收起
  * - 暂停时也保留（显示歌名），这样能点回播放
- * - 上下拖动改位置；在音乐 App 的音源设置里开关
+ * - 上下拖动改位置；锁定后点击穿透；位置 / 透明度 / 字号在音乐 App 侧边栏里调
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useMusic } from '../../context/MusicContext';
@@ -11,6 +11,9 @@ import { useOS } from '../../context/OSContext';
 import { AppID } from '../../types';
 import { Play, Pause, SkipBack, SkipForward, MusicNotes } from '@phosphor-icons/react';
 import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, MUSIC_PREFS_CHANGED_EVENT } from '../../utils/music/musicPrefs';
+
+const TOP_MIN = 24;
+const BOTTOM_GAP = 110;
 
 const DesktopLyric: React.FC = () => {
   const { activeApp, openApp } = useOS() as any;
@@ -41,6 +44,10 @@ const DesktopLyric: React.FC = () => {
   const mainText = playing && line?.text ? line.text : `${current.name}${current.artists ? ' - ' + current.artists : ''}`;
   const subText = playing && line ? trans(line.t) : (playing ? '' : '已暂停');
 
+  const locked = !!prefs.locked;
+  const bgAlpha = typeof prefs.opacity === 'number' ? prefs.opacity : 0.42;
+  const scale = prefs.fontScale || 1;
+
   const onDown = (e: React.PointerEvent) => {
     const parent = boxRef.current?.parentElement;
     if (!parent || !boxRef.current) return;
@@ -51,13 +58,16 @@ const DesktopLyric: React.FC = () => {
     const dy = e.clientY - d.startY;
     if (!d.moved && Math.abs(dy) < 6) return;
     if (!d.moved) { d.moved = true; (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); }
-    const top = Math.max(24, Math.min(d.parentH - 120, d.startTop + dy));
+    const top = Math.max(TOP_MIN, Math.min(d.parentH - BOTTOM_GAP, d.startTop + dy));
     boxRef.current.style.top = `${top}px`;
   };
   const onUp = () => {
     const d = drag.current; drag.current = null;
     if (!d || !boxRef.current) return;
-    if (d.moved) saveDesktopLyricPrefs({ ...prefs, top: boxRef.current.offsetTop });
+    if (d.moved) {
+      const span = Math.max(1, d.parentH - BOTTOM_GAP - TOP_MIN);
+      saveDesktopLyricPrefs({ ...prefs, topPct: Math.max(0, Math.min(1, (boxRef.current.offsetTop - TOP_MIN) / span)) });
+    }
     else setExpanded(v => !v);
   };
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
@@ -68,14 +78,17 @@ const DesktopLyric: React.FC = () => {
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={() => { drag.current = null; }}
       className="absolute left-3 right-3 z-[54] select-none touch-none text-center px-3 py-1.5 rounded-2xl"
       style={{
-        top: prefs.top ?? 72,
-        background: 'rgba(15, 23, 42, 0.42)',
-        backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+        top: prefs.topPct != null
+          ? `calc(${TOP_MIN}px + (100% - ${TOP_MIN + BOTTOM_GAP}px) * ${prefs.topPct})`
+          : (prefs.top ?? 72),
+        pointerEvents: locked ? 'none' : undefined,
+        background: `rgba(15, 23, 42, ${bgAlpha})`,
+        backdropFilter: bgAlpha > 0.05 ? 'blur(10px)' : undefined, WebkitBackdropFilter: bgAlpha > 0.05 ? 'blur(10px)' : undefined,
         color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.45)',
       }}
     >
-      <div className="text-[13px] font-semibold leading-snug truncate">{mainText}</div>
-      {subText && <div className="text-[10px] opacity-80 truncate">{subText}</div>}
+      <div className="font-semibold leading-snug truncate" style={{ fontSize: `${13 * scale}px` }}>{mainText}</div>
+      {subText && <div className="opacity-80 truncate" style={{ fontSize: `${10 * scale}px` }}>{subText}</div>}
       {expanded && (
         <>
           {playing && nextLine?.text && <div className="text-[11px] opacity-60 truncate mt-0.5">{nextLine.text}</div>}

@@ -1,5 +1,5 @@
 import {weatherForCharacter} from './characterWeather';
-import { buildRecentListenBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
+import { buildRecentListenBlock, buildUserSongNoteBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
 import { expandHomeContextHistory } from './homeContextSegments';
@@ -603,8 +603,10 @@ ${groupLogStr}\n`;
             if (userListeningContext?.songName) {
                 const analysisBlock = buildSongAnalysisBlock(userListeningContext.songName, userListeningContext.artists, { withLyrics: !!isListeningTogether });
                 if (analysisBlock) volatileState += `\n${analysisBlock}\n`;
+                const noteBlock = buildUserSongNoteBlock(userListeningContext.songName, userListeningContext.artists, userProfile.name);
+                if (noteBlock) volatileState += `\n${noteBlock}\n`;
             }
-            const listenBlock = buildRecentListenBlock(char.id, userProfile.name);
+            const listenBlock = buildRecentListenBlock(char.id, userProfile.name, Date.now(), userListeningContext?.songName || '');
             if (listenBlock) volatileState += `\n${listenBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }
 

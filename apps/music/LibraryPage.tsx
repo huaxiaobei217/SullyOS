@@ -230,6 +230,22 @@ const LibraryPage: React.FC<{
                   <input type="checkbox" checked={lyricPrefs.showTranslation}
                     onChange={e => { const p = { ...lyricPrefs, showTranslation: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
                 </label>
+                <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                  <span>锁定（不能拖，点了会穿过去；回这里解锁）</span>
+                  <input type="checkbox" checked={!!lyricPrefs.locked}
+                    onChange={e => { const p = { ...lyricPrefs, locked: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
+                </label>
+                {([
+                  ['位置（上 ↔ 下）', 'topPct', 0, 1, 0.01, lyricPrefs.topPct ?? 0.08],
+                  ['底色浓淡', 'opacity', 0, 0.9, 0.02, lyricPrefs.opacity ?? 0.42],
+                  ['字号', 'fontScale', 0.8, 1.6, 0.05, lyricPrefs.fontScale ?? 1],
+                ] as const).map(([label, key, min, max, step, val]) => (
+                  <label key={key} className="flex items-center gap-2 text-[11px]" style={{ color: C.text }}>
+                    <span className="w-24 shrink-0">{label}</span>
+                    <input type="range" className="flex-1" min={min} max={max} step={step} value={val}
+                      onChange={e => { const p = { ...lyricPrefs, [key]: Number(e.target.value) }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
+                  </label>
+                ))}
               </div>
               <div className="pt-2 border-t border-white/40 space-y-1.5">
                 <div className="text-[10px]" style={{ color: C.muted }}>换歌时同步「正在听」到（比如你的 MCP 的 /update 地址，留空就不同步）</div>

@@ -83,9 +83,50 @@ export const deleteDiary = (id: string) => saveDiaries(loadDiaries().filter(d =>
 
 const RECENT_MS = 90 * 60 * 1000;
 
-/** 下一轮聊天时告诉角色：你刚刚真的听过这些歌、当时写下了什么 */
-export function buildRecentListenBlock(charId: string, userName: string, now = Date.now()): string {
-  const recent = loadDiaries().filter(d => d.charId === charId && now - d.createdAt <= RECENT_MS).slice(0, 2);
+/* ───────── 用户自己听歌时的想法（每首歌一条，所有角色都能看到） ───────── */
+
+const LS_USER_NOTES = 'sully_music_user_notes_v1';
+export interface UserSongNote { songKey: string; songName: string; artists: string; text: string; updatedAt: number; }
+const loadUserNotes = (): Record<string, UserSongNote> => {
+  try { return JSON.parse(localStorage.getItem(LS_USER_NOTES) || '{}') || {}; } catch { return {}; }
+};
+export const getUserSongNote = (songKey: string): UserSongNote | undefined => loadUserNotes()[songKey];
+export const saveUserSongNote = (song: Song, text: string) => {
+  const all = loadUserNotes();
+  const key = songKeyOf(song);
+  if (text.trim()) all[key] = { songKey: key, songName: song.name, artists: song.artists, text: text.trim().slice(0, 1500), updatedAt: Date.now() };
+  else delete all[key];
+  const keep = Object.fromEntries(Object.entries(all).sort((a, b) => b[1].updatedAt - a[1].updatedAt).slice(0, 500));
+  try { localStorage.setItem(LS_USER_NOTES, JSON.stringify(keep)); } catch {}
+  try { window.dispatchEvent(new Event(LISTEN_DIARY_CHANGED_EVENT)); } catch {}
+};
+const findUserNoteByName = (songName: string, artists: string): UserSongNote | undefined => {
+  const all = Object.values(loadUserNotes());
+  return all.find(n => n.songName === songName && n.artists === artists) || all.find(n => n.songName === songName);
+};
+
+/** 聊天里：用户对正在放的这首歌写过想法，就告诉角色 */
+export function buildUserSongNoteBlock(songName: string, artists: string, userName: string): string {
+  if (!songName) return '';
+  const n = findUserNoteByName(songName, artists);
+  if (!n) return '';
+  return `### 【${userName || '对方'}听《${n.songName}》时的想法】
+${n.text}
+（这是 ${userName || '对方'} 自己写下的感受，不是对你说的话。可以接住、可以有不同意见，但别逐句复述。）`;
+}
+
+/** 写日记时给角色看的用户想法（按歌曲 key 精确匹配） */
+export const userNoteTextFor = (song: Song): string => getUserSongNote(songKeyOf(song))?.text || '';
+
+/**
+ * 下一轮聊天时告诉角色：你刚刚真的听过这些歌、当时写下了什么。
+ * 日记本身一直保存（最多 300 篇）；注入聊天的是一个半小时内写的，外加「正在放的这首」以前写过的那篇。
+ */
+export function buildRecentListenBlock(charId: string, userName: string, now = Date.now(), currentSongName = ''): string {
+  const mine = loadDiaries().filter(d => d.charId === charId);
+  const recent = mine.filter(d => now - d.createdAt <= RECENT_MS).slice(0, 2);
+  const onNow = currentSongName ? mine.find(d => d.songName === currentSongName) : undefined;
+  if (onNow && !recent.includes(onNow)) recent.push(onNow);
   if (!recent.length) return '';
   const lines = ['### 【你刚刚真的听过的歌】'];
   for (const d of recent) {

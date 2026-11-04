@@ -11,7 +11,7 @@ import Cover from './Cover';
 import SongActionSheet from './SongActionSheet';
 import { Heart, Repeat, RepeatOnce, Shuffle, DotsThree, Play, Headphones, Check } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
-import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis, plainAnalysis } from '../../utils/music/songListen';
+import { listenToSong, loadDiaries, songKeyOf, isListenApiReady, LISTEN_DIARY_CHANGED_EVENT, ListenDiary, analyzeSong, getAnalysis, SongAnalysis, plainAnalysis, getUserSongNote, saveUserSongNote } from '../../utils/music/songListen';
 import { NotePencil } from '@phosphor-icons/react';
 import { isInFavorites, toggleFavorite, PLAYLISTS_CHANGED_EVENT, normalizeCoverUrl } from '../../utils/music/lxList';
 import { LX_QUALITY_LABEL, loadLxQualityPref } from '../../utils/music/lxQuality';
@@ -40,13 +40,18 @@ const PlayerPage: React.FC<{
   const [analyzing, setAnalyzing] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [listening, setListening] = useState<Record<string, boolean>>({});
+  const [myNote, setMyNote] = useState('');
+  const [noteSaved, setNoteSaved] = useState('');
   useEffect(() => {
     if (!current) return;
     const h = () => {
       setDiaries(loadDiaries().filter(d => d.songKey === songKeyOf(current)));
       setAnalysis(getAnalysis(songKeyOf(current)));
+      const n = getUserSongNote(songKeyOf(current))?.text || '';
+      setNoteSaved(n);
     };
     h();
+    setMyNote(getUserSongNote(songKeyOf(current))?.text || '');
     window.addEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
     return () => window.removeEventListener(LISTEN_DIARY_CHANGED_EVENT, h);
   }, [current?.id]);
@@ -291,8 +296,22 @@ const PlayerPage: React.FC<{
               </div>
             </div>
 
+            {/* 我听这首时的想法（所有角色都能看到） */}
+            <div className="mx-4 mb-3 p-3 rounded-2xl" style={{ border: `1px solid ${C.accent}40` }}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold" style={{ color: C.accent }}>我的想法</span>
+                {myNote.trim() !== noteSaved && (
+                  <button onClick={() => { saveUserSongNote(current, myNote); toast(myNote.trim() ? '记下了，聊天和写日记时 TA 都会看到' : '已删掉', 'success'); }}
+                    className="text-[11px]" style={{ color: C.primary }}>保存</button>
+                )}
+              </div>
+              <textarea value={myNote} onChange={e => setMyNote(e.target.value)} rows={3}
+                placeholder="听这首时想到什么都可以写。放这首歌聊天、或者 TA 写听歌日记时，都会看到。"
+                className="w-full text-[12px] leading-relaxed bg-transparent outline-none resize-none" style={{ color: C.text }} />
+            </div>
+
             <div className="px-4 pb-2 text-[11px] leading-relaxed" style={{ color: C.muted }}>
-              听歌日记：每个角色自己的感受，读上面的解读和歌词来写。之后一个半小时内聊天，TA 会记得自己听过。
+              听歌日记：每个角色自己的感受，读上面的解读和歌词来写。日记一直保存；写完一个半小时内、以及之后再放这首歌时，聊天里 TA 都记得自己听过、写了什么。
             </div>
             {diaries.map(d => {
               const c = characters.find(x => x.id === d.charId);

@@ -43,7 +43,7 @@ export const saveListenApiConfig = (c: ListenApiConfig) => {
 export const isListenApiReady = (c = loadListenApiConfig()) => !!(c.baseUrl.trim() && c.apiKey.trim() && c.model.trim());
 
 import {
-  ListenDiary, SongAnalysis, songKeyOf, loadDiaries, saveDiaries, findDiary, getAnalysis, saveAnalysis,
+  ListenDiary, SongAnalysis, songKeyOf, loadDiaries, saveDiaries, findDiary, getAnalysis, saveAnalysis, userNoteTextFor,
 } from './listenDiaryStore';
 export * from './listenDiaryStore';
 
@@ -256,7 +256,7 @@ async function run(charId: string, song: Song, mode: 'together' | 'alone', force
 【这首歌听起来是什么样】
 ${analysis.text}
 
-${analysis.lyrics ? `【歌词】\n${analysis.lyrics}` : '（没有歌词）'}`;
+${analysis.lyrics ? `【歌词】\n${analysis.lyrics}` : '（没有歌词）'}${userNoteTextFor(song) ? `\n\n【${user.name || '对方'}听这首时写下的想法】\n${userNoteTextFor(song)}\n（可以被它触动，也可以不同意；别复述它。）` : ''}`;
     const messages = await ContextBuilder.buildCharacterRequest(
       { char, user, instructions: diaryInstructions(char.name, user.name || '对方', mode, char) },
       [{ role: 'user', content: userText }],
