@@ -12,6 +12,8 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
+import { isHomeroomOn, teacherMessages, TEACHER_SYSTEM, logStudy, homeroomCheckin, homeroomQuizComment } from '../utils/studyHomeroom';
+import HomeroomPanel from '../components/study/HomeroomPanel';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -337,6 +339,9 @@ const StudyApp: React.FC = () => {
     // Study-specific API config (overrides main apiConfig when set)
     const [studyApi, setStudyApi] = useState<Partial<APIConfig>>({});
     const [showStudySettings, setShowStudySettings] = useState(false);
+    // 二改 · 班主任模式：老师（自习室 API、无人设）讲课，选中的角色当班主任
+    const [homeroom, setHomeroom] = useState(isHomeroomOn());
+    const [homeroomLine, setHomeroomLine] = useState('');
     const [localStudyUrl, setLocalStudyUrl] = useState('');
     const [localStudyKey, setLocalStudyKey] = useState('');
     const [localStudyModel, setLocalStudyModel] = useState('');
@@ -626,6 +631,11 @@ For each chapter, provide a title, a brief summary of what it covers, and a diff
         setActiveCourse(course);
         setMode('classroom');
         setChatHistory([]);
+        setHomeroomLine('');
+        if (homeroom && selectedChar) {
+            const ch = course.chapters.find(c => !c.isCompleted) || course.chapters[0];
+            homeroomCheckin(selectedChar, apiConfig, userProfile.name, course.title, ch?.title || '').then(setHomeroomLine).catch(() => {});
+        }
         
         // Find first incomplete chapter or stay on current if valid
         const nextIdx = course.chapters.findIndex(c => !c.isCompleted);
@@ -715,7 +725,7 @@ Explain this chapter's key concepts to the user based strictly on the Source Mat
         try {
             // Attempt 1: Full Character Context (The "Soul")
             // [MODIFIED]: Use centralized ContextBuilder with memory enabled
-            await injectMemoryPalace(selectedChar, undefined, chapter.title);
+            if (!homeroom) await injectMemoryPalace(selectedChar, undefined, chapter.title);
             let baseContext = ''; // 角色上下文由 callApi 的统一消息管线装配。
 
             // Append Study Mode specific instructions to the core context
@@ -727,7 +737,8 @@ You are now acting as a private tutor for ${userProfile.name}.
 - **Safety**: If the source material contains sensitive topics (biology, history, etc.), treat them academically and neutrally.
 `;
 
-            let response = await callApi(baseContext);
+            // 班主任模式：老师讲，不带角色人设（第二个参数 true = 只发这一条提示词）
+            let response = homeroom ? await callApi(TEACHER_SYSTEM, true) : await callApi(baseContext);
             
             let text = "";
             let isBlocked = false;
@@ -772,6 +783,7 @@ You are now acting as a private tutor for ${userProfile.name}.
 
             setCurrentText(text);
             setClassroomState('idle');
+            logStudy({ charId: selectedChar.id, kind: 'lesson', course: course.title, title: chapter.title });
             
         } catch (e: any) {
             console.error("Teach Error:", e);
@@ -805,7 +817,7 @@ You are now acting as a private tutor for ${userProfile.name}.
             const chunkText = activeCourse.rawText.substring(start, start + chunkSize + 2000);
 
             // [MODIFIED]: Use Full Context for Q&A
-            await injectMemoryPalace(selectedChar, undefined, question);
+            if (!homeroom) await injectMemoryPalace(selectedChar, undefined, question);
             const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
             const studyInstructions = `
@@ -829,7 +841,7 @@ Answer the question based on the source material. Be helpful and encouraging (in
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'system', content: studyInstructions }, { role: "user", content: prompt }])),
+                    messages: homeroom ? teacherMessages(prompt) : (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'system', content: studyInstructions }, { role: "user", content: prompt }])),
                     temperature: 0.7,
                     max_tokens: 8000
                 })
@@ -871,8 +883,12 @@ Answer the question based on the source material. Be helpful and encouraging (in
         setCourses(prev => prev.map(c => c.id === updatedCourse.id ? updatedCourse : c)); // Sync
         trackEvent('学完本章进入下一章');
 
+        logStudy({ charId: selectedChar.id, kind: 'chapter_done', course: activeCourse.title, title: updatedChapters[activeCourse.currentChapterIndex].title });
+
         // Summarize to Memory (Fire & Forget)
         // UPDATED PROMPT: First person perspective
+        // 班主任模式不再每章写一条记忆：学习记录会带进聊天，不必塞进长期记忆
+        if (!homeroom) {
         const summaryPrompt = `
 [System: Memory Generation]
 Role: ${selectedChar.name} (Teacher)
@@ -891,6 +907,7 @@ Note: Use "我" (I) to refer to yourself.
             const newMem = { id: `mem-${Date.now()}`, date: new Date().toLocaleDateString(), summary: `[教学] ${mem}`, mood: 'proud' };
             updateCharacter(selectedChar.id, { memories: [...(selectedChar.memories || []), newMem] });
         });
+        }
 
         // 3. Trigger next logic
         if (nextIdx >= updatedChapters.length) {
@@ -1094,8 +1111,19 @@ ${chunkText.substring(0, 10000)}
             return line;
         }).join('\n\n');
 
-        await injectMemoryPalace(selectedChar, undefined, quizSession.chapterTitle);
+        if (!homeroom) await injectMemoryPalace(selectedChar, undefined, quizSession.chapterTitle);
         const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
+
+        // 班主任模式：老师逐题讲错因（中立），班主任另写几句点评放在最前面
+        const teacherReviewPrompt = `学生「${userProfile.name}」刚做完「${quizSession.chapterTitle}」的测验，得分 ${score}/${gradedQuestions.length}（${scorePercent}%）。
+请逐题讲评（编号对应题号）：
+- 做对的：一句话点出考点即可。
+- 做错的：分析最可能的错因（概念混淆？审题？），讲清正确思路，必要时换个例子。
+- 最后总结：薄弱点是什么、接下来该复习什么。
+用 Markdown，简洁清楚，不要寒暄。
+
+### 测验结果
+${resultsText}`;
 
 
         const reviewPrompt = `
@@ -1128,15 +1156,21 @@ ${resultsText}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: reviewPrompt }])),
-                    temperature: 0.8,
+                    messages: homeroom ? teacherMessages(teacherReviewPrompt) : (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: reviewPrompt }])),
+                    temperature: homeroom ? 0.4 : 0.8,
                     max_tokens: 8000
                 })
             });
 
             if (!response.ok) throw new Error(`API Error: ${response.status}`);
             const data = await safeResponseJson(response);
-            const reviewText = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || '（批改失败，但分数已记录）';
+            let reviewText = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || '（批改失败，但分数已记录）';
+            const wrongStems = gradedQuestions.filter(q => !q.isCorrect).map(q => q.stem);
+            logStudy({ charId: selectedChar.id, kind: 'quiz', course: quizSession.courseTitle, title: quizSession.chapterTitle, detail: `${score}/${gradedQuestions.length}${wrongStems.length ? `，错了 ${wrongStems.length} 题` : '，全对'}` });
+            if (homeroom) {
+                const comment = await homeroomQuizComment(selectedChar, apiConfig, userProfile.name, quizSession.chapterTitle, score, gradedQuestions.length, wrongStems).catch(() => '');
+                if (comment) reviewText = `**班主任 ${selectedChar.name}：**\n\n${comment}\n\n---\n\n**老师讲评：**\n\n${reviewText}`;
+            }
 
             const gradedSession: QuizSession = {
                 ...quizSession,
@@ -1208,7 +1242,7 @@ ${resultsText}
         const userQ = followUpInput.trim();
         setFollowUpInput('');
 
-        await injectMemoryPalace(selectedChar, undefined, userQ);
+        if (!homeroom) await injectMemoryPalace(selectedChar, undefined, userQ);
         const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
 
@@ -1233,7 +1267,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }])),
+                    messages: homeroom ? teacherMessages(prompt.replace('Answer in character. ', '')) : (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }])),
                     temperature: 0.7,
                     max_tokens: 4000
                 })
@@ -1618,9 +1652,10 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 </div>
 
                 <div className="p-6 flex-1 overflow-y-auto no-scrollbar">
+                    <HomeroomPanel char={selectedChar} api={apiConfig} userName={userProfile.name} onToggle={setHomeroom} />
                     {/* Character Selector */}
                     <div className="mb-8">
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">当前助教</h3>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{homeroom ? '班主任' : '当前助教'}</h3>
                         {/* 分组筛选（没建分组时不渲染），横向头像列表太挤，单独放一行 */}
                         <CharacterGroupFilterBar characters={characters} groups={characterGroups}
                             value={tutorGroupId} onChange={setTutorGroupId} className="mb-3" />
@@ -1830,6 +1865,14 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                             ))}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {homeroom && homeroomLine && selectedChar && (
+                <div className="absolute left-4 right-4 z-30 flex items-start gap-2 bg-black/55 backdrop-blur-md rounded-2xl p-2.5 border border-white/10" style={{ top: 'calc(max(1rem, var(--safe-top)) + 3rem)' }}>
+                    <TokenImg value={selectedChar.avatar} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                    <div className="flex-1 text-[12px] text-white/90 leading-relaxed"><span className="text-emerald-300 font-bold mr-1">班主任</span>{homeroomLine}</div>
+                    <button onClick={() => setHomeroomLine('')} className="text-white/40 text-xs px-1">×</button>
                 </div>
             )}
 

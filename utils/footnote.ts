@@ -130,6 +130,9 @@ const call = async (char: CharacterProfile, apiConfig: APIConfig, instructions: 
   return { text, userName: (user as any)?.name || '对方' };
 };
 
+/** 给别的 App 复用：用角色自己的对话 API + 人设说几句（自习室班主任等） */
+export const callAsChar = call;
+
 const parseJson = (t: string): any => {
   const m = t.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*\}/);
   if (!m) throw new Error('格式没对上，再试一次');
