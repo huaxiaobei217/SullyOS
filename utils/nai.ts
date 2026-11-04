@@ -54,6 +54,8 @@ export const loadNaiConfig = (): NaiConfig => {
   if (!c.styles.some(s => s.id === c.activeStyle)) c.activeStyle = c.styles[0].id;
   // 第二版起默认不加官方质量词（固定正面里自己写）
   if (!(c as any).v2) { c.quality = false; (c as any).v2 = true; }
+  // 早先模型列表里写错的 V5 名字
+  if (c.model === 'nai-diffusion-5') c.model = 'nai-diffusion-5-full';
   return c;
 };
 export const activeNaiStyle = (c = loadNaiConfig()): NaiStyle => c.styles.find(s => s.id === c.activeStyle) || c.styles[0] || DEFAULT_NAI_STYLE;

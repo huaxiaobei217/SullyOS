@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { loadNaiConfig, saveNaiConfig, generateNaiImage, activeNaiStyle, type NaiConfig, type NaiStyle } from '../../utils/nai';
 
-const MODELS = ['nai-diffusion-4-5-full', 'nai-diffusion-4-5-curated', 'nai-diffusion-5', 'nai-diffusion-4-full', 'nai-diffusion-3'];
+const MODELS: [string, string][] = [['nai-diffusion-5-full', 'V5 Full'], ['nai-diffusion-5-curated', 'V5 Curated'], ['nai-diffusion-4-5-full', 'V4.5 Full'], ['nai-diffusion-4-5-curated', 'V4.5 Curated'], ['nai-diffusion-4-full', 'V4 Full'], ['nai-diffusion-4-curated-preview', 'V4 Curated'], ['nai-diffusion-3', 'Anime V3']];
 
 const NaiSettingsPanel: React.FC = () => {
   const { characters } = useOS() as any;
@@ -45,7 +45,7 @@ const NaiSettingsPanel: React.FC = () => {
           </label>
           <label className="block">模型
             <select className={input} value={cfg.model} onChange={e => set({ model: e.target.value })}>
-              {MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+              {MODELS.map(([m, n]) => <option key={m} value={m}>{n}（{m}）</option>)}
             </select>
           </label>
           <div className="pt-2 border-t border-slate-100 space-y-1.5">

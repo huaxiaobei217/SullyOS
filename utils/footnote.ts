@@ -336,13 +336,13 @@ export const parseRadioSegments = (text: string): { zh: string; voice: string }[
   return out;
 };
 
-export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = '', topic = ''): Promise<RadioPiece> {
+export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = '', topic = '', extra = ''): Promise<RadioPiece> {
   const ch = RADIO_CHANNELS.find(c => c.id === channel)!;
   const recent = loadFootnote().radio.filter(r => r.charId === char.id && r.channel === channel).slice(0, 10).map(r => r.title);
   const { text } = await call(char, apiConfig,
     `### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
-${ch.task}${topic.trim() ? `\n{{user}} 今晚点了个题：「${topic.trim().slice(0, 100)}」——围绕它讲，怎么理解、从哪讲起由你。` : ''}
+${ch.task}${topic.trim() ? `\n{{user}} 今晚点了个题：「${topic.trim().slice(0, 100)}」——围绕它讲，怎么理解、从哪讲起由你。` : ''}${extra ? `\n${extra}` : ''}
 这是要念出来的睡前电台：就用你平时说话的声音和语气，自然、放松，像睡前躺着跟 ta 聊天——不用刻意压嗓子、装温柔或发嗲；只是别突然拔高音量、大笑或惊呼，少用感叹号，情绪放在字里；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
 不要重复最近讲过的：${recent.join('、') || '（还没有）'}
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `
@@ -459,4 +459,12 @@ export async function openCapsule(char: CharacterProfile, apiConfig: APIConfig, 
   const next: Capsule = { ...cap, opened: true, openedAt: Date.now(), ...(reaction ? { reaction } : {}) };
   updateFootnote(s => ({ ...s, capsules: (s.capsules || []).map(c => c.id === id ? next : c) }));
   return next;
+}
+
+
+/** 哄睡模式：按「已经陪了多久」给下一段加的要求——越往后越短、越慢、越少说 */
+export function sleepStageNote(fraction: number, userName = '{{user}}'): string {
+  if (fraction < 0.34) return `【哄睡中 · 刚开始】${userName} 已经躺下准备睡了。这一段照常讲，但别讲得太刺激，别抛问题让 ta 回答。`;
+  if (fraction < 0.67) return `【哄睡中 · 过了一半】${userName} 可能已经有点困了。这一段短一点（150–250 字），节奏更慢，句子更短，内容更平淡、更安静，不要转折和悬念。`;
+  return `【哄睡中 · 快睡着了】${userName} 大概快睡着了。只说很短的一小段（60–120 字），像在耳边轻轻说，几句话就停；最后一句可以是晚安，或者只是安静地陪着。`;
 }

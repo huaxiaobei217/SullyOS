@@ -12,7 +12,8 @@ import { AppID } from '../../types';
 import { Play, Pause, SkipBack, SkipForward, MusicNotes } from '@phosphor-icons/react';
 import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, MUSIC_PREFS_CHANGED_EVENT } from '../../utils/music/musicPrefs';
 
-const TOP_MIN = 24;
+// 允许一直推到最顶上（用手机自带状态栏、不显示小手机时间时，顶部没有占位）
+const TOP_MIN = 0;
 const BOTTOM_GAP = 110;
 
 const DesktopLyric: React.FC = () => {

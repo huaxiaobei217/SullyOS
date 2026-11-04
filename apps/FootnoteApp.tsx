@@ -4,17 +4,18 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt, Sparkle } from '@phosphor-icons/react';
+import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt, Sparkle, Moon } from '@phosphor-icons/react';
 import { isNaiReady, generateNaiImage } from '../utils/nai';
 import { shareNote, shareRadio, shareQa, shareCapsule } from '../utils/footnoteShare';
 import { isFootnoteChatOn, setFootnoteChatOn } from '../utils/footnoteChat';
+import { computeHateStats, saveHateTotal, type HateStats } from '../utils/hateCounter';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
   loadFootnote, updateFootnote, FOOTNOTE_CHANGED_EVENT, dropCards, QA_BANK, generateQuestion, answerQuestion,
   RADIO_CHANNELS, playRadio, addUserNote, addUserReply, replyToNote, threadOf, parseRadioSegments,
   getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio, drawCardImage,
-  removeAskedQuestion, sealCapsule, openCapsule, canOpenCapsule, todayKey, type Capsule,
+  removeAskedQuestion, sealCapsule, openCapsule, canOpenCapsule, todayKey, sleepStageNote, type Capsule,
   FOOT_FONTS, FOOT_TINTS, fontCss, tintOf, loadCharFont, saveCharFont,
   type FootCard, type RadioChannel, type RadioPiece,
 } from '../utils/footnote';
@@ -235,6 +236,7 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
   const open = cards.find(c => c.id === openId) || null;
   return (
     <div className="min-h-full" data-bg={bg ? '1' : '0'}>
+      <HateCounter char={char} userName={userName} />
       <style>{`@keyframes footDrop { 0% { opacity: 0; transform: translateY(-24px) rotate(var(--r)) scale(1.04) } 100% { opacity: 1; transform: rotate(var(--r)) } }`}</style>
       <div className="flex gap-2 mb-2 pt-1">
         <button onClick={drop} disabled={busy} className="flex-1 py-2.5 rounded-xl text-[13px] active:scale-[0.98] disabled:opacity-60"
@@ -627,27 +629,99 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
       if (runRef.current !== my) return;
       setShown(s => Math.max(s, i + 1));
       setSpeaking(i);
+      duck(true);
       if (url) {
         await new Promise<void>(resolve => {
           const a = new Audio(url);
           audioRef.current = a;
+          // 哄睡后半段，他的声音也跟着轻一点
+          if (sleepRef.current.on) a.volume = Math.max(0.55, 1 - sleepFraction() * 0.45);
           a.onended = () => resolve(); a.onerror = () => resolve();
           a.play().catch(() => resolve());
         });
       } else {
         await new Promise(r => setTimeout(r, Math.min(9000, 1200 + displayText(list[i].zh).length * 170)));
       }
+      duck(false);
       while (pausedRef.current && runRef.current === my) await new Promise(r => setTimeout(r, 200));
-      if (runRef.current === my) await new Promise(r => setTimeout(r, 350));
+      // 哄睡模式：越往后，句子之间停得越久
+      if (runRef.current === my) await new Promise(r => setTimeout(r, sleepRef.current.on ? 600 + sleepFraction() * 5000 : 350));
     }
-    if (runRef.current === my) { setPlaying(false); setSpeaking(-1); }
+    if (runRef.current === my) { setPlaying(false); setSpeaking(-1); void onPieceEnd(piece); }
+  };
+
+  /* ── 哄睡模式 ── */
+  const [sleepOn, setSleepOn] = useState(false);
+  const [sleepMins, setSleepMins] = useState(() => { try { return Number(localStorage.getItem('sully_sleep_mins_v1')) || 30; } catch { return 30; } });
+  const [sleepPanel, setSleepPanel] = useState(false);
+  const [sleepMsg, setSleepMsg] = useState('');
+  const sleepRef = useRef<{ on: boolean; start: number; mins: number }>({ on: false, start: 0, mins: 30 });
+  const sleepFraction = () => sleepRef.current.on ? Math.min(1, (Date.now() - sleepRef.current.start) / (sleepRef.current.mins * 60000)) : 0;
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
+  const [bgmName, setBgmName] = useState('');
+  const [bgmVol, setBgmVol] = useState(() => { try { return Number(localStorage.getItem('sully_sleep_bgm_vol_v1') || '0.35'); } catch { return 0.35; } });
+  const bgmVolRef = useRef(bgmVol);
+  useEffect(() => { bgmVolRef.current = bgmVol; if (bgmRef.current) bgmRef.current.volume = bgmVol; try { localStorage.setItem('sully_sleep_bgm_vol_v1', String(bgmVol)); } catch { /* ignore */ } }, [bgmVol]);
+  useEffect(() => { try { localStorage.setItem('sully_sleep_mins_v1', String(sleepMins)); } catch { /* ignore */ } }, [sleepMins]);
+  const bgmFileRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    DB.getAssetRaw('footnote_sleep_bgm').then((v: any) => { if (v?.blob) setBgmName(v.name || '背景音乐'); }).catch(() => {});
+    return () => { bgmRef.current?.pause(); };
+  }, []);
+  const pickBgm = async (f?: File) => {
+    if (!f) return;
+    await DB.saveAssetRaw('footnote_sleep_bgm', { blob: f, mimeType: f.type, name: f.name });
+    setBgmName(f.name);
+    if (bgmRef.current) { bgmRef.current.pause(); bgmRef.current = null; }
+    if (sleepRef.current.on) void startBgm();
+  };
+  const startBgm = async () => {
+    const v: any = await DB.getAssetRaw('footnote_sleep_bgm').catch(() => null);
+    if (!v?.blob) return;
+    const a = new Audio(URL.createObjectURL(v.blob));
+    a.loop = true; a.volume = bgmVolRef.current;
+    bgmRef.current = a;
+    a.play().catch(() => {});
+  };
+  /** 他说话时背景音乐压低 */
+  const duck = (speaking: boolean) => {
+    const a = bgmRef.current; if (!a) return;
+    a.volume = speaking ? bgmVolRef.current * 0.3 : bgmVolRef.current;
+  };
+  const fadeOutBgm = async () => {
+    const a = bgmRef.current; if (!a) return;
+    for (let k = 20; k >= 0; k--) { a.volume = bgmVolRef.current * (k / 20); await new Promise(r => setTimeout(r, 400)); }
+    a.pause(); bgmRef.current = null;
+  };
+  const startSleep = () => {
+    sleepRef.current = { on: true, start: Date.now(), mins: sleepMins };
+    setSleepOn(true); setSleepPanel(false); setSleepMsg('');
+    void startBgm();
+    if (!current || !playing) tune(current?.channel && current.channel !== 'patent' ? current.channel : 'free');
+  };
+  const stopSleep = (msg = '') => {
+    sleepRef.current.on = false; setSleepOn(false); setSleepMsg(msg);
+    void fadeOutBgm();
+  };
+  /** 一段念完：哄睡模式下，时间没到就接着点下一段（越来越短、越来越轻） */
+  const onPieceEnd = async (piece: RadioPiece) => {
+    if (!sleepRef.current.on) return;
+    const f = sleepFraction();
+    if (f >= 1) { stopSleep('陪你到这儿了，晚安。'); return; }
+    await new Promise(r => setTimeout(r, 2500 + f * 8000));
+    if (!sleepRef.current.on) return;
+    try {
+      const next = await playRadio(char, apiConfig, piece.channel === 'patent' ? 'free' : piece.channel, bilingual ? lang : '', '', sleepStageNote(f, userName));
+      if (sleepRef.current.on) startPiece(next);
+    } catch (e) { onErr(e); stopSleep(); }
   };
 
   const startPiece = (p: RadioPiece) => { stopAll(); setCurrent(p); setShown(0); setElapsed(0); setShowHistory(false); setTimeout(() => run(p, 0), 50); };
   const [topic, setTopic] = useState('');
   const tune = (ch: RadioChannel) => {
     stopAll(); setBusy(ch);
-    playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '').then(p => { setTopic(''); startPiece(p); }).catch(onErr).finally(() => setBusy(null));
+    const extra = sleepRef.current.on ? sleepStageNote(sleepFraction(), userName) : '';
+    playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '', extra).then(p => { setTopic(''); startPiece(p); }).catch(onErr).finally(() => setBusy(null));
   };
   const togglePause = () => {
     if (!current) return;
@@ -655,7 +729,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
     if (pausedRef.current) { pausedRef.current = false; setPaused(false); audioRef.current?.play().catch(() => {}); }
     else { pausedRef.current = true; setPaused(true); audioRef.current?.pause(); }
   };
-  const hangUp = () => { stopAll(); setCurrent(null); setShown(0); setElapsed(0); };
+  const hangUp = () => { stopAll(); setCurrent(null); setShown(0); setElapsed(0); if (sleepRef.current.on) stopSleep(); };
   const save = (blob: Blob, name: string) => {
     const u = URL.createObjectURL(blob); const a = document.createElement('a');
     a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
@@ -764,6 +838,44 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
       )}
       <div className="flex-1" />
 
+      {/* 哄睡模式 */}
+      <div className="relative mt-4">
+        {sleepOn ? (
+          <div className="flex items-center gap-2 p-2.5 rounded-2xl text-[11.5px]" style={{ background: 'rgba(185,135,90,0.14)', border: '1px solid rgba(185,135,90,0.35)' }}>
+            <Moon size={15} weight="fill" style={{ color: T.candle }} />
+            <span className="flex-1">哄睡中 · 还剩 {Math.max(0, Math.ceil(sleepMins - (Date.now() - sleepRef.current.start) / 60000))} 分钟 · 越往后越安静</span>
+            <button onClick={() => stopSleep()} className="opacity-70">停下</button>
+          </div>
+        ) : (
+          <button onClick={() => setSleepPanel(v => !v)} className="w-full flex items-center gap-2 p-2.5 rounded-2xl text-[11.5px]" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(233,226,214,0.12)' }}>
+            <Moon size={15} /><span className="flex-1 text-left">哄睡模式{sleepMsg ? ` · ${sleepMsg}` : '：定时陪你睡，背景音乐，越讲越轻'}</span><span className="opacity-50">{sleepPanel ? '收起' : '设置'}</span>
+          </button>
+        )}
+        {sleepPanel && !sleepOn && (
+          <div className="mt-2 p-3 rounded-2xl space-y-3 text-[11.5px]" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(233,226,214,0.12)' }}>
+            <div>
+              <div className="opacity-60 mb-1.5">陪多久</div>
+              <div className="flex gap-1.5">
+                {[15, 30, 45, 60, 90].map(m => (
+                  <button key={m} onClick={() => setSleepMins(m)} className="flex-1 py-1 rounded-full" style={{ background: sleepMins === m ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>{m} 分</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="opacity-60 mb-1.5">背景音乐（他说话时会自动压低）</div>
+              <input ref={bgmFileRef} type="file" accept="audio/*" className="hidden" onChange={e => { pickBgm(e.target.files?.[0]); e.target.value = ''; }} />
+              <div className="flex items-center gap-2">
+                <button onClick={() => bgmFileRef.current?.click()} className="px-3 py-1 rounded-full shrink-0" style={{ border: '1px solid rgba(233,226,214,0.25)' }}>{bgmName ? '换一首' : '选本地音乐'}</button>
+                <span className="truncate opacity-60 flex-1">{bgmName || '不放也行'}</span>
+              </div>
+              {bgmName && <input type="range" className="w-full mt-2" min={0} max={1} step={0.05} value={bgmVol} onChange={e => setBgmVol(Number(e.target.value))} />}
+            </div>
+            <div className="opacity-50 leading-relaxed">开始后他会一段接一段地讲（频道沿用现在这个，没选就他看着办），越往后越短、停得越久、声音越轻；到时间音乐慢慢淡出。</div>
+            <button onClick={startSleep} disabled={!!busy} className="w-full py-2 rounded-full text-white disabled:opacity-50" style={{ background: T.candle }}>开始哄睡</button>
+          </div>
+        )}
+      </div>
+
       {/* 底部按钮：像打电话那一排（吸底） */}
       <div className="sticky bottom-0 z-10 grid grid-cols-4 gap-2 pt-6 pb-2 -mx-5 px-5" style={{ background: 'linear-gradient(transparent, rgba(17,19,27,0.92) 35%)' }}>
         {[
@@ -783,6 +895,58 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         {live && <span className="inline-flex items-end gap-[2px] h-3 ml-2 align-middle">{[0, 1, 2, 3].map(k => <span key={k} className="w-[2px] rounded-sm" style={{ background: T.candle, animation: `footEq 0.${6 + k}s ease-in-out ${k * 0.1}s infinite alternate` }} />)}</span>}
       </div>
 
+    </div>
+  );
+};
+
+/* ───────── 「恨你」计数器 ───────── */
+
+const HateCounter: React.FC<{ char: any; userName: string }> = ({ char, userName }) => {
+  const [stats, setStats] = useState<HateStats | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    DB.getMessagesByCharId(char.id, true).then(msgs => {
+      if (!alive) return;
+      const st = computeHateStats(msgs);
+      setStats(st); saveHateTotal(char.id, st.total);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [char.id]);
+  if (!stats || !stats.total) return null;
+  const milestone = [1000, 520, 500, 365, 300, 200, 100, 99, 50, 10].find(n => stats.total >= n);
+  const last14 = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - 13 + i); return stats.byDay[todayKey(d)] || 0; });
+  const max = Math.max(1, ...last14);
+  return (
+    <div className="relative mb-4 mt-1">
+      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-3 p-3 text-left active:scale-[0.99]"
+        style={{ background: '#fff6f4', borderRadius: 3, boxShadow: '0 2px 8px rgba(60,45,30,0.08)', transform: 'rotate(-0.4deg)' }}>
+        <div className="shrink-0 w-14 h-14 rounded-full flex flex-col items-center justify-center" style={{ border: '2px solid #b5464a', color: '#b5464a', transform: 'rotate(-10deg)' }}>
+          <span className="text-[9px] tracking-widest leading-none">恨你</span>
+          <span className="text-[17px] font-bold leading-tight" style={{ fontFamily: serif }}>{stats.total}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px]" style={{ fontFamily: serif }}>{userName}说了 <b>{stats.total}</b> 次「恨你」</div>
+          <div className="text-[10.5px] mt-0.5" style={{ color: T.soft }}>
+            今天 {stats.today} 次{stats.currentStreak > 1 ? ` · 连续 ${stats.currentStreak} 天` : ''} · 最长连续 {stats.longestStreak} 天{milestone ? ` · 已经过了 ${milestone} 次` : ''}
+          </div>
+          <div className="flex items-end gap-[3px] h-5 mt-1.5">
+            {last14.map((n, i) => <span key={i} className="flex-1 rounded-sm" style={{ height: `${n ? 20 + (n / max) * 80 : 8}%`, background: n ? '#c97c7f' : 'rgba(0,0,0,0.06)' }} />)}
+          </div>
+        </div>
+      </button>
+      {open && (
+        <div className="mt-2 p-3 space-y-2.5 text-[11.5px]" style={{ background: 'rgba(255,252,243,0.85)', borderRadius: 3 }}>
+          <div className="text-[10px]" style={{ color: T.soft }}>最近几次，和{char.name}当时怎么回的</div>
+          {stats.recent.slice(0, 12).map((r, i) => (
+            <div key={i} className="pb-2 border-b border-dashed" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+              <div><span className="opacity-50 mr-1">{new Date(r.at).toLocaleDateString()}</span>{r.text}</div>
+              {r.reply && <div className="mt-0.5" style={{ fontFamily: fontCss(loadCharFont()), fontSize: 13, color: T.ink }}>↳ {r.reply}</div>}
+            </div>
+          ))}
+          {stats.firstAt && <div className="text-[10px]" style={{ color: T.soft }}>第一次是 {new Date(stats.firstAt).toLocaleDateString()}。</div>}
+        </div>
+      )}
     </div>
   );
 };
