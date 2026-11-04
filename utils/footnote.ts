@@ -42,13 +42,13 @@ export const FOOT_FONTS: { id: string; name: string; css: string; google?: strin
   { id: 'hand-en', name: 'English', css: `'Caveat','Long Cang',cursive`, google: 'Caveat' },
 ];
 export const FOOT_TINTS: { id: string; paper: string; tape: string }[] = [
-  { id: 'cream', paper: '#fbf5e6', tape: 'rgba(214,170,120,0.45)' },
-  { id: 'rose', paper: '#fbe9e7', tape: 'rgba(206,140,150,0.45)' },
-  { id: 'sage', paper: '#eaf0e3', tape: 'rgba(140,165,120,0.45)' },
-  { id: 'sky', paper: '#e7eef6', tape: 'rgba(120,150,190,0.40)' },
-  { id: 'lilac', paper: '#efe8f5', tape: 'rgba(160,135,190,0.40)' },
-  { id: 'lemon', paper: '#fbf6d8', tape: 'rgba(210,185,90,0.45)' },
-];
+  { id: 'cream', paper: '#fffcf3', tape: 'rgba(222,190,140,0.32)' },
+  { id: 'rose', paper: '#fff6f4', tape: 'rgba(225,165,170,0.30)' },
+  { id: 'sage', paper: '#f6f9f1', tape: 'rgba(160,185,140,0.32)' },
+  { id: 'sky', paper: '#f4f8fc', tape: 'rgba(150,180,215,0.30)' },
+  { id: 'lilac', paper: '#f9f5fc', tape: 'rgba(185,160,215,0.30)' },
+  { id: 'lemon', paper: '#fffdf0', tape: 'rgba(225,205,120,0.32)' },
+]
 export const fontCss = (id?: string) => (FOOT_FONTS.find(f => f.id === id) || FOOT_FONTS[0]).css;
 export const tintOf = (id?: string) => FOOT_TINTS.find(t => t.id === id) || FOOT_TINTS[0];
 
@@ -87,6 +87,8 @@ const call = async (char: CharacterProfile, apiConfig: APIConfig, instructions: 
   if (!api?.baseUrl || !api.model) throw new Error('先在设置里配好聊天 API');
   const uname = (user as any)?.name || '对方';
   const fill = (t: string) => t.replace(/\{\{user\}\}/g, uname).replace(/\{\{char\}\}/g, char.name);
+  // 「页脚」里的通用口味：别老绕回同一个梗
+  instructions += `\n- 别把话题绕到记账、欠账、连本带利、利息、讨债这一类梗上；换着花样说。`;
   const messages = await ContextBuilder.buildCharacterRequest(
     { char, user: user as any, instructions: fill(instructions) },
     [{ role: 'user', content: fill(task) }],
@@ -313,4 +315,27 @@ ${ch.task}
   const piece: RadioPiece = { id: uid('rd'), charId: char.id, channel, title, text: lines.join('\n').trim(), createdAt: Date.now(), ...(voiceLang ? { voiceLang } : {}) };
   updateFootnote(s => ({ ...s, radio: [piece, ...s.radio] }));
   return piece;
+}
+
+
+/* ───────── 电台音频：合成过的段落存本机，重播不再花钱，也能下载 ───────── */
+const audioKey = (pieceId: string, i: number) => `fn_radio_${pieceId}_${i}`;
+export async function getRadioAudio(pieceId: string, i: number): Promise<Blob | null> {
+  try { const v = await DB.getAssetRaw(audioKey(pieceId, i)); return v?.blob || null; } catch { return null; }
+}
+export async function saveRadioAudio(pieceId: string, i: number, blob: Blob): Promise<void> {
+  try { await DB.saveAssetRaw(audioKey(pieceId, i), { blob, mimeType: blob.type || 'audio/mpeg' }); } catch { /* 存不下就算了 */ }
+}
+export async function deleteRadioPiece(piece: RadioPiece): Promise<void> {
+  updateFootnote(s => ({ ...s, radio: s.radio.filter(r => r.id !== piece.id) }));
+  const n = parseRadioSegments(piece.text).length;
+  for (let i = 0; i < n; i++) { try { await DB.deleteAsset(audioKey(piece.id, i)); } catch { /* ignore */ } }
+}
+/** 把这期节目已经合成过的音频拼成一个文件（mp3 分段直接首尾相接即可播放）；返回缺了几段 */
+export async function collectRadioAudio(piece: RadioPiece): Promise<{ blob: Blob | null; missing: number }> {
+  const n = parseRadioSegments(piece.text).length;
+  const parts: Blob[] = [];
+  let missing = 0;
+  for (let i = 0; i < n; i++) { const b = await getRadioAudio(piece.id, i); if (b) parts.push(b); else missing++; }
+  return { blob: parts.length ? new Blob(parts, { type: parts[0].type || 'audio/mpeg' }) : null, missing };
 }

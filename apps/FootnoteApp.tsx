@@ -4,12 +4,13 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare } from '@phosphor-icons/react';
+import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple } from '@phosphor-icons/react';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
   loadFootnote, updateFootnote, FOOTNOTE_CHANGED_EVENT, dropCards, QA_BANK, generateQuestion, answerQuestion,
   RADIO_CHANNELS, playRadio, addUserNote, addUserReply, replyToNote, threadOf, parseRadioSegments,
+  getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio,
   FOOT_FONTS, FOOT_TINTS, fontCss, tintOf, loadCharFont, saveCharFont,
   type FootCard, type RadioChannel, type RadioPiece,
 } from '../utils/footnote';
@@ -102,7 +103,12 @@ const FootnoteApp: React.FC = () => {
 
   return (
     <div className="h-full w-full flex flex-col transition-colors duration-500"
-      style={{ background: night ? `linear-gradient(180deg, ${T.night1}, ${T.night2})` : T.bg, color: night ? '#e9e2d6' : T.ink }}>
+      style={{
+        background: curBg
+          ? (night ? `linear-gradient(rgba(17,19,27,0.6), rgba(17,19,27,0.9)), url(${curBg}) center / cover no-repeat` : `linear-gradient(rgba(243,238,230,0.5), rgba(243,238,230,0.78)), url(${curBg}) center / cover no-repeat`)
+          : (night ? `linear-gradient(180deg, ${T.night1}, ${T.night2})` : T.bg),
+        color: night ? '#e9e2d6' : T.ink,
+      }}>
       <div className="shrink-0 px-3 pb-2 flex items-center gap-2" style={{ paddingTop: 'calc(var(--safe-top) + 10px)' }}>
         <button onClick={closeApp} className="p-1.5 -ml-1 active:scale-90"><CaretLeft size={22} /></button>
         <div className="text-lg tracking-[0.35em] font-semibold flex items-center gap-1.5" style={{ fontFamily: serif }}><Jasmine />页脚</div>
@@ -141,12 +147,21 @@ const FootnoteApp: React.FC = () => {
 
 /* ───────── 便签墙 ───────── */
 
+/** 半透明、两头锯齿的和纸胶带 */
+const zig = (() => {
+  const n = 7, pts: string[] = [];
+  for (let i = 0; i <= n; i++) pts.push(`${i % 2 ? 4 : 0}% ${(i / n) * 100}%`);
+  const left = pts.join(',');
+  const right = pts.slice().reverse().map(p => { const [x, y] = p.split(' '); return `${100 - parseFloat(x)}% ${y}`; }).join(',');
+  return `polygon(${left},${right})`;
+})();
 const Tape: React.FC<{ color: string; seed: number; wide?: boolean }> = ({ color, seed, wide }) => (
-  <div className={`absolute left-1/2 -top-2.5 h-5 ${wide ? 'w-20' : 'w-14'}`}
+  <div className={`absolute left-1/2 -top-2.5 h-[18px] ${wide ? 'w-24' : 'w-16'}`}
     style={{
-      background: `repeating-linear-gradient(45deg, ${color}, ${color} 4px, rgba(255,255,255,0.25) 4px, rgba(255,255,255,0.25) 8px)`,
-      transform: `translateX(-50%) rotate(${(seed % 7) - 3}deg)`, boxShadow: '0 1px 1px rgba(0,0,0,0.05)',
-      clipPath: 'polygon(3% 0, 97% 4%, 100% 100%, 0 96%)',
+      background: `linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0.12)), ${color}`,
+      backdropFilter: 'blur(1px)', WebkitBackdropFilter: 'blur(1px)',
+      transform: `translateX(-50%) rotate(${(seed % 9) - 4}deg)`,
+      boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.4)', clipPath: zig,
     }} />
 );
 
@@ -175,7 +190,7 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
   const shown = cards.filter(c => filter === 'all' ? true : filter === 'star' ? c.starred : filter === 'mine' ? c.author === 'user' : c.author !== 'user');
   const open = cards.find(c => c.id === openId) || null;
   return (
-    <div className="-mx-4 px-4 min-h-full" style={bg ? { backgroundImage: `linear-gradient(rgba(243,238,230,0.55), rgba(243,238,230,0.8)), url(${bg})`, backgroundSize: 'cover', backgroundAttachment: 'local' } : undefined}>
+    <div className="min-h-full" data-bg={bg ? '1' : '0'}>
       <style>{`@keyframes footDrop { 0% { opacity: 0; transform: translateY(-24px) rotate(var(--r)) scale(1.04) } 100% { opacity: 1; transform: rotate(var(--r)) } }`}</style>
       <div className="flex gap-2 mb-2 pt-1">
         <button onClick={drop} disabled={busy} className="flex-1 py-2.5 rounded-xl text-[13px] active:scale-[0.98] disabled:opacity-60"
@@ -285,13 +300,15 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
           {waiting && <div className="text-[11px] opacity-50">{char.name}拿起笔…</div>}
         </div>}
 
-        <div className="mt-4 flex items-end gap-2">
-          <textarea value={mine} onChange={e => setMine(e.target.value)} rows={1} placeholder="在下面写一句…"
-            className="flex-1 bg-white/50 rounded-lg px-2.5 py-1.5 outline-none resize-none" style={{ fontFamily: fontCss(myFont), fontSize: 14, color: T.ink }} />
-          <button onClick={() => send(true)} disabled={waiting || (!mine.trim() && th.length > 0 && th[th.length - 1].by === 'char')}
-            className="px-3 py-1.5 rounded-lg text-[12px] text-white disabled:opacity-40" style={{ background: T.ink }}>{mine.trim() ? '写上，等他回' : '等他回'}</button>
+        <div className="mt-4 pt-3 border-t border-dashed" style={{ borderColor: 'rgba(0,0,0,0.12)' }}>
+          <textarea value={mine} onChange={e => setMine(e.target.value)} rows={2} placeholder="在下面写一句…"
+            className="block w-full min-w-0 bg-transparent outline-none resize-none" style={{ fontFamily: fontCss(myFont), fontSize: 14, color: T.ink, backgroundImage: 'repeating-linear-gradient(transparent, transparent 25px, rgba(0,0,0,0.08) 25px, rgba(0,0,0,0.08) 26px)', lineHeight: '26px' }} />
+          <div className="flex justify-end items-center gap-3 mt-2">
+            {mine.trim() && <button onClick={() => send(false)} className="text-[11px] opacity-60">只写上</button>}
+            <button onClick={() => send(true)} disabled={waiting || (!mine.trim() && th.length > 0 && th[th.length - 1].by === 'char')}
+              className="px-3 py-1.5 rounded-full text-[11.5px] text-white disabled:opacity-40" style={{ background: T.ink }}>{mine.trim() ? '写上，等他回' : '等他回一句'}</button>
+          </div>
         </div>
-        {mine.trim() && <button onClick={() => send(false)} className="mt-1 text-[10.5px] opacity-60">只写上，先不叫他</button>}
 
         <div className="flex justify-between mt-4 text-[11px]">
           <button onClick={() => updateFootnote(s => ({ ...s, cards: s.cards.filter(x => x.id !== card.id) }))} className="flex items-center gap-1 text-rose-400"><Trash size={13} />撕掉</button>
@@ -360,8 +377,9 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
       </div>
 
       {q && (
-        <div className="p-4 rounded-2xl mb-4" style={{ background: T.card, border: `1px solid ${T.line}` }}>
-          <div className="text-[10px] mb-1" style={{ color: T.candle }}>{q.fromBank ? '题库' : `${char.name}现场出的题`}</div>
+        <div className="relative p-4 pt-5 mb-5 mx-1" style={{ background: '#fffcf3', borderRadius: 3, boxShadow: '0 3px 10px rgba(60,45,30,0.10)', transform: 'rotate(-0.6deg)' }}>
+          <Tape color="rgba(222,190,140,0.32)" seed={4} wide />
+          <div className="text-[10px] mb-1" style={{ color: T.candle }}>{q.fromBank ? '从题罐里抽的' : `${char.name}现场出的题`}</div>
           <div className="text-[15px] font-semibold leading-relaxed mb-3" style={{ fontFamily: serif }}>{q.text}</div>
           {!result ? (
             <>
@@ -377,7 +395,7 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
 
       {rounds.length > 0 && <div className="text-[11px] mb-2 opacity-60">以前答过的</div>}
       {rounds.filter(r => r.id !== result?.id).slice(0, 30).map(r => (
-        <div key={r.id} className="p-3 rounded-2xl mb-2" style={{ background: 'rgba(255,250,242,0.7)', border: `1px solid ${T.line}` }}>
+        <div key={r.id} className="p-3 pb-4 rounded-xl mb-3" style={{ background: 'rgba(255,252,243,0.55)', border: `1px dashed ${T.line}` }}>
           <div className="text-[12.5px] font-semibold mb-1.5" style={{ fontFamily: serif }}>{r.question}</div>
           <Reveal r={r} name={char.name} small />
         </div>
@@ -386,15 +404,27 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
   );
 };
 
-const Reveal: React.FC<{ r: any; name: string; small?: boolean }> = ({ r, name, small }) => (
-  <div className={small ? 'text-[11.5px]' : 'text-[13px]'}>
-    <div className="grid grid-cols-2 gap-2">
-      <div className="p-2 rounded-lg" style={{ background: T.bg }}><div className="text-[9.5px] opacity-60 mb-0.5">你</div>{r.mine}</div>
-      <div className="p-2 rounded-lg" style={{ background: T.candleSoft }}><div className="text-[9.5px] opacity-60 mb-0.5">{name}</div>{r.his}</div>
+const Reveal: React.FC<{ r: any; name: string; small?: boolean }> = ({ r, name, small }) => {
+  const myFont = (() => { try { return localStorage.getItem('sully_footnote_my_font_v1') || 'kai'; } catch { return 'kai'; } })();
+  const fs = small ? 12.5 : 14;
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-3 mt-1">
+        {[
+          { who: '你', text: r.mine, paper: '#fff6f4', tape: 'rgba(225,165,170,0.30)', font: myFont, rot: -1.5 },
+          { who: name, text: r.his, paper: '#f4f8fc', tape: 'rgba(150,180,215,0.30)', font: loadCharFont(), rot: 1.5 },
+        ].map((n, i) => (
+          <div key={i} className="relative p-2.5 pt-3.5" style={{ background: n.paper, borderRadius: 2, transform: `rotate(${n.rot}deg)`, boxShadow: '0 2px 6px rgba(60,45,30,0.08)' }}>
+            <Tape color={n.tape} seed={i * 5 + 2} />
+            <div className="text-[9px] mb-0.5" style={{ color: T.soft }}>{n.who}</div>
+            <div className="leading-relaxed" style={{ fontFamily: fontCss(n.font), fontSize: fs, color: T.ink }}>{n.text}</div>
+          </div>
+        ))}
+      </div>
+      {r.reaction && <div className="mt-3 text-center italic" style={{ fontFamily: fontCss(loadCharFont()), fontSize: fs, color: T.soft }}>—— {r.reaction}</div>}
     </div>
-    {r.reaction && <div className="mt-1.5 italic opacity-80" style={{ fontFamily: serif }}>{name}：{r.reaction}</div>}
-  </div>
-);
+  );
+};
 
 /* ───────── 深夜点播：像接通一通深夜电话 ───────── */
 
@@ -448,7 +478,14 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
     const key = `${piece.id}:${i}`;
     if (!urlCache.current.has(key)) {
       const opts = piece.voiceLang ? { languageBoost: piece.voiceLang } : undefined;
-      urlCache.current.set(key, synthesizeSpeech(text, char, apiConfig, opts).catch(e => {
+      urlCache.current.set(key, (async () => {
+        const saved = await getRadioAudio(piece.id, i);
+        if (saved) return URL.createObjectURL(saved);
+        const url = await synthesizeSpeech(text, char, apiConfig, opts);
+        // 存一份到本机：重播不再花钱，也能下载
+        fetch(url).then(r => r.blob()).then(b => saveRadioAudio(piece.id, i, b)).catch(() => {});
+        return url;
+      })().catch(e => {
         if (!warned.current) { warned.current = true; onErr(new Error(`语音没合成出来，先用字幕播：${e?.message || e}`)); }
         return null;
       }));
@@ -495,6 +532,20 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
     else { pausedRef.current = true; setPaused(true); audioRef.current?.pause(); }
   };
   const hangUp = () => { stopAll(); setCurrent(null); setShown(0); setElapsed(0); };
+  const save = (blob: Blob, name: string) => {
+    const u = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+  };
+  const downloadPiece = async (p: RadioPiece) => {
+    const name = `${char.name}-${p.title}`.replace(/[\\/:*?"<>|]/g, '');
+    const { blob, missing } = await collectRadioAudio(p);
+    if (blob) save(blob, `${name}.mp3`);
+    const text = `${p.title}\n${RADIO_CHANNELS.find(c => c.id === p.channel)?.name} · ${new Date(p.createdAt).toLocaleString()}\n\n` +
+      parseRadioSegments(p.text).map(sg => sg.voice !== sg.zh ? `${displayText(sg.voice)}\n${displayText(sg.zh)}` : displayText(sg.zh)).join('\n\n');
+    save(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${name}.txt`);
+    if (!blob) onErr(new Error('这期还没有存下来的音频（播一遍就有了），先下载了文字稿'));
+    else if (missing) onErr(new Error(`有 ${missing} 段还没播到，音频里没有这几段`));
+  };
 
   const live = playing && !paused;
   const line = speaking >= 0 ? segs[speaking] : (shown > 0 ? segs[shown - 1] : null);
@@ -507,7 +558,6 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
 @keyframes footRing { 0% { transform: scale(1); opacity: .55 } 100% { transform: scale(1.55); opacity: 0 } }
 @keyframes footSub { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
 @keyframes footEq { from { height: 3px } to { height: 14px } }`}</style>
-      {bg && <div className="absolute inset-0 -z-0 pointer-events-none" style={{ backgroundImage: `linear-gradient(rgba(17,19,27,0.55), rgba(17,19,27,0.92)), url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />}
 
       <div className="relative flex items-center justify-between text-[10px] tracking-[0.3em] opacity-75 mb-2">
         <span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${live ? 'animate-pulse' : ''}`} style={{ background: current ? '#e0605a' : 'rgba(233,226,214,0.3)' }} />{current ? 'ON AIR' : 'OFF AIR'}</span>
@@ -584,14 +634,18 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         {live && <span className="inline-flex items-end gap-[2px] h-3 ml-2 align-middle">{[0, 1, 2, 3].map(k => <span key={k} className="w-[2px] rounded-sm" style={{ background: T.candle, animation: `footEq 0.${6 + k}s ease-in-out ${k * 0.1}s infinite alternate` }} />)}</span>}
       </div>
 
-      {showHistory && !current && (
-        <div className="relative pb-4">
-          {pieces.length === 0 && <div className="text-center text-[11px] opacity-45">还没点过</div>}
-          {pieces.slice(0, 30).map(p => (
-            <button key={p.id} onClick={() => startPiece(p)} className="w-full text-left py-2 border-b flex items-center justify-between" style={{ borderColor: 'rgba(233,226,214,0.08)' }}>
-              <span className="text-[12px] truncate" style={{ fontFamily: serif }}>{p.title}</span>
-              <span className="text-[9.5px] opacity-45 shrink-0 ml-2">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name} · {new Date(p.createdAt).toLocaleDateString()}</span>
-            </button>
+      {(showHistory || current) && pieces.length > 0 && (
+        <div className="relative pb-6">
+          <div className="text-[10px] opacity-45 mb-1 tracking-[0.2em]">以前的节目</div>
+          {pieces.slice(0, 40).map(p => (
+            <div key={p.id} className="flex items-center gap-2 py-2 border-b" style={{ borderColor: 'rgba(233,226,214,0.08)', opacity: current?.id === p.id ? 1 : 0.85 }}>
+              <button onClick={() => startPiece(p)} className="flex-1 min-w-0 text-left">
+                <div className="text-[12px] truncate" style={{ fontFamily: serif, color: current?.id === p.id ? T.candle : undefined }}>{p.title}</div>
+                <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+              </button>
+              <button onClick={() => downloadPiece(p)} className="p-1.5 opacity-60" title="下载"><DownloadSimple size={15} /></button>
+              <button onClick={() => { if (current?.id === p.id) hangUp(); void deleteRadioPiece(p); }} className="p-1.5 opacity-50 text-rose-300" title="删除"><Trash size={15} /></button>
+            </div>
           ))}
         </div>
       )}
