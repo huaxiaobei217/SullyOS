@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import { isPaperWallpaper, useOS } from '../context/OSContext';
-import { INSTALLED_APPS, DOCK_APPS } from '../constants';
+import { INSTALLED_APPS, DOCK_APPS, NOAH_LAUNCHER_ORDER } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
 import AppIcon from '../components/os/AppIcon';
 import TokenImg from '../components/os/TokenImg';
@@ -923,6 +923,24 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
       layoutPointer.current = null;
   };
 
+  // 二改：按常用顺序排好桌面（第一次打开自动排一次，之后编辑模式里可以再点）
+  const applyNoahOrder = useCallback(() => {
+      const next = normalizeOrder(NOAH_LAUNCHER_ORDER, availableGridIds);
+      const dock = normalizeOrder([], DOCK_APPS);
+      launcherAppOrderRef.current = next; launcherDockOrderRef.current = dock;
+      setLauncherAppOrder(next); setLauncherDockOrder(dock);
+      void updateTheme({ launcherAppOrder: next, launcherDockOrder: dock, launcherPinwheelOrder: pinwheelOrderRef.current });
+  }, [availableGridIds, normalizeOrder, updateTheme]);
+  useEffect(() => {
+      if (!isDataLoaded) return;
+      try {
+          if (localStorage.getItem('sully_launcher_noah_order_v1')) return;
+          localStorage.setItem('sully_launcher_noah_order_v1', '1');
+      } catch { return; }
+      applyNoahOrder();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDataLoaded]);
+
   const finishLayoutEditing = () => {
       finishLayoutPointer();
       setLayoutEditing(false);
@@ -1027,7 +1045,10 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
           <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2"
               style={{ background: 'rgba(75,65,54,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(75,65,54,0.20)' }}>
               <span className="text-[10px] font-semibold tracking-wide">按住拖动，松手交换位置</span>
-              <button onClick={finishLayoutEditing} className="ml-3 px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              <div className="flex items-center gap-1.5 ml-3">
+                  <button onClick={applyNoahOrder} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/10 active:scale-95">按常用排好</button>
+                  <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              </div>
           </div>
       )}
       

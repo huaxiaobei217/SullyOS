@@ -128,4 +128,13 @@ export const HIDDEN_APP_NAMES: Partial<Record<AppID, string>> = {
   [AppID.WorldHome]: '家园',
 };
 
-export const DOCK_APPS = [AppID.Chat, AppID.GroupChat, AppID.Social, AppID.Settings];
+// 二改：底栏换成天天用的（原版是 Chat / 群聊 / Spark / 设置，群聊和 Spark 挪进桌面后几页）
+export const DOCK_APPS = [AppID.Chat, AppID.Footnote, AppID.Music, AppID.Settings];
+
+/** 二改：桌面的常用顺序（第一页 8 个最常用，往后是偶尔用的，最后是群像大世界那一组） */
+export const NOAH_LAUNCHER_ORDER: string[] = [
+  AppID.Call, AppID.Date, AppID.Journal, AppID.Study, AppID.MemoryPalace, AppID.Character, AppID.Worldbook, AppID.User,
+  AppID.Schedule, AppID.Bank, AppID.SpecialMoments, AppID.Gallery, AppID.HotNews, AppID.Songwriting, AppID.CheckPhone, AppID.Appearance,
+  AppID.Room, AppID.VRWorld, AppID.Guidebook, AppID.FAQ,
+  AppID.GroupChat, AppID.FriendFeed, AppID.Social, AppID.XhsFreeRoam, AppID.Game, AppID.Novel, AppID.XhsStock,
+];
