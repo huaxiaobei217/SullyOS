@@ -5,6 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useMusic } from '../../context/MusicContext';
 import { loadNowPlayingSyncPrefs } from '../../utils/music/musicPrefs';
+import { recordLocalPlay } from '../../utils/music/listenHistory';
 
 export const pushNowPlaying = async (music: string, opts?: { url?: string; token?: string }) => {
   const prefs = loadNowPlayingSyncPrefs();
@@ -24,9 +25,10 @@ const NowPlayingSync: React.FC = () => {
   const lastSent = useRef<number | null>(null);
   useEffect(() => {
     if (!current || !playing || lastSent.current === current.id) return;
-    if (!loadNowPlayingSyncPrefs().url.trim()) return;
-    lastSent.current = current.id;
     const label = current.artists ? `${current.name} - ${current.artists}` : current.name;
+    recordLocalPlay(label);
+    lastSent.current = current.id;
+    if (!loadNowPlayingSyncPrefs().url.trim()) return;
     pushNowPlaying(label).catch(() => { lastSent.current = null; });
   }, [current, playing]);
   return null;

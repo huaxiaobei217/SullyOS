@@ -6,6 +6,7 @@ import { buildFootnoteAbilityBlock } from './footnoteChat';
 import { buildHateBlock } from './hateCounter';
 import { getNewsTaste } from './newsTaste';
 import { buildRecentListenBlock, buildUserSongNoteBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
+import { buildListenHistoryBlock } from './music/listenHistory';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
 import { expandHomeContextHistory } from './homeContextSegments';
@@ -616,6 +617,8 @@ ${groupLogStr}\n`;
             }
             const listenBlock = buildRecentListenBlock(char.id, userProfile.name, Date.now(), userListeningContext?.songName || '');
             if (listenBlock) volatileState += `\n${listenBlock}\n`;
+            const playsBlock = await buildListenHistoryBlock(userProfile.name).catch(() => '');
+            if (playsBlock) volatileState += `\n${playsBlock}\n`;
             const notesBlock = buildRecentNotesBlock(char.id, userProfile.name);
             if (notesBlock) volatileState += `\n${notesBlock}\n`;
             const hateBlock = buildHateBlock(char.id, userProfile.name, currentMsgs || []);

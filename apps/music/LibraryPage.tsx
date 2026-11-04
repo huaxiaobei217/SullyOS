@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMusic, Song } from '../../context/MusicContext';
 import { C, MizuHeader, SongRow, BokehBg } from './MusicUI';
 import SongActionSheet from './SongActionSheet';
+import RecentPlaysCard from './RecentPlaysCard';
 import Cover from './Cover';
 import { Gear, MagnifyingGlass, Plus, Trash, CaretLeft, Play, FileArrowUp, PencilSimple, List, X, ArrowsDownUp, ArrowUp, ArrowDown, DotsThreeVertical, MusicNoteSimple } from '@phosphor-icons/react';
 import {
@@ -304,6 +305,8 @@ const LibraryPage: React.FC<{
             </div>
           )}
         </div>
+
+        <RecentPlaysCard />
 
         {/* 歌单 */}
         <div className="flex items-center justify-between pt-1">
