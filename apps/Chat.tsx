@@ -1,4 +1,5 @@
 import {avatarFrameLayer} from '../utils/avatarFrameTarget';
+import { selfCheckReply } from '../utils/replySelfCheck';
 import ChatRuntimeStyle from '../components/chat/ChatRuntimeStyle';
 import {homePhoneAppearance,HOME_PHONE_BUBBLES} from './room3d/homePhoneAppearance';
 
@@ -1762,7 +1763,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         const focus = selfCheck.focus;
         setSelfCheck({ phase: 'running', focus });
         try {
-            const { selfCheckReply } = await import('../utils/replySelfCheck');
             const result = await selfCheckReply(char, apiConfig, messages, focus);
             setSelfCheck({ phase: 'done', focus, result });
         } catch (e: any) {
