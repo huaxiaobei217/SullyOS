@@ -110,10 +110,15 @@ const ShelfApp: React.FC = () => {
       savePosition(book.id, ch, Math.max(first, Math.min(lastVisible, (chapters[ch]?.paras.length || 1) - 1)));
     }
     const atEnd = lastVisible >= (chapters[ch]?.paras.length || 0);
-    if (atEnd && store.autoNote && char && !book.annotatedChapters?.includes(ch) && !busy) {
-      savePosition(book.id, ch, (chapters[ch]?.paras.length || 1) - 1);
-      runAnnotate();
-    }
+    if (atEnd) finishChapter();
+  };
+
+  /** 读完这章：记进度；开了自动批注、这章还没批注过、篇幅够长，就请他写 */
+  const finishChapter = () => {
+    if (!book) return;
+    savePosition(book.id, ch, Math.max(0, (chapters[ch]?.paras.length || 1) - 1));
+    const long = (chapters[ch]?.paras.join('').length || 0) >= 200;
+    if (long && store.autoNote && char && !book.annotatedChapters?.includes(ch) && !busy) runAnnotate();
   };
 
   const runAnnotate = async (upTo?: number) => {
@@ -176,7 +181,7 @@ const ShelfApp: React.FC = () => {
   if (!book) {
     return (
       <div className="h-full w-full flex flex-col" style={{ background: T.paper, color: T.ink }}>
-        <div className="shrink-0 px-5 pb-3 flex items-center justify-between" style={{ paddingTop: 'calc(var(--safe-top) + 0.75rem)' }}>
+        <div className="shrink-0 px-5 pb-3 flex items-center justify-between" style={{ paddingTop: 'calc(var(--chrome-top) + 0.5rem)' }}>
           <button onClick={closeApp} className="text-sm" style={{ color: T.muted }}>‹ 返回</button>
           <div className="font-serif text-lg tracking-widest">书影架</div>
           <button onClick={() => fileRef.current?.click()} disabled={importing} className="text-sm" style={{ color: T.accent }}>{importing ? '导入中…' : '＋ 书'}</button>
@@ -235,7 +240,7 @@ const ShelfApp: React.FC = () => {
   const chapter = chapters[ch];
   return (
     <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
-      <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--safe-top) + 0.6rem)', borderColor: T.line }}>
+      <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
         <button onClick={() => { setBookId(null); setChapters([]); setShowChat(false); }} className="text-sm shrink-0" style={{ color: T.muted }}>‹</button>
         <button onClick={() => setShowToc(true)} className="flex-1 min-w-0 text-left">
           <div className="text-[10px] truncate" style={{ color: T.muted }}>{book.title}</div>
@@ -247,7 +252,7 @@ const ShelfApp: React.FC = () => {
         </button>}
       </div>
 
-      {busy && <div className="absolute left-1/2 -translate-x-1/2 z-30 text-[11px] px-3 py-1 rounded-full shadow" style={{ top: 'calc(var(--safe-top) + 3.6rem)', background: T.ink, color: T.paper }}>{busy}</div>}
+      {busy && <div className="absolute left-1/2 -translate-x-1/2 z-30 text-[11px] px-3 py-1 rounded-full shadow" style={{ top: 'calc(var(--chrome-top) + 3.4rem)', background: T.ink, color: T.paper }}>{busy}</div>}
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28 font-serif">
         {chapter?.paras.map((p, i) => (
@@ -268,7 +273,7 @@ const ShelfApp: React.FC = () => {
           )}
           <div className="flex justify-center gap-3">
             <button onClick={() => goChapter(ch - 1)} disabled={ch === 0} className="text-[12px] px-4 py-2 rounded-xl disabled:opacity-30" style={{ background: T.paperDeep }}>上一章</button>
-            <button onClick={() => goChapter(ch + 1)} disabled={ch >= chapters.length - 1} className="text-[12px] px-4 py-2 rounded-xl text-white disabled:opacity-30" style={{ background: T.accent }}>下一章</button>
+            <button onClick={() => { finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="text-[12px] px-4 py-2 rounded-xl text-white disabled:opacity-30" style={{ background: T.accent }}>下一章</button>
           </div>
         </div>
       </div>
@@ -295,7 +300,7 @@ const ShelfApp: React.FC = () => {
       {showToc && (
         <div className="absolute inset-0 z-40 flex">
           <div className="flex-1 bg-black/30" onClick={() => setShowToc(false)} />
-          <div className="w-72 h-full overflow-y-auto p-4" style={{ background: T.paper, paddingTop: 'calc(var(--safe-top) + 1rem)' }}>
+          <div className="w-72 h-full overflow-y-auto p-4" style={{ background: T.paper, paddingTop: 'calc(var(--chrome-top) + 1rem)' }}>
             <div className="text-xs mb-3 tracking-widest" style={{ color: T.muted }}>目录</div>
             {book.chapterTitles.map((t, i) => {
               const read = (book.readTo[i] ?? -1) >= (book.chapterSizes[i] || 1) - 1;

@@ -89,6 +89,8 @@ export function splitTxt(text: string): ShelfChapter[] {
     } else cur.paras.push(t);
   }
   if (cur.paras.length) chapters.push(cur);
+  // 开头只有书名、作者这类零碎行：不单独算一章
+  if (chapters.length > 1 && chapters[0].title === '开篇' && chapters[0].paras.join('').length < 120) chapters.shift();
   // 没认出章节：每 6000 字左右切一节
   if (chapters.length <= 1 && (chapters[0]?.paras.length || 0) > 80) {
     const all = chapters[0].paras;
