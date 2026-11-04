@@ -5,12 +5,15 @@
 import React, { useMemo, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
-import { getBannedTropes, setBannedTropes, countHits } from '../../utils/tropeBan';
+import { getBannedTropes, setBannedTropes, countHits, getTropeMode, setTropeMode, rewriteMemoryText, type TropeMode } from '../../utils/tropeBan';
+import { resolveDialogueApi } from '../../utils/characterApi';
 
 type Hit = { kind: 'memory' | 'refined'; key: string; label: string; text: string };
 
 const TropeCleanPanel: React.FC = () => {
-  const { characters, updateCharacter, addToast } = useOS() as any;
+  const { characters, updateCharacter, addToast, apiConfig, memoryPalaceConfig } = useOS() as any;
+  const [mode, setModeState] = useState<TropeMode>(getTropeMode());
+  const [rewriting, setRewriting] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
   const defaultId = useMemo(() => (characters || []).find((c: any) => /诺亚|Noah/i.test(c.name))?.id || characters?.[0]?.id || '', [characters]);
   const [charId, setCharId] = useState(defaultId);
@@ -48,6 +51,24 @@ const TropeCleanPanel: React.FC = () => {
     } catch (e: any) { addToast?.(`扫描失败：${e?.message || e}`, 'error'); }
     finally { setScanning(false); }
   };
+
+  const pickApi = () => {
+    const l = memoryPalaceConfig?.lightLLM;
+    if (l?.baseUrl && l?.model) return l;
+    return resolveDialogueApi(apiConfig, char);
+  };
+  const rewrite = async (h: Hit) => {
+    const k = `${h.kind}:${h.key}`;
+    const words = list.filter(w => countHits(h.text, w));
+    setRewriting(r => ({ ...r, [k]: true }));
+    try {
+      const out = await rewriteMemoryText(h.text, words, pickApi());
+      setEdits(e => ({ ...e, [k]: out }));
+    } catch (e: any) { addToast?.(`改写失败：${e?.message || e}`, 'error'); }
+    finally { setRewriting(r => { const n = { ...r }; delete n[k]; return n; }); }
+  };
+  const rewriteAll = async () => { for (const h of scan?.hits || []) { if (edits[`${h.kind}:${h.key}`] == null) await rewrite(h); } };
+  const saveAll = () => { for (const h of scan?.hits || []) if (edits[`${h.kind}:${h.key}`] != null) saveEdit(h); };
 
   const saveEdit = (h: Hit) => {
     const text = edits[`${h.kind}:${h.key}`];
@@ -103,6 +124,15 @@ const TropeCleanPanel: React.FC = () => {
               placeholder="输入用腻的词，逗号隔开" className="flex-1 min-w-0 px-2 py-1.5 rounded-lg border border-slate-200 text-xs" />
             <button onClick={add} className="px-3 rounded-lg text-xs bg-slate-100 text-slate-600">加上</button>
           </div>
+          <div className="flex gap-1.5 text-[10.5px]">
+            {([['relapse', '他又说了才提醒'], ['always', '每次都提醒'], ['off', '不提醒']] as const).map(([m, n]) => (
+              <button key={m} onClick={() => { setTropeMode(m); setModeState(m); }}
+                className={`flex-1 py-1.5 rounded-lg border ${mode === m ? 'bg-primary/10 border-primary/40 text-primary font-semibold' : 'border-slate-200 text-slate-500'}`}>{n}</button>
+            ))}
+          </div>
+          <div className="text-[10px] text-slate-400 -mt-1">
+            {mode === 'relapse' ? '推荐。平时不提这些词，免得越提越惦记；只有他最近几条回复里又冒出来时，才轻轻提醒一句。' : mode === 'always' ? '每轮都提醒。效果最直接，但有些模型会因为老看到这些词反而更容易想起来。' : '只做记忆清理，不在聊天里提醒。'}
+          </div>
           <button onClick={runScan} disabled={!list.length || scanning} className="w-full py-2 rounded-xl text-xs font-bold bg-primary/10 text-primary disabled:opacity-40">
             {scanning ? '扫描中…' : '扫一遍聊天记录和记忆'}
           </button>
@@ -112,7 +142,13 @@ const TropeCleanPanel: React.FC = () => {
                 最近 800 条聊天里他说过：{list.map(w => `「${w}」${scan.chat[w] || 0} 次`).join('，')}
                 <div className="text-[10px] text-slate-400 mt-0.5">聊天记录不用删：清单生效后他会慢慢换掉；旧消息随着聊天往前推，也会滑出他能看到的范围。</div>
               </div>
-              <div className="text-[11px] text-slate-500">记忆里有 {scan.hits.length} 处{scan.hits.length ? '（可以直接改，改完点保存）' : '，很干净'}</div>
+              <div className="text-[11px] text-slate-500">记忆里有 {scan.hits.length} 处{scan.hits.length ? '。可以让模型改写（去掉梗、事实不变），你看过再保存' : '，很干净'}</div>
+              {scan.hits.length > 0 && (
+                <div className="flex gap-2">
+                  <button onClick={rewriteAll} disabled={Object.keys(rewriting).length > 0} className="flex-1 py-1.5 rounded-lg text-[11px] bg-primary/10 text-primary disabled:opacity-40">{Object.keys(rewriting).length ? '改写中…' : '全部让模型改写'}</button>
+                  <button onClick={saveAll} disabled={!Object.keys(edits).length} className="flex-1 py-1.5 rounded-lg text-[11px] bg-primary text-white disabled:opacity-40">保存全部改好的</button>
+                </div>
+              )}
               {scan.hits.map(h => {
                 const k = `${h.kind}:${h.key}`;
                 const editing = edits[k] != null;
@@ -129,7 +165,12 @@ const TropeCleanPanel: React.FC = () => {
                           <button onClick={() => setEdits(x => { const n = { ...x }; delete n[k]; return n; })} className="text-slate-400">取消</button>
                           <button onClick={() => saveEdit(h)} className="text-primary font-semibold">保存</button>
                         </>
-                      ) : <button onClick={() => setEdits(x => ({ ...x, [k]: h.text }))} className="text-primary">改这条</button>}
+                      ) : (
+                        <>
+                          <button onClick={() => setEdits(x => ({ ...x, [k]: h.text }))} className="text-slate-500">手动改</button>
+                          <button onClick={() => rewrite(h)} disabled={!!rewriting[k]} className="text-primary">{rewriting[k] ? '改写中…' : '让模型改写'}</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

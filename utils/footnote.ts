@@ -9,7 +9,7 @@ import { safeFetchJson, extractContent } from './safeApi';
 import { resolveDialogueApi } from './characterApi';
 import type { APIConfig, CharacterProfile } from '../types';
 import { voiceLanguagePromptLabel } from './voiceLanguage';
-import { getBannedTropes } from './tropeBan';
+import { getBannedTropes, getTropeMode } from './tropeBan';
 
 export const FOOTNOTE_LS_KEY = 'sully_footnote_v1';
 export const FOOTNOTE_CHANGED_EVENT = 'sully:footnote-changed';
@@ -93,8 +93,9 @@ const call = async (char: CharacterProfile, apiConfig: APIConfig, instructions: 
   const uname = (user as any)?.name || '对方';
   const fill = (t: string) => t.replace(/\{\{user\}\}/g, uname).replace(/\{\{char\}\}/g, char.name);
   // 「页脚」里的通用口味：别老绕回同一个梗
-  const banned = getBannedTropes(char.id);
-  instructions += `\n- 别把话题绕到${banned.length ? banned.join('、') : '记账、欠账、连本带利、利息、讨债'}这一类用腻了的梗上；换着花样说。`;
+  // 只在「每次都提醒」模式下点名，免得越提越惦记
+  const banned = getTropeMode() === 'always' ? getBannedTropes(char.id) : [];
+  instructions += banned.length ? `\n- 别绕回${banned.join('、')}这些老梗，说点新鲜的。` : `\n- 别老绕回聊天里用过很多次的那几个梗，说点新鲜的。`;
   const messages = await ContextBuilder.buildCharacterRequest(
     { char, user: user as any, instructions: fill(instructions) },
     [{ role: 'user', content: fill(task) }],
@@ -310,7 +311,7 @@ export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, ch
     `### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
 ${ch.task}
-这是要念出来的哄睡电台：用你自己说话的语气，从头到尾都轻声、平稳、慢一点，越往后越轻；不要感叹号，不要突然提高音量、大笑或惊呼，情绪起伏放在字里而不是音量上；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
+这是要念出来的睡前电台：就用你平时说话的声音和语气，自然、放松，像睡前躺着跟 ta 聊天——不用刻意压嗓子、装温柔或发嗲；只是别突然拔高音量、大笑或惊呼，少用感叹号，情绪放在字里；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
 不要重复最近讲过的：${recent.join('、') || '（还没有）'}
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `
 

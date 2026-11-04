@@ -612,7 +612,7 @@ ${groupLogStr}\n`;
             if (listenBlock) volatileState += `\n${listenBlock}\n`;
             const notesBlock = buildRecentNotesBlock(char.id, userProfile.name);
             if (notesBlock) volatileState += `\n${notesBlock}\n`;
-            const tropeBlock = buildTropeBanBlock(char.id, userProfile.name);
+            const tropeBlock = buildTropeBanBlock(char.id, userProfile.name, (currentMsgs || []).filter(m => m.role === 'assistant').slice(-12).map(m => String(m.content || '')));
             if (tropeBlock) volatileState += `\n${tropeBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }
 
