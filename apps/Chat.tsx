@@ -2974,7 +2974,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         };
         window.addEventListener('home-secrets-updated',refresh);
         window.addEventListener('friend-feed-history-updated',refresh);
+        window.addEventListener('nai-photo-ready',refresh);
+        const naiFail=(event:Event)=>{
+            const d=(event as CustomEvent).detail||{};
+            if(char && d.charId===char.id) addToast(`${char.name}的照片没拍成：${d.error||'未知错误'}`,'error');
+        };
+        window.addEventListener('nai-photo-failed',naiFail);
         return()=>{
+            window.removeEventListener('nai-photo-ready',refresh);
+            window.removeEventListener('nai-photo-failed',naiFail);
             window.removeEventListener('home-secrets-updated',refresh);
             window.removeEventListener('friend-feed-history-updated',refresh);
         };

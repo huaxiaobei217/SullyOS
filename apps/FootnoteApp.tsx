@@ -4,14 +4,15 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt } from '@phosphor-icons/react';
+import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt, Sparkle } from '@phosphor-icons/react';
+import { isNaiReady, generateNaiImage } from '../utils/nai';
 import { shareNote, shareRadio, shareQa } from '../utils/footnoteShare';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
   loadFootnote, updateFootnote, FOOTNOTE_CHANGED_EVENT, dropCards, QA_BANK, generateQuestion, answerQuestion,
   RADIO_CHANNELS, playRadio, addUserNote, addUserReply, replyToNote, threadOf, parseRadioSegments,
-  getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio,
+  getRadioAudio, saveRadioAudio, deleteRadioPiece, collectRadioAudio, drawCardImage,
   FOOT_FONTS, FOOT_TINTS, fontCss, tintOf, loadCharFont, saveCharFont,
   type FootCard, type RadioChannel, type RadioPiece,
 } from '../utils/footnote';
@@ -103,6 +104,23 @@ const FootnoteApp: React.FC = () => {
     setBgs(b => { const n = { ...b }; delete n[tab === 'radio' ? 'radio' : 'wall']; return n; });
   };
   const curBg = tab === 'radio' ? bgs.radio : tab === 'wall' ? bgs.wall : undefined;
+  const [naiBgOpen, setNaiBgOpen] = useState(false);
+  const BG_PRESET: Record<string, string> = {
+    wall: 'cozy study room, wooden desk, stacked books, vinyl records, jasmine flowers in a glass, warm desk lamp, rainy window, cork board with notes, soft light, london',
+    radio: 'night, dark room, rainy window, city lights bokeh, vinyl record player, dim warm lamp, curtains, quiet, london, cinematic lighting',
+  };
+  const [bgTags, setBgTags] = useState('');
+  const [bgMsg, setBgMsg] = useState('');
+  const drawBg = async () => {
+    const k = tab === 'radio' ? 'radio' : 'wall';
+    setBgMsg('准备中…');
+    try {
+      const blob = await generateNaiImage(bgTags.trim() || BG_PRESET[k], { orient: 'portrait', onProgress: m => setBgMsg(m) });
+      await DB.saveAssetRaw(bgKey(tab), { blob, mimeType: blob.type });
+      setBgs(b => ({ ...b, [k]: URL.createObjectURL(blob) }));
+      setBgMsg(''); setNaiBgOpen(false);
+    } catch (e: any) { setBgMsg(''); toastErr(e); }
+  };
 
   return (
     <div className="h-full w-full flex flex-col transition-colors duration-500"
@@ -120,6 +138,7 @@ const FootnoteApp: React.FC = () => {
           <>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { pickBg(e.target.files?.[0]); e.target.value = ''; }} />
             <button onClick={() => fileRef.current?.click()} className="p-1.5 opacity-70" title="换背景图"><ImageSquare size={18} /></button>
+            {isNaiReady() && <button onClick={() => setNaiBgOpen(v => !v)} className="p-1.5 opacity-70" title="用 NovelAI 画背景"><Sparkle size={17} /></button>}
             {curBg && <button onClick={clearBg} className="text-[10px] opacity-50 -ml-1 mr-1">恢复</button>}
           </>
         )}
@@ -131,6 +150,17 @@ const FootnoteApp: React.FC = () => {
         )}
       </div>
 
+      {naiBgOpen && tab !== 'qa' && (
+        <div className="shrink-0 mx-4 mb-2 p-3 rounded-xl text-[11px]" style={{ background: night ? 'rgba(255,255,255,0.06)' : T.card, border: `1px solid ${night ? 'rgba(233,226,214,0.15)' : T.line}` }}>
+          <div className="mb-1 opacity-70">用 NovelAI 画一张{tab === 'radio' ? '深夜点播' : '便签墙'}的背景（英文 tag，不填用默认）</div>
+          <textarea value={bgTags} onChange={e => setBgTags(e.target.value)} rows={2} placeholder={BG_PRESET[tab === 'radio' ? 'radio' : 'wall']}
+            className="w-full bg-transparent outline-none resize-none text-[11px] placeholder:opacity-50" style={{ color: 'inherit' }} />
+          <div className="flex justify-end gap-3 mt-1">
+            <button onClick={() => setNaiBgOpen(false)} className="opacity-60">算了</button>
+            <button onClick={drawBg} disabled={!!bgMsg} className="px-3 py-1 rounded-full text-white disabled:opacity-60" style={{ background: T.candle }}>{bgMsg || '画'}</button>
+          </div>
+        </div>
+      )}
       <div className="shrink-0 mx-4 mb-2 flex justify-center gap-6 text-[13px]" style={{ fontFamily: serif }}>
         {([['wall', '便签墙'], ['qa', '快问快答'], ['radio', '深夜点播']] as [Tab, string][]).map(([k, n]) => (
           <button key={k} onClick={() => setTab(k)} className="pb-1 transition-opacity"
@@ -182,7 +212,13 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
 
   const drop = () => {
     setBusy(true);
-    dropCards(char, apiConfig).then(list => { setFresh(new Set(list.map(c => c.id))); setFilter('all'); }).catch(onErr).finally(() => setBusy(false));
+    dropCards(char, apiConfig).then(list => {
+      setFresh(new Set(list.map(c => c.id))); setFilter('all');
+      // 截帧便签自动配图（排队一张张画，画好自己出现）
+      if (isNaiReady()) {
+        void (async () => { for (const c of list) if (c.kind === 'frame' && c.scene) { try { await drawCardImage(c.id, char.id); } catch (e) { onErr(e); break; } } })();
+      }
+    }).catch(onErr).finally(() => setBusy(false));
   };
   const post = () => {
     if (!draft.trim()) return;
@@ -266,6 +302,11 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
                 <span>{mine ? '我' : KIND_LABEL[c.kind]}</span>
                 <span className="flex items-center gap-1">{th.length > 0 && <span>{th.length} 条回复</span>}{c.starred && <Star size={10} weight="fill" color={T.candle} />}</span>
               </div>
+              {(c.image || c.imaging) && (
+                <div className="mb-2 p-1 pb-3 bg-white shadow-sm" style={{ transform: 'rotate(1deg)' }}>
+                  {c.image ? <TokenImg value={c.image} alt="" className="w-full block" /> : <div className="w-full aspect-[3/2] flex items-center justify-center text-[10px]" style={{ background: '#efe7d8', color: T.soft }}>冲洗中…</div>}
+                </div>
+              )}
               {c.quote && <div className="text-[10.5px] leading-relaxed italic mb-1 line-clamp-2" style={{ color: T.soft, fontFamily: serif }}>{c.kind === 'frame' ? c.quote : `「${c.quote}」`}</div>}
               <div className="leading-relaxed line-clamp-5" style={{ fontFamily: fontCss(c.font), fontSize: 13.5, color: T.ink }}>{c.note}</div>
               {c.source && <div className="text-[9px] mt-1.5 opacity-55 truncate" style={{ fontFamily: serif }}>—— {c.source}</div>}
@@ -282,6 +323,7 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
 const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e: any) => void; onClose: () => void; userName: string; onShared?: () => void }> = ({ card, char, apiConfig, onErr, onClose, userName, onShared }) => {
   const [mine, setMine] = useState('');
   const [waiting, setWaiting] = useState(false);
+  const [drawMsg, setDrawMsg] = useState('');
   const tn = tintOf(card.tint);
   const th = threadOf(card);
   const myFont = (() => { try { return localStorage.getItem('sully_footnote_my_font_v1') || 'kai'; } catch { return 'kai'; } })();
@@ -295,6 +337,15 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
         <Tape color={tn.tape} seed={2} wide />
         <div className="max-h-[78vh] overflow-y-auto no-scrollbar p-5 pt-7">
         <div className="text-[10px] mb-2" style={{ color: T.soft }}>{card.author === 'user' ? '我贴的' : `${char.name} · ${KIND_LABEL[card.kind]}`}{card.source ? ` · ${card.source}` : ''}</div>
+        {(card.image || card.imaging) && (
+          <div className="mb-3 p-1.5 pb-5 bg-white shadow" style={{ transform: 'rotate(1.2deg)' }}>
+            {card.image ? <TokenImg value={card.image} alt="" className="w-full block" /> : <div className="w-full aspect-[3/2] flex items-center justify-center text-[11px]" style={{ background: '#efe7d8', color: T.soft }}>{drawMsg || '冲洗中…'}</div>}
+          </div>
+        )}
+        {card.scene && isNaiReady() && !card.imaging && (
+          <button onClick={() => { setDrawMsg('准备中…'); drawCardImage(card.id, char.id, m => setDrawMsg(m)).catch(onErr).finally(() => setDrawMsg('')); }}
+            className="mb-2 text-[10.5px] inline-flex items-center gap-1" style={{ color: T.candle }}><ImageSquare size={12} />{card.image ? '重画这张图' : '配张图'}</button>
+        )}
         {card.quote && <div className="text-[12px] leading-relaxed italic mb-2" style={{ color: T.soft, fontFamily: serif }}>{card.kind === 'frame' ? card.quote : `「${card.quote}」`}</div>}
         <div className="leading-relaxed" style={{ fontFamily: fontCss(card.font), fontSize: 17, color: T.ink }}>{card.note}</div>
 

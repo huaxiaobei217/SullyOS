@@ -4410,6 +4410,30 @@ export default {
       }
     }
 
+    // ========== NovelAI 生图中转 ==========
+    // POST /nai/generate  Authorization: Bearer <NAI key>  body = NovelAI generate-image 的 JSON
+    // → 原样返回 NovelAI 的 zip（浏览器端解压）。Key 只是透传，不记录、不存储。
+    if (url.pathname === '/nai/generate' && request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      if (!/^Bearer\s+\S+/.test(auth)) return jsonResponse({ error: 'missing NovelAI key' }, { status: 400, origin });
+      const body = await request.text();
+      if (body.length > 200000) return jsonResponse({ error: 'payload too large' }, { status: 413, origin });
+      try {
+        const res = await fetch('https://image.novelai.net/ai/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: auth, Accept: 'application/zip, application/x-zip-compressed, */*' },
+          body,
+          signal: AbortSignal.timeout(120000),
+        });
+        return new Response(res.body, {
+          status: res.status,
+          headers: { ...corsHeaders(origin), 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Cache-Control': 'no-store' },
+        });
+      } catch (e) {
+        return jsonResponse({ error: String(e && e.message || e) }, { status: 502, origin });
+      }
+    }
+
     // ========== 音频中转（给「角色听歌」用：浏览器不能跨域下载平台音频） ==========
     // GET /music2/audio?url=... → 原样流式返回音频；只放行公网地址，上限 30MB
     if (url.pathname === '/music2/audio' && request.method === 'GET') {

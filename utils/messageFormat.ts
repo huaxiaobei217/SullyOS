@@ -121,7 +121,7 @@ export function normalizeMessageContent(
         : msg.content || '[分享的帖子内容不可用]';
 
     // 纯视觉类给占位；语音优先使用配套转写，避免把音频资源地址送进上下文。
-    if (type === 'image') return '[图片]';
+    if (type === 'image') return msg.metadata?.naiScene ? `[照片：${String(msg.metadata.naiScene).slice(0, 200)}]` : '[图片]';
     if (type === 'emoji') return '[表情包]';
     if (type === 'voice') {
         const transcript = getVoiceTranscript(msg);

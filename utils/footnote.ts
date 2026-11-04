@@ -29,6 +29,8 @@ export interface FootCard {
   reply?: string; replyAt?: number;
   /** 纸条下面你来我往的回复 */
   thread?: { by: 'char' | 'user'; text: string; at: number }[];
+  /** 画面的英文 tag（给 NovelAI 用）和画好的图（blobref 令牌） */
+  scene?: string; image?: string; imaging?: boolean;
 }
 /** 新旧格式统一成一串回复 */
 export const threadOf = (c: FootCard) => c.thread?.length ? c.thread : (c.reply ? [{ by: 'char' as const, text: c.reply, at: c.replyAt || c.createdAt }] : []);
@@ -141,7 +143,8 @@ export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, co
 - 除了小纸条，作品必须真实存在，作者/导演和年份要对；拿不准原句就写「大意：……」，不要编造引文。
 - 写的话是你自己的：照你平时的语气、口味和偏见，可以刻薄、可以跑题、可以想到 {{user}}，每张 30–100 字。
 - 不要重复最近写过的作品：${recent.length ? recent.join('、') : '（还没有）'}
-只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……"}]}`;
+- 每张再附一个 scene：用英文 danbooru tag 描述这张便签能配的一个画面（截帧就是那一帧的构图、光线、物件；其他的是贴便签的地方或相关的物件场景），不画人脸，逗号分隔，10–25 个 tag。
+只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……","scene":"english, tags, …"}]}`;
   const { text } = await call(char, apiConfig, instructions, `写 ${count} 张。`, '便签墙', 6000);
   const j = parseJson(text);
   const list: any[] = Array.isArray(j.cards) ? j.cards : Array.isArray(j) ? j : [j];
@@ -151,6 +154,7 @@ export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, co
     id: uid('fc'), charId: char.id, kind: (['note', 'excerpt', 'frame', 'memo'].includes(x.kind) ? x.kind : 'memo') as CardKind,
     source: String(x.source || '').slice(0, 80), quote: x.kind === 'memo' ? '' : String(x.quote || '').slice(0, 200),
     note: String(x.note).slice(0, 400), createdAt: now - i, author: 'char', font: loadCharFont(), tint: tints[Math.floor(Math.random() * tints.length)],
+    ...(typeof x.scene === 'string' && x.scene.trim() ? { scene: x.scene.trim().slice(0, 500) } : {}),
   }));
   if (!cards.length) throw new Error('这次一张都没写出来，再试一次');
   updateFootnote(s => ({ ...s, cards: [...cards, ...s.cards] }));
@@ -357,4 +361,22 @@ export async function collectRadioAudio(piece: RadioPiece): Promise<{ blob: Blob
   let missing = 0;
   for (let i = 0; i < n; i++) { const b = await getRadioAudio(piece.id, i); if (b) parts.push(b); else missing++; }
   return { blob: parts.length ? new Blob(parts, { type: parts[0].type || 'audio/mpeg' }) : null, missing };
+}
+
+
+/* ───────── 便签配图（NovelAI） ───────── */
+export async function drawCardImage(cardId: string, charId: string, onProgress?: (m: string) => void): Promise<void> {
+  const { generateNaiImage } = await import('./nai');
+  const { putImageBlob } = await import('./blobRef');
+  const card = loadFootnote().cards.find(c => c.id === cardId);
+  if (!card?.scene) throw new Error('这张便签没有画面描述');
+  updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, imaging: true } : c) }));
+  try {
+    const blob = await generateNaiImage(card.scene, { charId, orient: card.kind === 'frame' ? 'landscape' : 'square', onProgress });
+    const token = await putImageBlob(blob);
+    updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, image: token, imaging: false } : c) }));
+  } catch (e) {
+    updateFootnote(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, imaging: false } : c) }));
+    throw e;
+  }
 }

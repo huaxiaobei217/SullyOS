@@ -1,4 +1,5 @@
 import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
+import { extractNaiPhotos, naiPhotosEnabledFor, sendNaiPhoto } from './naiChatPhoto';
 import { dialogueMaxTokens } from './characterApi';
 /**
  * applyAssistantPostProcessing — 抽自 hooks/useChatAI.ts 的 sendMessage 后处理管线
@@ -782,6 +783,12 @@ export async function applyAssistantPostProcessing(
     // 在任何 lead-in/二轮渲染之前先剥掉仿卡片文本，防止它被 chunkText 拆成灰色普通气泡。
     const mimickedXhsShares = extractMimickedXhsShares(aiContent);
     aiContent = mimickedXhsShares.cleanedContent;
+    // NovelAI「拍照」：剥掉标签，后台排队生图，画好后作为一张图片补进聊天
+    if (/\[\[\s*(?:NAI_PHOTO|拍照)/i.test(aiContent)) {
+        const naiPhotos = extractNaiPhotos(aiContent);
+        aiContent = naiPhotos.cleaned;
+        if (naiPhotosEnabledFor(char.id)) for (const scene of naiPhotos.scenes) sendNaiPhoto(char.id, scene);
+    }
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
