@@ -86,6 +86,8 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_music_listen_api_v1',
     'sully_music_listen_diary_v1',
     'sully_music_user_notes_v1',
+    'sully_footnote_v1',                 // 页脚：批注卡片 / 快问快答 / 深夜点播
+    'sully_amsg_cloud_api_v1',           // API 总览：云端后台专用 API
     // 主动消息（旧版）与彼方/家园定时排程
     'proactive_schedules',
     'proactive_last_fire_map',
