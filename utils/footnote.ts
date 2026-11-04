@@ -9,6 +9,7 @@ import { safeFetchJson, extractContent } from './safeApi';
 import { resolveDialogueApi } from './characterApi';
 import type { APIConfig, CharacterProfile } from '../types';
 import { voiceLanguagePromptLabel } from './voiceLanguage';
+import { getBannedTropes } from './tropeBan';
 
 export const FOOTNOTE_LS_KEY = 'sully_footnote_v1';
 export const FOOTNOTE_CHANGED_EVENT = 'sully:footnote-changed';
@@ -32,15 +33,19 @@ export interface FootCard {
 /** 新旧格式统一成一串回复 */
 export const threadOf = (c: FootCard) => c.thread?.length ? c.thread : (c.reply ? [{ by: 'char' as const, text: c.reply, at: c.replyAt || c.createdAt }] : []);
 
-export const FOOT_FONTS: { id: string; name: string; css: string; google?: string }[] = [
+export const FOOT_FONTS: { id: string; name: string; css: string; google?: string; hint?: string }[] = [
+  { id: 'pen', name: '钢笔行书', css: `'Cedarville Cursive','Long Cang',cursive`, google: 'Cedarville+Cursive&family=Long+Cang', hint: '英文是细钢笔连写，中文行书：随手但讲究' },
+  { id: 'scrawl', name: '潦草手账', css: `'Homemade Apple','Liu Jian Mao Cao',cursive`, google: 'Homemade+Apple&family=Liu+Jian+Mao+Cao', hint: '探险家路上写的那种，歪歪扭扭、很有劲' },
+  { id: 'scholar', name: '书生小楷', css: `'Cormorant Garamond','ZCOOL XiaoWei',serif`, google: 'Cormorant+Garamond:ital@1&family=ZCOOL+XiaoWei', hint: '摘录和批注用，斯文、有书卷气' },
   { id: 'kai', name: '楷体', css: `'LXGW WenKai','KaiTi','STKaiti',serif` },
   { id: 'song', name: '宋体', css: `'Noto Serif SC','Songti SC',serif` },
   { id: 'mashan', name: '毛笔', css: `'Ma Shan Zheng',cursive`, google: 'Ma+Shan+Zheng' },
   { id: 'longcang', name: '行书', css: `'Long Cang',cursive`, google: 'Long+Cang' },
+  { id: 'maocao', name: '毛草', css: `'Liu Jian Mao Cao',cursive`, google: 'Liu+Jian+Mao+Cao' },
   { id: 'zhimang', name: '草写', css: `'Zhi Mang Xing',cursive`, google: 'Zhi+Mang+Xing' },
   { id: 'kuaile', name: '圆趣', css: `'ZCOOL KuaiLe',cursive`, google: 'ZCOOL+KuaiLe' },
   { id: 'hand-en', name: 'English', css: `'Caveat','Long Cang',cursive`, google: 'Caveat' },
-];
+]
 export const FOOT_TINTS: { id: string; paper: string; tape: string }[] = [
   { id: 'cream', paper: '#fffcf3', tape: 'rgba(222,190,140,0.32)' },
   { id: 'rose', paper: '#fff6f4', tape: 'rgba(225,165,170,0.30)' },
@@ -54,7 +59,7 @@ export const tintOf = (id?: string) => FOOT_TINTS.find(t => t.id === id) || FOOT
 
 /** 角色写纸条用的默认字体 */
 const LS_CHAR_FONT = 'sully_footnote_char_font_v1';
-export const loadCharFont = () => { try { return localStorage.getItem(LS_CHAR_FONT) || 'longcang'; } catch { return 'longcang'; } };
+export const loadCharFont = () => { try { return localStorage.getItem(LS_CHAR_FONT) || 'pen'; } catch { return 'pen'; } };
 export const saveCharFont = (id: string) => { try { localStorage.setItem(LS_CHAR_FONT, id); } catch { /* ignore */ } };
 export interface QaRound {
   id: string; charId: string; question: string; fromBank: boolean;
@@ -88,7 +93,8 @@ const call = async (char: CharacterProfile, apiConfig: APIConfig, instructions: 
   const uname = (user as any)?.name || '对方';
   const fill = (t: string) => t.replace(/\{\{user\}\}/g, uname).replace(/\{\{char\}\}/g, char.name);
   // 「页脚」里的通用口味：别老绕回同一个梗
-  instructions += `\n- 别把话题绕到记账、欠账、连本带利、利息、讨债这一类梗上；换着花样说。`;
+  const banned = getBannedTropes(char.id);
+  instructions += `\n- 别把话题绕到${banned.length ? banned.join('、') : '记账、欠账、连本带利、利息、讨债'}这一类用腻了的梗上；换着花样说。`;
   const messages = await ContextBuilder.buildCharacterRequest(
     { char, user: user as any, instructions: fill(instructions) },
     [{ role: 'user', content: fill(task) }],
@@ -304,7 +310,7 @@ export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, ch
     `### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
 ${ch.task}
-这是要念出来的电台：用你自己说话的语气，压低声音、慢一点；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
+这是要念出来的哄睡电台：用你自己说话的语气，从头到尾都轻声、平稳、慢一点，越往后越轻；不要感叹号，不要突然提高音量、大笑或惊呼，情绪起伏放在字里而不是音量上；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。
 不要重复最近讲过的：${recent.join('、') || '（还没有）'}
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `
 

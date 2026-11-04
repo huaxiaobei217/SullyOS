@@ -56,6 +56,7 @@ import StorageUsagePanel from '../components/settings/StorageUsagePanel';
 import WebCacheControl from '../components/settings/WebCacheControl';
 import McpConnectionConsole from '../components/settings/McpConnectionConsole';
 import ApiOverviewPanel from '../components/settings/ApiOverviewPanel';
+import TropeCleanPanel from '../components/settings/TropeCleanPanel';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import {
@@ -2164,6 +2165,7 @@ const Settings: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
 
         <ApiOverviewPanel onCommitMain={(patch) => commitApiConfig(patch)} />
+        <TropeCleanPanel />
 
         <NavigationBallSettings characters={characters} loadWorlds={() => DB.getWorlds()} />
         {/* 外观救急入口统一放在设置顶部，无需进入已被错误 CSS 遮住的聊天或日记。 */}

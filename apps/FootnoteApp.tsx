@@ -4,7 +4,8 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
-import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple } from '@phosphor-icons/react';
+import { CaretLeft, Star, Trash, ArrowsClockwise, Play, Pause, PencilSimple, ChatCircle, TextAa, Translate, ImageSquare, DownloadSimple, PaperPlaneTilt } from '@phosphor-icons/react';
+import { shareNote, shareRadio, shareQa } from '../utils/footnoteShare';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
@@ -55,7 +56,9 @@ const Jasmine: React.FC = () => (
 );
 
 const FootnoteApp: React.FC = () => {
-  const { closeApp, characters, apiConfig, addToast } = useOS() as any;
+  const { closeApp, characters, apiConfig, addToast, userProfile } = useOS() as any;
+  const userName = userProfile?.name || '我';
+  const onShared = () => addToast?.('发到聊天里了，他之后会记得', 'success');
   const [tab, setTab] = useState<Tab>('wall');
   const [store, setStore] = useState(() => loadFootnote());
   useEffect(() => { ensureFonts(); }, []);
@@ -137,9 +140,9 @@ const FootnoteApp: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-4 pb-10">
         {!char ? <div className="text-center text-xs mt-10 opacity-60">先去建一个角色吧</div>
-          : tab === 'wall' ? <Wall char={char} apiConfig={apiConfig} cards={store.cards.filter(c => c.charId === char.id)} onErr={toastErr} bg={bgs.wall} />
-          : tab === 'qa' ? <Qa char={char} apiConfig={apiConfig} rounds={store.qa.filter(q => q.charId === char.id)} onErr={toastErr} />
-          : <RadioTab char={char} apiConfig={apiConfig} pieces={store.radio.filter(r => r.charId === char.id)} onErr={toastErr} bg={bgs.radio} />}
+          : tab === 'wall' ? <Wall char={char} apiConfig={apiConfig} cards={store.cards.filter(c => c.charId === char.id)} onErr={toastErr} bg={bgs.wall} userName={userName} onShared={onShared} />
+          : tab === 'qa' ? <Qa char={char} apiConfig={apiConfig} rounds={store.qa.filter(q => q.charId === char.id)} onErr={toastErr} userName={userName} onShared={onShared} />
+          : <RadioTab char={char} apiConfig={apiConfig} pieces={store.radio.filter(r => r.charId === char.id)} onErr={toastErr} bg={bgs.radio} userName={userName} onShared={onShared} />}
       </div>
     </div>
   );
@@ -165,7 +168,7 @@ const Tape: React.FC<{ color: string; seed: number; wide?: boolean }> = ({ color
     }} />
 );
 
-const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: any) => void; bg?: string }> = ({ char, apiConfig, cards, onErr, bg }) => {
+const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: any) => void; bg?: string; userName: string; onShared?: () => void }> = ({ char, apiConfig, cards, onErr, bg, userName, onShared }) => {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<'all' | 'his' | 'mine' | 'star'>('all');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -209,6 +212,10 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
                 className="px-2.5 py-1 rounded-full" style={{ fontFamily: f.css, fontSize: 13, background: charFont === f.id ? T.candleSoft : 'transparent', border: `1px solid ${charFont === f.id ? T.candle : T.line}` }}>{f.name}</button>
             ))}
           </div>
+          <div className="mt-2 leading-relaxed" style={{ fontFamily: fontCss(charFont), fontSize: 15 }}>
+            London, 11pm — 灯泡我换了，别再摸黑看书。
+          </div>
+          {FOOT_FONTS.find(f => f.id === charFont)?.hint && <div className="mt-1 opacity-60">{FOOT_FONTS.find(f => f.id === charFont)?.hint}</div>}
         </div>
       )}
 
@@ -266,13 +273,13 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
           );
         })}
       </div>
-      {open && <NoteSheet card={open} char={char} apiConfig={apiConfig} onErr={onErr} onClose={() => setOpenId(null)} />}
+      {open && <NoteSheet card={open} char={char} apiConfig={apiConfig} onErr={onErr} onClose={() => setOpenId(null)} userName={userName} onShared={onShared} />}
     </div>
   );
 };
 
 /** 点开一张纸条：放大看，下面你一句我一句 */
-const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e: any) => void; onClose: () => void }> = ({ card, char, apiConfig, onErr, onClose }) => {
+const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e: any) => void; onClose: () => void; userName: string; onShared?: () => void }> = ({ card, char, apiConfig, onErr, onClose, userName, onShared }) => {
   const [mine, setMine] = useState('');
   const [waiting, setWaiting] = useState(false);
   const tn = tintOf(card.tint);
@@ -315,6 +322,7 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
           <button onClick={() => updateFootnote(s => ({ ...s, cards: s.cards.filter(x => x.id !== card.id) }))} className="flex items-center gap-1 text-rose-400"><Trash size={13} />撕掉</button>
           <button onClick={() => updateFootnote(s => ({ ...s, cards: s.cards.map(x => x.id === card.id ? { ...x, starred: !x.starred } : x) }))}
             className="flex items-center gap-1" style={{ color: T.candle }}><Star size={13} weight={card.starred ? 'fill' : 'regular'} />{card.starred ? '取消收藏' : '收藏'}</button>
+          <button onClick={() => shareNote(card, char.name, userName).then(() => onShared?.()).catch(onErr)} className="flex items-center gap-1" style={{ color: T.ink }}><PaperPlaneTilt size={13} />发到聊天</button>
           <button onClick={onClose} className="opacity-60">收起</button>
         </div>
         </div>
@@ -325,7 +333,52 @@ const NoteSheet: React.FC<{ card: FootCard; char: any; apiConfig: any; onErr: (e
 
 /* ───────── 快问快答 ───────── */
 
-const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) => void }> = ({ char, apiConfig, rounds, onErr }) => {
+/** 旧黄铜边的题目转盘：八格旧纸，每格一个小记号，中间一朵茉莉 */
+const Wheel: React.FC<{ angle: number }> = ({ angle }) => {
+  const glyphs = ['☾', '✦', '♪', '❀', '✎', '☂', '✉', '☕'];
+  const papers = ['#fbf4e6', '#f1e4cf', '#f8efdf', '#ead9bf'];
+  const R = 92, C = 100;
+  const pt = (deg: number, r: number) => [C + r * Math.sin(deg * Math.PI / 180), C - r * Math.cos(deg * Math.PI / 180)];
+  return (
+    <div className="relative" style={{ width: 200, height: 210 }}>
+      {/* 指针 */}
+      <svg className="absolute left-1/2 -translate-x-1/2 z-10" style={{ top: -2 }} width="22" height="30" viewBox="0 0 22 30">
+        <defs><linearGradient id="fnBrassP" x1="0" x2="1"><stop offset="0" stopColor="#e2c48d" /><stop offset="1" stopColor="#9a7442" /></linearGradient></defs>
+        <path d="M11 29 L3 9 A8 8 0 1 1 19 9 Z" fill="url(#fnBrassP)" stroke="#6e5230" strokeWidth=".8" />
+        <circle cx="11" cy="8" r="2.6" fill="#fffaf0" opacity=".85" />
+      </svg>
+      <svg width="200" height="200" viewBox="0 0 200 200" className="absolute left-0 top-2.5" style={{ filter: 'drop-shadow(0 6px 14px rgba(60,45,30,0.18))' }}>
+        <defs>
+          <linearGradient id="fnBrass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#e6cc98" /><stop offset=".5" stopColor="#b8935a" /><stop offset="1" stopColor="#8a6a3c" /></linearGradient>
+          <radialGradient id="fnPaperShade" cx=".5" cy=".5" r=".5"><stop offset=".6" stopColor="rgba(0,0,0,0)" /><stop offset="1" stopColor="rgba(90,60,30,0.12)" /></radialGradient>
+        </defs>
+        <circle cx={C} cy={C} r="99" fill="url(#fnBrass)" />
+        <circle cx={C} cy={C} r="95" fill="#f7efe0" />
+        <g style={{ transform: `rotate(${angle}deg)`, transformOrigin: '100px 100px', transition: 'transform 1.6s cubic-bezier(.17,.67,.25,1.04)' }}>
+          {glyphs.map((g, i) => {
+            const a0 = i * 45, a1 = a0 + 45;
+            const [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R);
+            const [gx, gy] = pt(a0 + 22.5, 64);
+            return (
+              <g key={i}>
+                <path d={`M${C} ${C} L${x0} ${y0} A${R} ${R} 0 0 1 ${x1} ${y1} Z`} fill={papers[i % 4]} stroke="rgba(47,52,66,0.35)" strokeWidth=".6" />
+                <text x={gx} y={gy} textAnchor="middle" dominantBaseline="central" fontSize="15" fill="#5a4a35" transform={`rotate(${a0 + 22.5} ${gx} ${gy})`} style={{ fontFamily: serif }}>{g}</text>
+              </g>
+            );
+          })}
+          {Array.from({ length: 48 }, (_, i) => { const [x0, y0] = pt(i * 7.5, R - 1); const [x1, y1] = pt(i * 7.5, R - (i % 6 === 0 ? 7 : 4)); return <line key={i} x1={x0} y1={y0} x2={x1} y2={y1} stroke="rgba(47,52,66,0.4)" strokeWidth=".6" />; })}
+          <circle cx={C} cy={C} r={R} fill="url(#fnPaperShade)" />
+        </g>
+        <circle cx={C} cy={C} r="22" fill="url(#fnBrass)" />
+        <circle cx={C} cy={C} r="18.5" fill="#fffaf0" />
+        {[0, 72, 144, 216, 288].map(a => <ellipse key={a} cx={C} cy={C - 7} rx="3.6" ry="6" fill="#fffdf6" stroke="#e2d6bc" strokeWidth=".6" transform={`rotate(${a} ${C} ${C})`} />)}
+        <circle cx={C} cy={C} r="2.6" fill="#e8c873" />
+      </svg>
+    </div>
+  );
+};
+
+const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) => void; userName: string; onShared?: () => void }> = ({ char, apiConfig, rounds, onErr, userName, onShared }) => {
   const [angle, setAngle] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [q, setQ] = useState<{ text: string; fromBank: boolean } | null>(null);
@@ -356,24 +409,11 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
     setRevealing(true);
     answerQuestion(char, apiConfig, q.text, mine.trim(), q.fromBank).then(setResult).catch(onErr).finally(() => setRevealing(false));
   };
-  const slices = ['#f1e2cf', '#fbf5e6', '#e9e0d2', '#f6ece0'];
 
   return (
     <>
       <div className="flex flex-col items-center mt-2 mb-4">
-        <div className="relative w-40 h-40">
-          <div className="absolute left-1/2 -top-1 -translate-x-1/2 z-10 w-0 h-0" style={{ borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: `12px solid ${T.ink}` }} />
-          <div className="w-full h-full rounded-full"
-            style={{
-              transform: `rotate(${angle}deg)`, transition: 'transform 1.6s cubic-bezier(.17,.67,.3,1)',
-              background: `conic-gradient(${Array.from({ length: 8 }, (_, i) => `${slices[i % 4]} ${i * 45}deg ${(i + 1) * 45}deg`).join(',')})`,
-              border: `2px solid ${T.ink}`, boxShadow: '0 4px 14px rgba(60,45,30,0.12)',
-            }}>
-            <div className="absolute inset-0 m-auto w-10 h-10 rounded-full flex items-center justify-center" style={{ background: T.card, border: `1.5px solid ${T.ink}` }}>
-              <span className="text-[10px] font-bold" style={{ fontFamily: serif }}>问</span>
-            </div>
-          </div>
-        </div>
+        <Wheel angle={angle} />
         <button onClick={spin} disabled={spinning || revealing} className="mt-3 px-6 py-2 rounded-full text-sm text-white active:scale-95 disabled:opacity-60"
           style={{ background: T.ink, fontFamily: serif }}>{spinning ? '转呀转…' : q ? '再转一次' : '转一下'}</button>
       </div>
@@ -391,7 +431,12 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
                 {revealing ? `${char.name}在想…` : '一起揭晓'}
               </button>
             </>
-          ) : <Reveal r={result} name={char.name} />}
+          ) : (
+            <>
+              <Reveal r={result} name={char.name} />
+              <div className="text-right mt-2"><button onClick={() => shareQa(result, char.name, userName).then(() => onShared?.()).catch(onErr)} className="text-[10.5px] inline-flex items-center gap-1" style={{ color: T.soft }}><PaperPlaneTilt size={11} />发到聊天</button></div>
+            </>
+          )}
         </div>
       )}
 
@@ -400,6 +445,7 @@ const Qa: React.FC<{ char: any; apiConfig: any; rounds: any[]; onErr: (e: any) =
         <div key={r.id} className="p-3 pb-4 rounded-xl mb-3" style={{ background: 'rgba(255,252,243,0.55)', border: `1px dashed ${T.line}` }}>
           <div className="text-[12.5px] font-semibold mb-1.5" style={{ fontFamily: serif }}>{r.question}</div>
           <Reveal r={r} name={char.name} small />
+          <div className="text-right mt-2"><button onClick={() => shareQa(r, char.name, userName).then(() => onShared?.()).catch(onErr)} className="text-[10.5px] inline-flex items-center gap-1" style={{ color: T.soft }}><PaperPlaneTilt size={11} />发到聊天</button></div>
         </div>
       ))}
     </>
@@ -431,6 +477,8 @@ const Reveal: React.FC<{ r: any; name: string; small?: boolean }> = ({ r, name, 
 /* ───────── 深夜点播：像接通一通深夜电话 ───────── */
 
 const displayText = (s: string) => s.replace(/\[[^\]]{1,24}\]/g, '').replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
+/** 哄睡：念之前把感叹号、大笑之类会突然变响的东西压平 */
+const soften = (s: string) => s.replace(/[！!]+/g, '。').replace(/(哈|呵|嘿){2,}|(ha){2,}/gi, '').replace(/\[(?:laugh|laughs|shout|shouts|excited|yell)[^\]]*\]/gi, '').trim();
 const fmtClock = (sec: number) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 
 /** 慢慢转的黑胶，垫在头像后面 */
@@ -444,7 +492,7 @@ const Vinyl: React.FC<{ spinning: boolean }> = ({ spinning }) => (
   </div>
 );
 
-const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onErr: (e: any) => void; bg?: string }> = ({ char, apiConfig, pieces, onErr, bg }) => {
+const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onErr: (e: any) => void; bg?: string; userName: string; onShared?: () => void }> = ({ char, apiConfig, pieces, onErr, bg, userName, onShared }) => {
   const [busy, setBusy] = useState<RadioChannel | null>(null);
   const [current, setCurrent] = useState<RadioPiece | null>(null);
   const [shown, setShown] = useState(0);
@@ -501,8 +549,8 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
     pausedRef.current = false; setPaused(false); setPlaying(true);
     for (let i = from; i < list.length; i++) {
       if (runRef.current !== my) return;
-      const url = hasVoice ? await tts(piece, i, list[i].voice) : null;
-      if (hasVoice && i + 1 < list.length) void tts(piece, i + 1, list[i + 1].voice);
+      const url = hasVoice ? await tts(piece, i, soften(list[i].voice)) : null;
+      if (hasVoice && i + 1 < list.length) void tts(piece, i + 1, soften(list[i + 1].voice));
       if (runRef.current !== my) return;
       setShown(s => Math.max(s, i + 1));
       setSpeaking(i);
@@ -624,6 +672,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
                 <div className="text-[12px] truncate" style={{ fontFamily: serif, color: current?.id === p.id ? T.candle : undefined }}>{p.title}</div>
                 <div className="text-[9.5px] opacity-45">{RADIO_CHANNELS.find(c => c.id === p.channel)?.name}{p.voiceLang ? ' · 双语' : ''} · {new Date(p.createdAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </button>
+              <button onClick={() => shareRadio(p, char.name, userName).then(() => onShared?.()).catch(onErr)} className="p-1.5 opacity-60" title="发到聊天"><PaperPlaneTilt size={15} /></button>
               <button onClick={() => downloadPiece(p)} className="p-1.5 opacity-60" title="下载"><DownloadSimple size={15} /></button>
               <button onClick={() => { if (current?.id === p.id) hangUp(); void deleteRadioPiece(p); }} className="p-1.5 opacity-50 text-rose-300" title="删除"><Trash size={15} /></button>
             </div>

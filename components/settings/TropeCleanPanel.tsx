@@ -1,0 +1,146 @@
+/**
+ * 设置页 ·「口癖清洗」：给角色列一张用腻了的梗清单（注入提示词），
+ * 再扫一遍聊天记录和记忆，看这些词还在哪儿，记忆里的可以就地改掉。
+ */
+import React, { useMemo, useState } from 'react';
+import { useOS } from '../../context/OSContext';
+import { DB } from '../../utils/db';
+import { getBannedTropes, setBannedTropes, countHits } from '../../utils/tropeBan';
+
+type Hit = { kind: 'memory' | 'refined'; key: string; label: string; text: string };
+
+const TropeCleanPanel: React.FC = () => {
+  const { characters, updateCharacter, addToast } = useOS() as any;
+  const [open, setOpen] = useState(false);
+  const defaultId = useMemo(() => (characters || []).find((c: any) => /诺亚|Noah/i.test(c.name))?.id || characters?.[0]?.id || '', [characters]);
+  const [charId, setCharId] = useState(defaultId);
+  const char = (characters || []).find((c: any) => c.id === (charId || defaultId));
+  const [list, setList] = useState<string[]>(() => getBannedTropes(charId || defaultId));
+  const [draft, setDraft] = useState('');
+  const [scan, setScan] = useState<{ chat: Record<string, number>; hits: Hit[] } | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+
+  const pick = (id: string) => { setCharId(id); setList(getBannedTropes(id)); setScan(null); setEdits({}); };
+  const save = (next: string[]) => { setList(next); setBannedTropes(char.id, next); };
+  const add = () => {
+    const words = draft.split(/[，,、\n]/).map(s => s.trim()).filter(Boolean);
+    if (!words.length) return;
+    save([...list, ...words]); setDraft(''); setScan(null);
+  };
+
+  const runScan = async () => {
+    if (!char || !list.length) return;
+    setScanning(true);
+    try {
+      const msgs = await DB.getMessagesByCharId(char.id, true);
+      const recent = msgs.slice(-800);
+      const chat: Record<string, number> = {};
+      for (const w of list) chat[w] = recent.reduce((n, m) => n + (m.role === 'assistant' ? countHits(String(m.content || ''), w) : 0), 0);
+      const hits: Hit[] = [];
+      for (const m of (char.memories || [])) {
+        if (list.some(w => countHits(m.summary, w))) hits.push({ kind: 'memory', key: m.id, label: m.date, text: m.summary });
+      }
+      for (const [k, v] of Object.entries(char.refinedMemories || {})) {
+        if (typeof v === 'string' && list.some(w => countHits(v, w))) hits.push({ kind: 'refined', key: k, label: `核心记忆 · ${k}`, text: v });
+      }
+      setScan({ chat, hits }); setEdits({});
+    } catch (e: any) { addToast?.(`扫描失败：${e?.message || e}`, 'error'); }
+    finally { setScanning(false); }
+  };
+
+  const saveEdit = (h: Hit) => {
+    const text = edits[`${h.kind}:${h.key}`];
+    if (text == null) return;
+    if (h.kind === 'memory') updateCharacter(char.id, { memories: (char.memories || []).map((m: any) => m.id === h.key ? { ...m, summary: text } : m) });
+    else updateCharacter(char.id, { refinedMemories: { ...(char.refinedMemories || {}), [h.key]: text } });
+    setScan(s => s ? { ...s, hits: s.hits.map(x => x.kind === h.kind && x.key === h.key ? { ...x, text } : x) } : s);
+    setEdits(e => { const n = { ...e }; delete n[`${h.kind}:${h.key}`]; return n; });
+    addToast?.('这条记忆改好了', 'success');
+  };
+  const mark = (text: string) => {
+    const parts: React.ReactNode[] = [];
+    let rest = text, k = 0;
+    while (rest) {
+      let best = -1, word = '';
+      for (const w of list) { const i = rest.indexOf(w); if (i >= 0 && (best < 0 || i < best)) { best = i; word = w; } }
+      if (best < 0) { parts.push(rest); break; }
+      parts.push(rest.slice(0, best), <mark key={k++} className="bg-amber-200/70 rounded px-0.5">{word}</mark>);
+      rest = rest.slice(best + word.length);
+    }
+    return parts;
+  };
+
+  return (
+    <section className="bg-white/60 rounded-2xl p-4 border border-slate-100">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-600 tracking-wider">口癖清洗</h2>
+        <button onClick={() => setOpen(v => !v)} className="text-[10px] text-slate-400">{open ? '收起' : '展开'}</button>
+      </div>
+      {!open ? (
+        <div className="text-[10px] text-slate-400 mt-1">角色学来的、用腻了的梗（比如「记账」「包工头」），在这里列出来让他别再说。</div>
+      ) : (
+        <div className="mt-2 space-y-3">
+          <div className="text-[10px] text-slate-400 leading-relaxed">
+            模型会模仿聊天记录和记忆里反复出现的说法，越用越多。这里列的词会在每次聊天（以及页脚等小 App）里提醒他「这个用腻了，别再说」。
+            再扫一遍记忆：记忆里写着这些梗的地方可以顺手改掉，免得他一直从记忆里学回去。
+          </div>
+          {(characters || []).length > 1 && (
+            <select value={char?.id || ''} onChange={e => pick(e.target.value)} className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
+              {(characters || []).map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {list.map(w => (
+              <span key={w} className="px-2 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
+                {w}<button className="ml-1 opacity-60" onClick={() => save(list.filter(x => x !== w))}>×</button>
+              </span>
+            ))}
+            {!list.length && <span className="text-[10px] text-slate-400">还没有，比如：记账、连本带利、包工头</span>}
+          </div>
+          <div className="flex gap-2">
+            <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }}
+              placeholder="输入用腻的词，逗号隔开" className="flex-1 min-w-0 px-2 py-1.5 rounded-lg border border-slate-200 text-xs" />
+            <button onClick={add} className="px-3 rounded-lg text-xs bg-slate-100 text-slate-600">加上</button>
+          </div>
+          <button onClick={runScan} disabled={!list.length || scanning} className="w-full py-2 rounded-xl text-xs font-bold bg-primary/10 text-primary disabled:opacity-40">
+            {scanning ? '扫描中…' : '扫一遍聊天记录和记忆'}
+          </button>
+          {scan && (
+            <div className="space-y-2">
+              <div className="text-[11px] text-slate-500">
+                最近 800 条聊天里他说过：{list.map(w => `「${w}」${scan.chat[w] || 0} 次`).join('，')}
+                <div className="text-[10px] text-slate-400 mt-0.5">聊天记录不用删：清单生效后他会慢慢换掉；旧消息随着聊天往前推，也会滑出他能看到的范围。</div>
+              </div>
+              <div className="text-[11px] text-slate-500">记忆里有 {scan.hits.length} 处{scan.hits.length ? '（可以直接改，改完点保存）' : '，很干净'}</div>
+              {scan.hits.map(h => {
+                const k = `${h.kind}:${h.key}`;
+                const editing = edits[k] != null;
+                return (
+                  <div key={k} className="p-2.5 rounded-xl bg-white border border-slate-100">
+                    <div className="text-[10px] text-slate-400 mb-1">{h.label}</div>
+                    {editing ? (
+                      <textarea value={edits[k]} onChange={e => setEdits(x => ({ ...x, [k]: e.target.value }))} rows={4}
+                        className="w-full text-[11.5px] p-1.5 rounded-lg border border-slate-200 outline-none" />
+                    ) : <div className="text-[11.5px] text-slate-600 leading-relaxed whitespace-pre-wrap">{mark(h.text)}</div>}
+                    <div className="flex justify-end gap-3 mt-1.5 text-[10.5px]">
+                      {editing ? (
+                        <>
+                          <button onClick={() => setEdits(x => { const n = { ...x }; delete n[k]; return n; })} className="text-slate-400">取消</button>
+                          <button onClick={() => saveEdit(h)} className="text-primary font-semibold">保存</button>
+                        </>
+                      ) : <button onClick={() => setEdits(x => ({ ...x, [k]: h.text }))} className="text-primary">改这条</button>}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="text-[10px] text-slate-400">向量记忆宫殿里的记忆这里扫不到；如果开了记忆宫殿，可以去「记忆宫殿」App 里搜这些词。</div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+
+export default TropeCleanPanel;

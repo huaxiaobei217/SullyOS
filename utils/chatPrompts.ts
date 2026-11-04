@@ -1,5 +1,6 @@
 import {weatherForCharacter} from './characterWeather';
 import { buildRecentNotesBlock } from './footnoteNotes';
+import { buildTropeBanBlock } from './tropeBan';
 import { buildRecentListenBlock, buildUserSongNoteBlock, buildSongAnalysisBlock } from './music/listenDiaryStore';
 import {secretNoteContext} from './secretNote';
 import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
@@ -611,6 +612,8 @@ ${groupLogStr}\n`;
             if (listenBlock) volatileState += `\n${listenBlock}\n`;
             const notesBlock = buildRecentNotesBlock(char.id, userProfile.name);
             if (notesBlock) volatileState += `\n${notesBlock}\n`;
+            const tropeBlock = buildTropeBanBlock(char.id, userProfile.name);
+            if (tropeBlock) volatileState += `\n${tropeBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }
 
         // 群聊背景带时间戳、随群消息实时滚动 → 易变；日记标题/生活记录变化很慢 → 稳定。
