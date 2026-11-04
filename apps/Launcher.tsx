@@ -934,8 +934,8 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
   useEffect(() => {
       if (!isDataLoaded) return;
       try {
-          if (localStorage.getItem('sully_launcher_noah_order_v1')) return;
-          localStorage.setItem('sully_launcher_noah_order_v1', '1');
+          if (localStorage.getItem('sully_launcher_noah_order_v2')) return;
+          localStorage.setItem('sully_launcher_noah_order_v2', '1');
       } catch { return; }
       applyNoahOrder();
       // eslint-disable-next-line react-hooks/exhaustive-deps

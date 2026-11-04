@@ -43,6 +43,7 @@ export const SELF_SAFE_AREA_APPS: ReadonlySet<AppID> = new Set<AppID>([
     AppID.QQBridge,
     AppID.HotNews,
     AppID.Footnote,
+    AppID.Shelf,
     AppID.WorldHome,
     AppID.CharCreatorDev,
     AppID.SpecialMoments,

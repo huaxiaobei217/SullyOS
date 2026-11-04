@@ -18,14 +18,14 @@ export const NOAH_LOCAL_KEYS: readonly string[] = [
   'sully_footnote_radio_bi_v1', 'sully_sleep_playlist_v1', 'sully_sleep_bgm_vol_v1', 'sully_sleep_mins_v1', 'sully_sleep_noise_v1',
   // 聊天相关
   'sully_trope_ban_v1', 'sully_trope_ban_mode_v1', 'sully_money_off_v1', 'sully_hate_counter_v1',
-  'sully_reroll_notes_v1', 'sully_news_taste_v1', 'sully_study_log_v1', 'sully_study_homeroom_v1', 'sully_amsg_cloud_api_v1', 'sully_amsg_save_calls_v1',
+  'sully_reroll_notes_v1', 'sully_news_taste_v1', 'sully_study_log_v1', 'sully_study_homeroom_v1', 'sully_shelf_v1', 'sully_shelf_font_v1', 'sully_amsg_cloud_api_v1', 'sully_amsg_save_calls_v1',
 ];
 
 export const NOAH_BACKUP_LABELS: [string, string][] = [
   ['sully_music_song_analysis_v1', '歌曲解读'], ['sully_music_listen_diary_v1', '听歌日记'],
   ['sully_music_user_notes_v1', '你的听歌想法'], ['sully_music_playlists_v2', '歌单'],
   ['sully_footnote_v1', '页脚（便签 / 快问快答 / 点播 / 胶囊）'], ['sully_listen_plays_v1', '最近听过'],
-  ['sully_trope_ban_v1', '口癖清洗'], ['sully_hate_counter_v1', '恨你计数器'],
+  ['sully_trope_ban_v1', '口癖清洗'], ['sully_study_log_v1', '自习记录'], ['sully_hate_counter_v1', '恨你计数器'],
 ];
 
 export function exportNoahLocal(): Record<string, string> | undefined {
