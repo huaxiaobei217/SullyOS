@@ -654,9 +654,10 @@ export const useChatAI = ({
     const triggerAI = async (
         currentMsgs: Message[],
         overrideApiConfig?: { baseUrl: string; apiKey: string; model: string },
-        opts?: { skipEmotionInjection?: boolean },
+        opts?: { skipEmotionInjection?: boolean; rerollNote?: string },
     ) => {
         if (isTyping || !char) return;
+        const rerollNote = (opts?.rerollNote || '').trim().slice(0, 500);
         const effectiveApi = resolveDialogueApi(apiConfig, char, overrideApiConfig);
         if (!effectiveApi.baseUrl) { alert("请先在设置中配置 API URL"); return; }
 
@@ -837,7 +838,8 @@ export const useChatAI = ({
                         : null;
             // Vertex 本机直连：密钥只在这台设备上，云端 Worker 拿不到，这一轮必须本地生成
             const instantChatVeto: string | null = sarWorkerVeto
-                ?? (isVertexUrl(effectiveApi.baseUrl) ? 'vertex-local'
+                ?? (rerollNote ? 'reroll-note'
+                : isVertexUrl(effectiveApi.baseUrl) ? 'vertex-local'
                 : luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
@@ -859,6 +861,8 @@ export const useChatAI = ({
                         ? '[AmsgInstantChat] 这一轮没上云（SAR 模块生效中，那台 Worker 还是旧 bundle、拆不了模块的回复信封），本地生成。去设置页点「更新 Worker」'
                         : skipReason === 'sar-module-worker-unverified'
                         ? '[AmsgInstantChat] 这一轮没上云（SAR 模块生效中，没问到那台 Worker 的版本、确认不了它认得模块的回复信封），本地生成。连上云端探到版本后会自己回到云端'
+                        : skipReason === 'reroll-note'
+                        ? '[AmsgInstantChat] 这一轮没上云（带修改意见的重写，意见只在本地这一轮用），本地生成'
                         : skipReason === 'vertex-local'
                         ? '[AmsgInstantChat] 这一轮没上云（当前用的是 Vertex 本机直连，密钥不出本机），本地生成'
                         : skipReason === 'mcp-worker-unreachable'
@@ -966,6 +970,13 @@ export const useChatAI = ({
                     if (friendFeedMainTask) fullMessages.splice(Math.max(1, payload.volatileTailIndex), 0,
                         {role: 'system', content: friendFeedMainTask.prompt});
                 } catch (error) {console.warn('[Friend feed] Main task preparation failed', error);}
+            }
+            // 带修改意见的重写：意见只用于这一轮，放在最末尾（离模型最近，最听话）
+            if (rerollNote) {
+                fullMessages.push({
+                    role: 'system',
+                    content: `[这一轮是重写] ${userProfile.name || '对方'}对你上一版的回复不太满意，给了修改意见：「${rerollNote}」\n按这个意见重新写这一轮回复：保持你自己的性格和语气，只改意见指出的地方。不要提到「重写」「修改意见」，也不要道歉或解释，直接给出新的回复。`,
+                } as any);
             }
             if (payload.flags.mcdActive) {
                 console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);

@@ -1726,7 +1726,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         triggerAI(messages);
     };
 
-    const handleReroll = async () => {
+    const handleReroll = async (rerollNote?: string) => {
         if (isTyping || messages.length === 0) return;
         autoReply.cancel();
 
@@ -1753,7 +1753,17 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         trackEvent('重新生成回复');
 
         // 重 roll：不注入上一轮残留的情绪 buff 与意识流（innerState），两边独立重新生成。
-        triggerAI(newHistory, undefined, { skipEmotionInjection: true });
+        triggerAI(newHistory, undefined, { skipEmotionInjection: true, ...(rerollNote?.trim() ? { rerollNote: rerollNote.trim() } : {}) });
+    };
+    const [rerollNoteOpen, setRerollNoteOpen] = useState(false);
+    const [rerollNoteDraft, setRerollNoteDraft] = useState('');
+    const RECENT_NOTES_KEY = 'sully_reroll_notes_v1';
+    const recentRerollNotes = (): string[] => { try { return JSON.parse(localStorage.getItem(RECENT_NOTES_KEY) || '[]'); } catch { return []; } };
+    const submitRerollNote = () => {
+        const note = rerollNoteDraft.trim();
+        if (note) { try { localStorage.setItem(RECENT_NOTES_KEY, JSON.stringify([note, ...recentRerollNotes().filter(n => n !== note)].slice(0, 8))); } catch { /* ignore */ } }
+        setRerollNoteOpen(false); setRerollNoteDraft(''); setShowPanel('none');
+        void handleReroll(note);
     };
 
     const handleImageSelect = async (file: File) => {
@@ -1809,6 +1819,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
+            case 'reroll-note': setRerollNoteOpen(true); break;
             case 'share-music': {
                 const cur = loadMusicPlaybackSnapshot()?.current;
                 if (!cur) { addToast('现在没有在放歌，先去音乐里放一首吧', 'info'); break; }
@@ -3901,6 +3912,28 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 message="检测到分享链接，要关闭自动转卡片吗？关闭后，本条及之后的链接会按原文发送，方便角色用你配置的 MCP 读取。保留卡片也会带上原链接。两类解析可在加号 → 设置中分别调整。"
                 confirmText="关闭，发送原文" cancelText="保留卡片"
                 onConfirm={() => answerLinkCard(false)} onCancel={() => answerLinkCard(true)} />
+            {rerollNoteOpen && createPortal(
+                <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={() => setRerollNoteOpen(false)}>
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+20px)]" onClick={e => e.stopPropagation()}>
+                        <div className="text-sm font-bold text-slate-700 mb-1">带意见重写</div>
+                        <div className="text-[11px] text-slate-400 mb-3">删掉他刚才这一轮，按你的意见重新写一次。意见只用这一次，他不会知道是重写。</div>
+                        <textarea autoFocus value={rerollNoteDraft} onChange={e => setRerollNoteDraft(e.target.value)} rows={3}
+                            placeholder="比如：不像他，太乖了 / 别催我睡觉 / 短一点，像发消息 / 别用老梗"
+                            className="w-full rounded-xl border border-slate-200 p-3 text-[13px] outline-none" />
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                            {[...recentRerollNotes(), '不像他', '太长了，像发消息那样短一点', '别说教', '别用老梗'].filter((n, i, a) => a.indexOf(n) === i).slice(0, 8).map(n => (
+                                <button key={n} onClick={() => setRerollNoteDraft(d => d ? `${d}；${n}` : n)} className="px-2.5 py-1 rounded-full text-[11px] bg-slate-100 text-slate-600">{n}</button>
+                            ))}
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                            <button onClick={() => setRerollNoteOpen(false)} className="flex-1 py-2.5 rounded-xl text-sm text-slate-500 bg-slate-100">算了</button>
+                            <button onClick={submitRerollNote} className="flex-[2] py-2.5 rounded-xl text-sm font-bold text-white bg-primary">{rerollNoteDraft.trim() ? '按意见重写' : '直接重写'}</button>
+                        </div>
+                    </div>
+                </div>,
+                document.body,
+            )}
             <ChatModals
                 compactHome={!!homePhone}
                 modalType={modalType} setModalType={setModalType}
@@ -4510,7 +4543,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     isSummarizing={isSummarizing}
                     categories={visibleCategories}
                     activeCategory={activeCategory}
-                    onReroll={handleReroll}
+                    onReroll={() => handleReroll()}
                     canReroll={canReroll}
                     isProactiveActive={isProactiveActive}
                     mcdConfigured={mcdConfiguredFlag}

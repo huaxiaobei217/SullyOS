@@ -7,11 +7,13 @@ import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { getBannedTropes, setBannedTropes, countHits, getTropeMode, setTropeMode, rewriteMemoryText, type TropeMode } from '../../utils/tropeBan';
 import { resolveDialogueApi } from '../../utils/characterApi';
+import { MemoryNodeDB } from '../../utils/memoryPalace/db';
+import { updateStoredMemoryNode } from '../../utils/memoryPalace/vectorStore';
 
-type Hit = { kind: 'memory' | 'refined'; key: string; label: string; text: string };
+type Hit = { kind: 'memory' | 'refined' | 'palace'; key: string; label: string; text: string };
 
 const TropeCleanPanel: React.FC = () => {
-  const { characters, updateCharacter, addToast, apiConfig, memoryPalaceConfig } = useOS() as any;
+  const { characters, updateCharacter, addToast, apiConfig, memoryPalaceConfig, remoteVectorConfig } = useOS() as any;
   const [mode, setModeState] = useState<TropeMode>(getTropeMode());
   const [rewriting, setRewriting] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
@@ -47,6 +49,14 @@ const TropeCleanPanel: React.FC = () => {
       for (const [k, v] of Object.entries(char.refinedMemories || {})) {
         if (typeof v === 'string' && list.some(w => countHits(v, w))) hits.push({ kind: 'refined', key: k, label: `核心记忆 · ${k}`, text: v });
       }
+      try {
+        const nodes = await MemoryNodeDB.getByCharId(char.id);
+        for (const n of nodes as any[]) {
+          if (typeof n.content === 'string' && list.some(w => countHits(n.content, w))) {
+            hits.push({ kind: 'palace', key: n.id, label: `记忆宫殿 · ${new Date(n.createdAt).toLocaleDateString()}${n.archived ? ' · 已归档' : ''}`, text: n.content });
+          }
+        }
+      } catch { /* 没开记忆宫殿 */ }
       setScan({ chat, hits }); setEdits({});
     } catch (e: any) { addToast?.(`扫描失败：${e?.message || e}`, 'error'); }
     finally { setScanning(false); }
@@ -68,12 +78,17 @@ const TropeCleanPanel: React.FC = () => {
     finally { setRewriting(r => { const n = { ...r }; delete n[k]; return n; }); }
   };
   const rewriteAll = async () => { for (const h of scan?.hits || []) { if (edits[`${h.kind}:${h.key}`] == null) await rewrite(h); } };
-  const saveAll = () => { for (const h of scan?.hits || []) if (edits[`${h.kind}:${h.key}`] != null) saveEdit(h); };
+  const saveAll = async () => { for (const h of scan?.hits || []) if (edits[`${h.kind}:${h.key}`] != null) await saveEdit(h); };
 
-  const saveEdit = (h: Hit) => {
+  const saveEdit = async (h: Hit) => {
     const text = edits[`${h.kind}:${h.key}`];
     if (text == null) return;
-    if (h.kind === 'memory') updateCharacter(char.id, { memories: (char.memories || []).map((m: any) => m.id === h.key ? { ...m, summary: text } : m) });
+    if (h.kind === 'palace') {
+      try {
+        // 记忆宫殿：改正文后顺手重算语义向量，搜得到的就是改过的版本
+        await updateStoredMemoryNode(h.key, { content: text.trim() } as any, memoryPalaceConfig?.embedding, remoteVectorConfig);
+      } catch (e: any) { addToast?.(`记忆宫殿这条没存上：${e?.message || e}`, 'error'); return; }
+    } else if (h.kind === 'memory') updateCharacter(char.id, { memories: (char.memories || []).map((m: any) => m.id === h.key ? { ...m, summary: text } : m) });
     else updateCharacter(char.id, { refinedMemories: { ...(char.refinedMemories || {}), [h.key]: text } });
     setScan(s => s ? { ...s, hits: s.hits.map(x => x.kind === h.kind && x.key === h.key ? { ...x, text } : x) } : s);
     setEdits(e => { const n = { ...e }; delete n[`${h.kind}:${h.key}`]; return n; });
@@ -175,7 +190,7 @@ const TropeCleanPanel: React.FC = () => {
                   </div>
                 );
               })}
-              <div className="text-[10px] text-slate-400">向量记忆宫殿里的记忆这里扫不到；如果开了记忆宫殿，可以去「记忆宫殿」App 里搜这些词。</div>
+              <div className="text-[10px] text-slate-400">记忆宫殿里的也扫进来了（标着「记忆宫殿」）；改好保存时会顺手重算语义向量。</div>
             </div>
           )}
         </div>

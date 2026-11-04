@@ -9,9 +9,20 @@ import { getProxyWorkerUrl } from './proxyWorker';
 
 export const NAI_CFG_KEY = 'sully_nai_cfg_v1';
 
+/** 画风预设：画师串 + 固定正面 + 固定负面（参考 ST-iPhonie 的「画风」） */
+export interface NaiStyle { id: string; name: string; artist: string; positive: string; negative: string; }
+export const DEFAULT_NAI_STYLE: NaiStyle = {
+  id: 'default', name: '默认画风', artist: '',
+  positive: 'masterpiece, best quality, very aesthetic, absurdres',
+  negative: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, signature, watermark, blurry',
+};
+
 export interface NaiConfig {
   key: string;
   model: string;
+  styles: NaiStyle[];
+  activeStyle: string;
+  /** 旧版字段（迁移进 styles） */
   artist: string;
   /** 每个角色的外貌 tag（提示词里写 self 时换成它） */
   characterTags: Record<string, string>;
@@ -26,14 +37,26 @@ export interface NaiConfig {
 }
 
 const DEFAULTS: NaiConfig = {
-  key: '', model: 'nai-diffusion-4-5-full', artist: '', characterTags: {}, negative: '', quality: true, allowPeople: false,
+  key: '', model: 'nai-diffusion-4-5-full', styles: [DEFAULT_NAI_STYLE], activeStyle: 'default', artist: '', characterTags: {}, negative: '', quality: false, allowPeople: false,
   width: 832, height: 1216, steps: 28, scale: 5, sampler: 'k_euler',
   queueOn: true, queueUrl: 'https://st-chatu-novelai-queue.hf.space', greeting: '努力生成中~', timeout: 180,
   chatPhotos: {},
 };
 export const loadNaiConfig = (): NaiConfig => {
-  try { return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(NAI_CFG_KEY) || '{}') || {}) }; } catch { return { ...DEFAULTS }; }
+  let c: NaiConfig;
+  try { c = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(NAI_CFG_KEY) || '{}') || {}) }; } catch { c = { ...DEFAULTS }; }
+  if (!Array.isArray(c.styles) || !c.styles.length) c.styles = [DEFAULT_NAI_STYLE];
+  // 旧版只有一条画师串 / 负面：并进默认画风
+  if ((c.artist || c.negative) && c.styles.length === 1 && c.styles[0].id === 'default' && !c.styles[0].artist) {
+    c.styles = [{ ...c.styles[0], artist: c.artist || '', negative: c.negative || c.styles[0].negative }];
+    c.artist = ''; c.negative = '';
+  }
+  if (!c.styles.some(s => s.id === c.activeStyle)) c.activeStyle = c.styles[0].id;
+  // 第二版起默认不加官方质量词（固定正面里自己写）
+  if (!(c as any).v2) { c.quality = false; (c as any).v2 = true; }
+  return c;
 };
+export const activeNaiStyle = (c = loadNaiConfig()): NaiStyle => c.styles.find(s => s.id === c.activeStyle) || c.styles[0] || DEFAULT_NAI_STYLE;
 export const saveNaiConfig = (c: NaiConfig) => { try { localStorage.setItem(NAI_CFG_KEY, JSON.stringify(c)); } catch { /* ignore */ } };
 export const isNaiReady = (c = loadNaiConfig()) => !!c.key.trim();
 
@@ -75,20 +98,24 @@ const stripPeople = (tags: string[]) => tags.flatMap(t => {
 
 export function buildNaiPrompt(scene: string, charId = '', cfg = loadNaiConfig(), allowPeople?: boolean): { prompt: string; negative: string } {
   const people = allowPeople ?? cfg.allowPeople;
+  const style = activeNaiStyle(cfg);
   let parts = splitTags(cleanTags(scene));
-  let artist = cleanTags(cfg.artist);
+  let artist = cleanTags(style.artist);
+  let positive = cleanTags(style.positive);
   if (people) {
     const self = cleanTags(cfg.characterTags[charId] || '');
     parts = parts.map(p => SELF_WORDS.includes(p.toLowerCase()) ? self : p);
   } else {
     parts = stripPeople(parts);
     artist = stripPeople(splitTags(artist)).join(', ');
+    positive = stripPeople(splitTags(positive)).join(', ');
     if (!parts.some(p => p.toLowerCase() === 'no humans')) parts.push('no humans');
   }
-  let prompt = [artist, parts.filter(Boolean).join(', ')].filter(Boolean).join(', ');
+  // 画师串 + 固定正面 + 这张图的场景
+  let prompt = [artist, positive, parts.filter(Boolean).join(', ')].filter(Boolean).join(', ');
   if (!people && supportsBg(cfg.model)) prompt = 'background dataset, ' + prompt;
   if (cfg.quality) prompt += qualitySuffix(cfg.model);
-  let negative = cleanTags(cfg.negative) || (isV4(cfg.model) ? NEG_V4 : NEG_V3);
+  let negative = cleanTags(style.negative) || (isV4(cfg.model) ? NEG_V4 : NEG_V3);
   if (!people) negative += ', ' + NO_PEOPLE_NEG;
   return { prompt, negative };
 }
