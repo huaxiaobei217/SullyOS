@@ -517,12 +517,12 @@ const ShelfApp: React.FC = () => {
             <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { /* 翻页模式：点按交给翻页，长按出菜单 */ }} />
           </div>
         ))}
-        <div ref={el => { paraRefs.current[chapter?.paras.length || 0] = el; }} className="pt-6 pb-4 text-center font-sans" style={{ breakInside: 'avoid' }}>
-          <div className="text-[11px] mb-3" style={{ color: T.faint }}>— 本章完 · 往左翻进下一章 —</div>
-          {char && !book.annotatedChapters?.includes(ch) && !store.autoNote && (
+        {/* 章末不单独占一页：只有还没批注、又没开自动批注时，才留一个小按钮 */}
+        {char && !book.annotatedChapters?.includes(ch) && !store.autoNote && (
+          <div ref={el => { paraRefs.current[chapter?.paras.length || 0] = el; }} className="pt-3 pb-2 text-center font-sans" style={{ breakInside: 'avoid' }}>
             <button onClick={e => { e.stopPropagation(); runAnnotate(); }} disabled={!!busy} className="text-[12px] px-4 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 请{char.name}在这章写批注</button>
-          )}
-        </div>
+          </div>
+        )}
             </div>
             {/* 长按一段：浮在段落旁边的菜单（不挤动排版） */}
             {menuAt && chapter?.paras[menuAt.i] != null && (
