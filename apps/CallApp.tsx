@@ -2900,7 +2900,8 @@ ${sentencePlan}`;
             : handsFreeStatus === 'waiting' ? '等你开口'
             : handsFreeStatus === 'sending' ? '在转文字…'
             : handsFreeStatus === 'thinking' ? `${selectedChar?.name || '对方'}在想…`
-            : handsFreeStatus === 'speaking' ? '他在说 · 开口可以打断' : ''}
+            : handsFreeStatus === 'speaking' ? '他在说 · 开口可以打断'
+            : handsFreeStatus === 'broken' ? '语音识别没反应：检查麦克风权限或换个识别方式，关掉免提再打开可重试' : ''}
         </span>
       )}
     </div>

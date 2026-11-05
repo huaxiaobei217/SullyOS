@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-export type HandsFreeStatus = 'off' | 'waiting' | 'listening' | 'sending' | 'thinking' | 'speaking';
+export type HandsFreeStatus = 'off' | 'waiting' | 'listening' | 'sending' | 'thinking' | 'speaking' | 'broken';
 
 interface Opts {
   enabled: boolean;
@@ -38,6 +38,9 @@ const TEXT_SETTLE_MS = 1300;
 export function useHandsFreeCall(o: Opts): HandsFreeStatus {
   const latest = useRef(o); latest.current = o;
   const [armed, setArmed] = useState(false);          // true = 等你开口才开识别
+  // 识别一开就马上空手结束（没权限 / 手机没有识别服务 / 网络连不上）连续几次：别再自己反复重开（会一直闪）
+  const quickFails = useRef(0);
+  const [broken, setBroken] = useState(false);
   const autoRef = useRef(false);                      // 这一轮识别是免提开的，结束后自动发送
   const heardRef = useRef(false);                     // 这一轮里听到过人声
   const streamRef = useRef<MediaStream | null>(null);
@@ -98,7 +101,7 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
   /* 轮到你：自动开麦（或者 armed 时等你开口） */
   useEffect(() => {
     const c = latest.current;
-    if (!active || c.callState !== 'listening' || c.isAudioPlaying || c.isListening || c.isTranscribing || c.draftInput.trim()) return;
+    if (!active || broken || c.callState !== 'listening' || c.isAudioPlaying || c.isListening || c.isTranscribing || c.draftInput.trim()) return;
     if (armed && !(analyserRef.current && loud)) return;
     const t = setTimeout(() => {
       const n = latest.current;
@@ -111,7 +114,7 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
       } else n.startListening();
     }, armed ? 0 : 400);
     return () => clearTimeout(t);
-  }, [active, o.callState, o.isAudioPlaying, o.isListening, o.isTranscribing, o.draftInput, armed, loud]);
+  }, [active, broken, o.callState, o.isAudioPlaying, o.isListening, o.isTranscribing, o.draftInput, armed, loud]);
 
   /* 识别中：说完停顿就结束；一直没开口就收起来改成等你开口 */
   const lastLoudAt = useRef(0);
@@ -148,10 +151,20 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
     if (!active || o.isListening || o.isTranscribing || !autoRef.current) return;
     if (!o.draftInput.trim()) {
       // 有的识别平台先关麦、过一会儿才把文字送回来：给 2.5 秒宽限，还是空的才算这一轮没说话
-      const g = setTimeout(() => { const n = latest.current; if (!n.isListening && !n.isTranscribing && !n.draftInput.trim()) autoRef.current = false; }, 2500);
+      const g = setTimeout(() => {
+        const n = latest.current;
+        if (n.isListening || n.isTranscribing || n.draftInput.trim()) return;
+        autoRef.current = false;
+        // 开了不到 3 秒就空着结束：算一次「识别没起来」
+        if (listenStartedAt.current && Date.now() - listenStartedAt.current < 5500) {
+          quickFails.current++;
+          if (quickFails.current >= 4) setBroken(true);
+          else if (quickFails.current >= 2) setArmed(true);
+        }
+      }, 2500);
       return () => clearTimeout(g);
     }
-    autoRef.current = false;
+    autoRef.current = false; quickFails.current = 0;
     const t = setTimeout(() => latest.current.send(), 150);
     return () => clearTimeout(t);
   }, [active, o.isListening, o.isTranscribing, o.draftInput]);
@@ -166,9 +179,10 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
     } else bargeSince.current = 0;
   }, [active, o.isAudioPlaying, level, bargeThreshold]);
 
-  useEffect(() => { if (!active) { setArmed(false); autoRef.current = false; } }, [active]);
+  useEffect(() => { if (!active) { setArmed(false); autoRef.current = false; quickFails.current = 0; setBroken(false); } }, [active]);
 
   if (!active) return 'off';
+  if (broken) return 'broken';
   if (o.isAudioPlaying || o.callState === 'speaking') return 'speaking';
   if (o.callState === 'thinking' || o.callState === 'connecting') return 'thinking';
   if (o.isTranscribing) return 'sending';

@@ -690,6 +690,11 @@ const startWeb = (lang: string, cb: SttCallbacks, hasPaidConfigured: boolean): S
 
 const startNative = async (lang: string, cb: SttCallbacks, hasPaidConfigured: boolean): Promise<SttSession> => {
   const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+  // 有的国产手机没装系统语音识别服务：直接说清楚，别让它卡着
+  const avail = await SpeechRecognition.available().catch(() => ({ available: true }));
+  if (!avail?.available) throw new Error(hasPaidConfigured
+    ? '这台手机没有系统语音识别服务，请在设置里把语音识别换成 ElevenLabs 等在线识别'
+    : '这台手机没有系统语音识别服务，可以在设置里配一个在线语音识别（比如 ElevenLabs）');
 
   const perm = await SpeechRecognition.checkPermissions().catch(() => ({ speechRecognition: 'prompt' as const }));
   if (perm.speechRecognition !== 'granted') {
@@ -734,6 +739,14 @@ export const startStt = async (
     return startApiStt(provider, language, apiConfig, cb);
   }
   const hasPaid = hasAnyApiSttConfigured(apiConfig);
-  if (isNative()) return startNative(language, cb, hasPaid);
+  if (isNative()) {
+    try { return await startNative(language, cb, hasPaid); }
+    catch (e: any) {
+      // 手机没有系统识别服务时，自动改用已经配好的在线识别
+      const fallback = getConfiguredApiSttProviders(apiConfig)[0];
+      if (fallback && /没有系统语音识别服务/.test(String(e?.message || ''))) return startApiStt(fallback, language, apiConfig, cb);
+      throw e;
+    }
+  }
   return startWeb(language, cb, hasPaid);
 };
