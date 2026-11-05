@@ -2390,6 +2390,81 @@ ${sentencePlan}`;
     playAudio(url, bubble.performanceTimeline, estimateSpeechMs(bubble.text), true);
     trackEvent('按需生成并播放通话语音');
   };
+  /* ───── 通话记录：整段回放 / 下载整合版（个人二改） ───── */
+  const [replayIdx, setReplayIdx] = useState<string | null>(null);
+  const [replayBusy, setReplayBusy] = useState('');
+  const replayRunRef = useRef(0);
+  const replayAudioRef = useRef<HTMLAudioElement | null>(null);
+  const replayItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  /** 拿到一条语音的音频文件：已有的直接读，会话过期了就重新合成（同样的句子语音缓存里有，一般不重复扣费） */
+  const getBubbleAudioBlob = async (item: CallBubble): Promise<Blob | null> => {
+    if (item.audioUrl) { try { return await fetchBlobForShare(item.audioUrl, 'audio/mpeg'); } catch { /* 过期了，下面重新拿 */ } }
+    const url = await ensureCallBubbleAudio(item, true, false);
+    if (!url) return null;
+    try { return await fetchBlobForShare(url, 'audio/mpeg'); } catch { return null; }
+  };
+  const stopReplay = () => {
+    replayRunRef.current++;
+    try { replayAudioRef.current?.pause(); } catch { /* ignore */ }
+    replayAudioRef.current = null;
+    setReplayIdx(null); setReplayBusy('');
+  };
+  const startReplay = async (record: CallRecord, fromId?: string) => {
+    stopReplay();
+    if (isAudioPlaying) pauseAudio();
+    const run = ++replayRunRef.current;
+    const items = record.transcript;
+    let started = !fromId;
+    for (const item of items) {
+      if (!started) { if (item.id === fromId) started = true; else continue; }
+      if (run !== replayRunRef.current) return;
+      setReplayIdx(item.id);
+      replayItemRefs.current[item.id]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (item.role !== 'assistant') { await new Promise(r => setTimeout(r, Math.min(2600, 700 + item.text.length * 45))); continue; }
+      setReplayBusy('准备语音…');
+      const blob = await getBubbleAudioBlob(item);
+      if (run !== replayRunRef.current) return;
+      setReplayBusy('');
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob);
+      await new Promise<void>(resolve => {
+        const a = new Audio(url);
+        replayAudioRef.current = a;
+        a.onended = () => resolve(); a.onerror = () => resolve();
+        a.play().catch(() => resolve());
+      });
+      URL.revokeObjectURL(url);
+    }
+    if (run === replayRunRef.current) { setReplayIdx(null); setReplayBusy(''); }
+  };
+  const downloadRecordAudio = async (record: CallRecord) => {
+    stopReplay();
+    const items = record.transcript.filter(i => i.role === 'assistant');
+    const blobs: Blob[] = [];
+    for (let k = 0; k < items.length; k++) {
+      setReplayBusy(`整理语音 ${k + 1}/${items.length}…`);
+      const b = await getBubbleAudioBlob(items[k]);
+      if (b) blobs.push(b);
+    }
+    setReplayBusy('');
+    if (!blobs.length) { addToast('这通电话还没有可用的语音', 'info'); return; }
+    const stamp = record.createdAt.replace(/[^\d]/g, '').slice(0, 12) || String(Date.now());
+    await shareOrDownloadBlob({ blob: new Blob(blobs, { type: 'audio/mpeg' }), fileName: `${record.characterName}-通话-${stamp}.mp3`, shareTitle: `和${record.characterName}的通话`, preferDownloadOnWeb: true });
+  };
+  const downloadRecordText = async (record: CallRecord) => {
+    const lines = [`和${record.characterName}的通话 · ${record.createdAt} · ${formatDuration(record.durationSec)}`, ''];
+    for (const item of record.transcript) {
+      if (item.role === 'user') { lines.push(`[${item.time}] 我：${item.text}`); continue; }
+      const { display, voiceText } = extractVoiceTag(item.text);
+      lines.push(`[${item.time}] ${record.characterName}：${stripCallTextFormatting(display).trim()}`);
+      const v = stripTtsMarkupForDisplay(voiceText, apiConfig);
+      if (v) lines.push(`    （原文）${v}`);
+    }
+    const stamp = record.createdAt.replace(/[^\d]/g, '').slice(0, 12) || String(Date.now());
+    await shareOrDownloadBlob({ blob: new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }), fileName: `${record.characterName}-通话-${stamp}.txt`, shareTitle: `和${record.characterName}的通话`, preferDownloadOnWeb: true });
+  };
+  useEffect(() => { if (viewMode !== 'record-detail') stopReplay(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [viewMode]);
+
   const callFavoriteSourceKey = (charId: string, bubble: CallBubble) => `${charId}:${bubble.dbId || bubble.id}`;
   const openCallVoiceFavorite = async (bubble: CallBubble, charId = selectedChar?.id || '', charName = selectedChar?.name || '未知角色') => {
     if (bubble.role !== 'assistant' || !charId) return;
@@ -3614,10 +3689,21 @@ ${sentencePlan}`;
         <div className="mt-2 text-center">
           <p className="text-xs text-white/35 italic">{recordDetail.createdAt}</p>
         </div>
+        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+          {replayIdx
+            ? <button onClick={stopReplay} className="px-3.5 py-1.5 rounded-full border border-white/20 bg-white/10 text-white/85">■ 停止回放</button>
+            : <button onClick={() => void startReplay(recordDetail)} disabled={!!replayBusy} className="keep-white px-3.5 py-1.5 rounded-full text-white disabled:opacity-50" style={{ backgroundColor: accentColor }}>▶ 整段回放</button>}
+          <button onClick={() => void downloadRecordAudio(recordDetail)} disabled={!!replayBusy} className="px-3 py-1.5 rounded-full border border-white/15 bg-white/[0.06] text-white/70 disabled:opacity-40">⬇ 下载整段语音</button>
+          <button onClick={() => void downloadRecordText(recordDetail)} className="px-3 py-1.5 rounded-full border border-white/15 bg-white/[0.06] text-white/70">⬇ 文字稿</button>
+        </div>
+        {replayBusy && <div className="mt-1.5 text-center text-[11px] text-white/45">{replayBusy}</div>}
         <div className="mt-4 flex-1 overflow-y-auto space-y-2.5">
           {recordDetail.transcript.map(item => (
             <div
               key={item.id}
+              ref={el => { replayItemRefs.current[item.id] = el; }}
+              style={replayIdx === item.id ? { borderColor: accentColor, boxShadow: `0 0 0 1px ${accentColor}66` } : undefined}
+              onDoubleClick={() => void startReplay(recordDetail, item.id)}
               onContextMenu={(event) => {
                 if (item.role !== 'assistant') return;
                 event.preventDefault();
