@@ -2976,7 +2976,7 @@ ${sentencePlan}`;
             : handsFreeStatus === 'sending' ? '在转文字…'
             : handsFreeStatus === 'thinking' ? `${selectedChar?.name || '对方'}在想…`
             : handsFreeStatus === 'speaking' ? '他在说 · 开口可以打断'
-            : handsFreeStatus === 'broken' ? '语音识别没反应：检查麦克风权限或换个识别方式，关掉免提再打开可重试' : ''}
+            : handsFreeStatus === 'broken' ? '系统语音识别一直没听到你：去设置 → 其他 API 把语音识别换成 ElevenLabs 试试（关掉免提再打开可重试）' : ''}
         </span>
       )}
     </div>

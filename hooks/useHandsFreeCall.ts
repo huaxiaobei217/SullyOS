@@ -120,7 +120,7 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
   const lastLoudAt = useRef(0);
   const listenStartedAt = useRef(0);
   useEffect(() => {
-    if (o.isListening && autoRef.current) { listenStartedAt.current = Date.now(); lastLoudAt.current = 0; }
+    if (o.isListening) { listenStartedAt.current = Date.now(); lastLoudAt.current = 0; }
   }, [o.isListening]);
   useEffect(() => {
     if (!active || !o.isListening || !autoRef.current || !analyserRef.current) return;
@@ -146,6 +146,21 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
     return () => clearInterval(t);
   }, [active, o.releaseMic, o.isListening, o.draftInput]);
 
+  /* 识别一结束就判断：开了不到 3 秒、一个字没有 → 算一次「识别没起来」（立刻算，不等宽限，免得被下一轮重开冲掉） */
+  const wasListening = useRef(false);
+  useEffect(() => {
+    if (o.isListening) { wasListening.current = true; return; }
+    if (!wasListening.current) return;
+    wasListening.current = false;
+    if (!active) return;
+    const dur = Date.now() - listenStartedAt.current;
+    if (listenStartedAt.current && dur < 3000 && !latest.current.draftInput.trim()) {
+      quickFails.current++;
+      if (quickFails.current >= 3) setBroken(true);
+      else setArmed(true);
+    } else if (latest.current.draftInput.trim()) quickFails.current = 0;
+  }, [active, o.isListening]);
+
   /* 识别结束、文字到了：自动发送 */
   useEffect(() => {
     if (!active || o.isListening || o.isTranscribing || !autoRef.current) return;
@@ -155,12 +170,6 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
         const n = latest.current;
         if (n.isListening || n.isTranscribing || n.draftInput.trim()) return;
         autoRef.current = false;
-        // 开了不到 3 秒就空着结束：算一次「识别没起来」
-        if (listenStartedAt.current && Date.now() - listenStartedAt.current < 5500) {
-          quickFails.current++;
-          if (quickFails.current >= 4) setBroken(true);
-          else if (quickFails.current >= 2) setArmed(true);
-        }
       }, 2500);
       return () => clearTimeout(g);
     }
