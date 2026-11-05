@@ -1422,7 +1422,8 @@ ${voiceActingGuide()}`;
                          let textPart = `${timeStr} [${speaker} 发送了表情包: ${stickerName}。画面内容：${stickerDescription}]`;
                          if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
                          content = textPart;
-                     } else if (eligible && !options?.useVisionDescriptions) {
+                     } else if (eligible && !options?.useVisionDescriptions && index >= historySlice.length - 4) {
+                         // 二改：主模型自己看图时，只给最近几条里的表情包附图，更早的只报名字，免得每轮重复花图片 token
                          const hasImageData = typeof m.content === 'string'
                              && (m.content.startsWith('data:') || m.content.startsWith('http') || isBlobRef(m.content));
                          if (!hasImageData) {
