@@ -3,10 +3,10 @@
   "appName": "SullyOS·糯米机",
   "webDir": "dist",
   "server": {
-    "url": "https://sully-os-gray.vercel.app",
+    "url": "https://phone.noahcydrian.baby",
     "androidScheme": "https",
     "cleartext": false,
-    "allowNavigation": ["sully-os-gray.vercel.app"]
+    "allowNavigation": ["phone.noahcydrian.baby", "sully-os-gray.vercel.app"]
   },
   "android": {
     "backgroundColor": "#0f1115",

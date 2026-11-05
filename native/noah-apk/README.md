@@ -2,7 +2,7 @@
 
 GitHub Actions 里的「打包安卓 App」流程用这里的文件生成一个 Capacitor 壳：
 
-- `capacitor.config.json`：包名 `com.kythie.sullyos`，直接打开线上网站（`server.url`），网页更新不用重装。
+- `capacitor.config.json`：包名 `com.kythie.sullyos`，直接打开线上网站 https://phone.noahcydrian.baby（`server.url`），网页更新不用重装。
 - `MainActivity.java`：藏起底部导航条，保留系统状态栏（颜色由网页跟着页面设）。
 - `offline.html`：没网时显示的页面。
 
