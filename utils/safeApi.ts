@@ -445,6 +445,7 @@ export async function safeFetchJson(
         ? 0
         : Math.max(0, Math.floor(Number(maxRetries) || 0));
     let lastStatus: number | undefined;
+    let rate429Retries = 0;
 
     // 显式 meta 挂到 RequestInit 给全局 fetch 兜底；同时快照环境标签，避免长响应期间
     // 用户切 App 后被错标。safeFetchJson 与全局拦截器以 requestId 原子去重。
@@ -489,6 +490,18 @@ export async function safeFetchJson(
             const headersMs = Date.now() - attemptStartedAt;
 
             if (!response.ok) {
+                // 聊天请求本来不自动重试（怕重复扣费），但 429 是「还没开始生成就被拒」，
+                // 不会扣费：Vertex / Gemini 的共享额度一忙就回 429，等几秒再试多半就过了。最多再试 2 次。
+                if (response.status === 429 && isChatCompletionUrl(urlStr) && rate429Retries < 2 && !options.signal?.aborted) {
+                    rate429Retries++;
+                    const ra = Number(response.headers.get('retry-after'));
+                    const delay = Number.isFinite(ra) && ra > 0 && ra <= 20 ? ra * 1000 : (rate429Retries === 1 ? 2500 : 6000);
+                    log.warn('HTTP 429 retry (chat)', { attempt: rate429Retries, delay });
+                    try { await response.body?.cancel(); } catch { /* ignore */ }
+                    await new Promise(r => setTimeout(r, delay));
+                    attempt--;
+                    continue;
+                }
                 // For retryable status codes, retry before giving up
                 if (retryableStatuses.has(response.status) && attempt < automaticRetryLimit) {
                     const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
