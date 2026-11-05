@@ -466,6 +466,9 @@ export async function transcribeAudioWithProvider(
       form.append('tag_audio_events', 'false');
       if (normalizedLang === 'yue') {
         form.append('language_code', 'yue');
+      } else if (normalizedLang.startsWith('zh')) {
+        // 不指定语言时，短短一句中文常被认成别的语言、转成乱码；说中文就明确告诉它是中文（夹几个英文词也认得）
+        form.append('language_code', 'zh');
       }
       form.append('file', wavBlob, 'speech.wav');
       return form;

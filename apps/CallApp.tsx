@@ -129,6 +129,20 @@ import {
 import { addCompanionModelOutfit, addUploadedCompanionOutfit } from '../utils/companionWardrobe';
 import VoiceFavoriteActionSheet from '../components/voice/VoiceFavoriteActionSheet';
 import StreamingVoiceBar from '../components/voice/StreamingVoiceBar';
+import type { StreamingVoiceState } from '../hooks/useStreamingVoice';
+
+/** 通话里不再弹白色字幕条（字幕看上面的对话就行）：只留一个小小的「停止」，出错时显示原因 */
+const CallVoicePill: React.FC<{ state: StreamingVoiceState | null; onStop: () => void; accent: string }> = ({ state, onStop, accent }) => {
+  if (!state || state.status === 'done') return null;
+  return (
+    <div className="shrink-0 flex justify-center px-4 pb-1" onClick={e => e.stopPropagation()}>
+      <button type="button" onClick={onStop} className="flex items-center gap-2 rounded-full border border-white/12 bg-black/35 px-3 py-1 text-[11px] text-white/70 backdrop-blur">
+        {state.status === 'error' ? <span className="text-rose-200/90">{state.error} · 关闭</span>
+          : <><span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: accent }} />{state.status === 'loading' ? '正在准备语音…' : '正在说话 · 点这里停'}</>}
+      </button>
+    </div>
+  );
+};
 import { useStreamingVoice } from '../hooks/useStreamingVoice';
 import { IncrementalCallSpeech } from '../utils/incrementalCallSpeech';
 import { streamElevenLabsSpeech, type StreamedVoice } from '../utils/elevenLabsStream';
@@ -3588,7 +3602,6 @@ ${sentencePlan}`;
       <div className={`h-full w-full bg-gradient-to-b text-white px-5 pb-6 flex flex-col ${lightTheme ? 'sully-call-light from-[#f5f2fd] via-[#eef0f8] to-[#eef0f8]' : 'from-[#140d28] via-[#0a0613] to-[#0a0613]'}`} style={{ paddingTop: 'max(2.5rem, var(--safe-top))' }}>
         {lightTheme && <style>{CALL_LIGHT_THEME_CSS}</style>}
         <StreamingVoiceBar state={streamingVoice.state} onStop={pauseAudio} />
-      {handsFreeBar}
         <div className="flex items-center justify-between">
           <button onClick={() => setViewMode('history')} className="text-sm text-white/45">← 返回</button>
           <div className="text-sm text-white/80 font-medium">{recordDetail.characterName}</div>
@@ -3759,9 +3772,9 @@ ${sentencePlan}`;
           <span style={{ color: accentColor }}>✦</span>
         </div>
         {/* name block */}
-        <div className={`${callMode === 'video' ? 'pt-3' : 'pt-7'} text-center`}>
+        <div className={`${callMode === 'video' ? 'pt-3' : bubbles.length ? 'pt-5' : 'pt-7'} text-center`}>
           {callMode !== 'video' && <div className="text-sm" style={{ color: `${accentColor}cc`, textShadow: `0 0 12px ${accentColor}` }}>❀</div>}
-          <h1 className={`font-serif leading-none tracking-wide text-white ${callMode === 'video' ? 'text-[1.55rem]' : 'mt-0.5 text-[2.6rem]'}`} style={{ textShadow: `0 0 26px ${accentColor}aa, 0 0 6px ${accentColor}66` }}>{selectedChar?.name || '未选择'}</h1>
+          <h1 className={`font-serif leading-none tracking-wide text-white ${callMode === 'video' ? 'text-[1.55rem]' : bubbles.length ? 'mt-0.5 text-[1.9rem]' : 'mt-0.5 text-[2.6rem]'}`} style={{ textShadow: `0 0 26px ${accentColor}aa, 0 0 6px ${accentColor}66` }}>{selectedChar?.name || '未选择'}</h1>
           {callMode === 'video' ? (
             <div className="mt-1 flex items-center justify-center gap-2 text-[8px] tracking-[0.18em] text-white/48">
               <span>{connSub}</span><span style={{ color: accentColor }}>◆</span><span className="tabular-nums text-[13px] font-light" style={{ color: accentColor }}>{formatDuration(elapsedSeconds)}</span>
@@ -3988,8 +4001,8 @@ ${sentencePlan}`;
           const fromBottom = bubbles.length - 1 - index;
           const isLatest = fromBottom === 0;
           const line = bubble.text.trim();
-          const opacity = Math.max(0.35, 1 - fromBottom * 0.16);
-          const sizeClass = isLatest ? 'text-[15px]' : fromBottom === 1 ? 'text-sm' : 'text-xs';
+          const opacity = Math.max(0.55, 1 - fromBottom * 0.12);
+          const sizeClass = isLatest ? 'text-[19px]' : fromBottom === 1 ? 'text-[16px]' : 'text-[14px]';
           return (
           <div
             key={bubble.id}
@@ -4040,7 +4053,7 @@ ${sentencePlan}`;
                     </details>
                   )}
                   {renderAssistantLine(display, accentColor)}
-                  {cleanVoice && <div className="mt-1 text-[11px] text-white/45 italic">{cleanVoice}</div>}
+                  {cleanVoice && <div className={`mt-1.5 italic ${isLatest ? 'text-[14px] text-white/65' : 'text-[12px] text-white/50'}`}>{cleanVoice}</div>}
                 </>;
               })() : (line || bubble.text)}
             </div>
@@ -4065,7 +4078,7 @@ ${sentencePlan}`;
         {errorMessage && <div className="text-xs text-rose-300/80 px-1">{errorMessage}</div>}
       </div>
       )}
-      <StreamingVoiceBar state={streamingVoice.state} onStop={pauseAudio} />
+      <CallVoicePill state={streamingVoice.state} onStop={pauseAudio} accent={accentColor} />
       {handsFreeBar}
       {showInputPanel && (
         <div className={`shrink-0 ${callMode === 'video' ? 'px-3 pb-1.5' : 'px-4 pb-2'}`}>
