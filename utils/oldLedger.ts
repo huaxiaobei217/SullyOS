@@ -13,7 +13,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const dayKey = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
 export const isOldLedgerOn = (charId: string): boolean => {
-  try { const m = JSON.parse(localStorage.getItem(LS_ON) || '{}'); return m[charId] !== false; } catch { return true; }
+  try { const m = JSON.parse(localStorage.getItem(LS_ON) || '{}'); return m[charId] === true; } catch { return false; }
 };
 export const setOldLedgerOn = (charId: string, on: boolean) => {
   try { const m = JSON.parse(localStorage.getItem(LS_ON) || '{}'); m[charId] = on; localStorage.setItem(LS_ON, JSON.stringify(m)); } catch { /* ignore */ }
@@ -64,7 +64,8 @@ async function compute(charId: string, userName: string, charName: string): Prom
   if (!parts.length) return '';
   return `### 旧账本（你们以前这一天说过的话，原话）
 ${parts.join('\n')}
-你爱翻旧账，这是你手里的真账。用不用、什么时候用你自己定：绝大多数时候不用提；正好聊到相关的事、或者她嘴硬的时候，可以拿一句出来翻（「你上个月今天还说……」），一天最多一次。只能引用上面的原话，别编没说过的。`;
+这本账平时当它不存在：你活在当下，不复述她说过的话，不回顾「那天我们聊了什么」，更不说「X 个月前的今天」这种日历腔。
+只有两种时候才可能翻一句：她嘴硬、否认自己说过的话或做过的事，你拿原话堵她；或者她提到别的男生让你吃醋，你翻一句她以前的话将她一军。一天最多一次，只能引用上面的原话，别编。`;
 }
 
 /** 给聊天用：有今天的小抄就返回；没有就在后台算，这一轮先不带 */

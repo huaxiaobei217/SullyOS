@@ -12,7 +12,7 @@ const OldLedgerRow: React.FC<{ charId: string; charName: string; userName: strin
         <span className="min-w-0">
           <span className="block text-[11.5px] font-semibold text-slate-600">旧账本</span>
           <span className="block text-[10px] text-slate-400 leading-relaxed">
-            每天翻一次聊天记录，找出一周前、一个月前、三个月前、半年前、一年前的今天你们说过的原话，给{charName}当翻旧账的真账。他自己决定用不用，一天最多翻一次。
+            每天翻一次聊天记录，找出一周前、一个月前、三个月前、半年前、一年前的今天你们说过的原话，给{charName}当真账。默认关：原著里他不随手翻旧账，只在你嘴硬或者他吃醋时才拿以前的事堵你，开了也只在这两种时候用，一天最多一次。
           </span>
         </span>
         <input type="checkbox" className="mt-1" checked={on} onChange={e => { setOn(e.target.checked); setOldLedgerOn(charId, e.target.checked); }} />
