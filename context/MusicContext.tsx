@@ -800,6 +800,34 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
+      // ── 听过的歌：本地缓存里有就直接放（个人二改） ──
+      {
+        const { songCacheKey, getCachedSongUrl } = await import('../utils/music/audioCache');
+        const cachedUrl = await getCachedSongUrl(songCacheKey(song));
+        if (cachedUrl && requestedSongIdRef.current === song.id) {
+          const a = audioRef.current!;
+          if (a.src.startsWith('blob:')) URL.revokeObjectURL(a.src);
+          a.src = cachedUrl;
+          a.play().catch(() => {});
+          if (song.lxSource) {
+            const { fetchLyricsForLxSong } = await import('../utils/music/lyrics');
+            fetchLyricsForLxSong(cfgRef.current, song).then(ly => {
+              if (!ly || requestedSongIdRef.current !== song.id) return;
+              setLyric(parseLyric(ly.lrc)); setTlyric(parseLyric(ly.tlrc));
+            }).catch(() => {});
+          } else {
+            musicApi.lyric(cfgRef.current, song.id).then((lyricRes: any) => {
+              if (!lyricRes || requestedSongIdRef.current !== song.id) return;
+              setLyric(parseLyric(lyricRes?.lrc?.lyric || '')); setTlyric(parseLyric(lyricRes?.tlyric?.lyric || ''));
+            }).catch(() => {});
+          }
+          if ('mediaSession' in navigator) {
+            try { (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({ title: song.name, artist: song.artists, album: song.album, artwork: song.albumPic && !song.albumPic.startsWith('blobref') ? [{ src: song.albumPic, sizes: '512x512', type: 'image/jpeg' }] : [] }); } catch {}
+          }
+          return;
+        }
+      }
+
       // ── LX 音源歌曲：用户导入的音源脚本取链接 ──
       if (song.lxSource && song.lxSongmid) {
         const { getLxRuntime } = await import('../utils/music/lxRuntime');
@@ -818,8 +846,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           copyrightId: song.lxCopyrightId,
           source: song.lxSource,
         };
+        const ac = await import('../utils/music/audioCache');
+        const cacheKey = ac.songCacheKey(song);
         let url: string;
-        try {
+        const memo = ac.getMemoUrl(cacheKey);
+        if (memo) url = memo; else try {
           url = await rt.getMusicUrl(song.lxSource, musicInfo, quality);
         } catch (firstErr: any) {
           // 原平台取不到：去别的平台找同一首（歌名+歌手+时长都对得上才用），这次播放临时换源
@@ -845,6 +876,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const a = audioRef.current!;
         a.src = url.replace(/^http:\/\//i, 'https://');
         a.play().catch(() => {});
+        ac.setMemoUrl(cacheKey, url);
+        ac.cacheSongInBackground(cacheKey, a.src);
         // 歌词不挡播放：后台取，回来时如果还是这首歌就填上
         const { fetchLyricsForLxSong } = await import('../utils/music/lyrics');
         fetchLyricsForLxSong(cfgRef.current, song).then(ly => {
@@ -881,6 +914,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const a = audioRef.current!;
       a.src = url.replace(/^http:\/\//i, 'https://');
       a.play().catch(() => {});
+      import('../utils/music/audioCache').then(ac => ac.cacheSongInBackground(ac.songCacheKey(song), a.src)).catch(() => {});
       if (lyricRes) {
         setLyric(parseLyric(lyricRes?.lrc?.lyric || ''));
         setTlyric(parseLyric(lyricRes?.tlyric?.lyric || ''));
