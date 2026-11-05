@@ -36,8 +36,9 @@ interface UnifiedPushNativePlugin {
 
 const NativeUnifiedPush = registerPlugin<UnifiedPushNativePlugin>('AmsgUnifiedPush');
 
+// 个人二改：自己打的 APK 没有 AmsgUnifiedPush 原生插件，走 FCM；只有带这个插件的壳才走 UnifiedPush
 export const isUnifiedPushPlatform = (): boolean =>
-  Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+  Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('AmsgUnifiedPush');
 
 const readPermission = async (): Promise<UnifiedPushStatus['permission']> => {
   const result = await LocalNotifications.checkPermissions();

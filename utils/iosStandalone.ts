@@ -92,8 +92,13 @@ export const resolveStatusBarMode = (
 // 只决定时钟/电量条；错误指示器、系统调试终端等与本开关无关，始终独立显示。
 export const isStatusBarHidden = (
     hideStatusBar?: boolean,
-    platformDefaultHidden: boolean = isIOSStandaloneWebApp(),
+    platformDefaultHidden: boolean = isIOSStandaloneWebApp() || isNativeAndroidShell(),
 ): boolean => hideStatusBar ?? platformDefaultHidden;
+
+// 个人二改：安卓 App 里系统状态栏是显示的，SullyOS 自己那条默认不再重复显示
+const isNativeAndroidShell = (): boolean => {
+    try { const c = (window as any).Capacitor; return !!c?.isNativePlatform?.() && c.getPlatform?.() === 'android'; } catch { return false; }
+};
 
 const isTextEntryElement = (target: EventTarget | null): target is HTMLElement => {
     if (!(target instanceof HTMLElement)) return false;

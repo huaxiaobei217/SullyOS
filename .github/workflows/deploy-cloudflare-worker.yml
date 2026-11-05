@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/master'
+    # 个人 fork 不跑作者的部署（只在原仓库跑）
+    if: github.ref == 'refs/heads/master' && github.repository_owner == 'qegj567-cloud'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

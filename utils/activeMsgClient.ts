@@ -134,9 +134,11 @@ import {
   type SubscribeFailureKind,
 } from './pushSubscribeShared';
 import { isUnifiedPushPlatform } from './unifiedPushPlugin';
+import { Capacitor } from '@capacitor/core';
 
 export const NATIVE_PUSH_TOKEN_STORAGE_KEY = 'amsg2_fcm_token_v1';
-const nativePushBuildEnabled = () => import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true';
+// 个人二改：App 直接打开线上网站，线上构建没有这个环境变量，所以原生壳里一律开启
+const nativePushBuildEnabled = () => import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true' || Capacitor.isNativePlatform();
 const readNativePushToken = () => nativePushBuildEnabled() && typeof localStorage !== 'undefined'
   && !isUnifiedPushPlatform()
   ? localStorage.getItem(NATIVE_PUSH_TOKEN_STORAGE_KEY)?.trim() || ''

@@ -32,9 +32,44 @@ const enterFullscreen = () => {
   el.requestFullscreen({ navigationUI: 'hide' }).catch(() => { /* 用户手势不够也没关系，下次点再试 */ });
 };
 
+const toHex = (color: string): string | null => {
+  const m = color.match(/\d+(\.\d+)?/g); if (!m || m.length < 3) return null;
+  return '#' + m.slice(0, 3).map(v => Math.max(0, Math.min(255, Math.round(Number(v)))).toString(16).padStart(2, '0')).join('');
+};
+
+/** 安卓 App（自己打的壳）：系统状态栏留着，颜色和字的深浅跟着页面顶边走 */
+const installNativeStatusBarSync = (): (() => void) => {
+  const cache = new Map<string, Promise<any>>();
+  let timer: number | undefined; let revision = 0; let disposed = false; let last = '';
+  const update = async (rev: number) => {
+    try {
+      const color = await sampleTopEdgeColor(null, cache);
+      const hex = toHex(color);
+      if (disposed || rev !== revision || !hex || hex === last) return;
+      last = hex;
+      const { StatusBar, Style } = await import('@capacitor/status-bar');
+      const [r, g, b] = color.match(/\d+(\.\d+)?/g)!.map(Number);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      await StatusBar.setBackgroundColor({ color: hex });
+      await StatusBar.setStyle({ style: lum > 150 ? Style.Light : Style.Dark });
+    } catch { /* ignore */ }
+  };
+  const schedule = () => { revision++; if (timer !== undefined) return; timer = window.setTimeout(() => { timer = undefined; void update(revision); }, 80); };
+  const observer = new MutationObserver(() => schedule());
+  observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+  const onVisible = () => { if (document.visibilityState === 'visible') schedule(); };
+  document.addEventListener('visibilitychange', onVisible);
+  document.addEventListener('transitionend', schedule, true);
+  document.addEventListener('load', schedule, true);
+  schedule();
+  return () => { disposed = true; observer.disconnect(); document.removeEventListener('visibilitychange', onVisible); document.removeEventListener('transitionend', schedule, true); document.removeEventListener('load', schedule, true); };
+};
+
 export const installAndroidSystemBars = (): (() => void) => {
   const noop = () => {};
-  if (typeof document === 'undefined' || !isAndroidStandalone()) return noop;
+  if (typeof document === 'undefined') return noop;
+  try { if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') return installNativeStatusBarSync(); } catch { /* ignore */ }
+  if (!isAndroidStandalone()) return noop;
 
   /* ── 状态栏颜色 ── */
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');

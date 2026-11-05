@@ -780,9 +780,15 @@ const PhoneShell: React.FC = () => {
     const initNative = async () => {
         if (!deploymentNotice.blocked && Capacitor.isNativePlatform()) {
             try {
-                await CapStatusBar.setOverlaysWebView({ overlay: true });
-                await CapStatusBar.hide();
-                await CapStatusBar.setStyle({ style: StatusBarStyle.Dark });
+                // 个人二改：安卓 App 保留系统状态栏（颜色跟着页面走，见 androidSystemBars），底部导航条由原生壳藏起来
+                if (Capacitor.getPlatform() === 'android') {
+                    await CapStatusBar.setOverlaysWebView({ overlay: false });
+                    await CapStatusBar.show();
+                } else {
+                    await CapStatusBar.setOverlaysWebView({ overlay: true });
+                    await CapStatusBar.hide();
+                    await CapStatusBar.setStyle({ style: StatusBarStyle.Dark });
+                }
 
                 const permStatus = await LocalNotifications.checkPermissions();
                 if (permStatus.display !== 'granted') {

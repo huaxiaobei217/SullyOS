@@ -18,7 +18,8 @@ concurrency:
 jobs:
   deploy:
     # main/master can both exist, but one production site must have one history.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # 个人 fork 不跑作者的部署（只在原仓库跑）
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.repository_owner == 'qegj567-cloud'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

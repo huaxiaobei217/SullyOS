@@ -1,0 +1,21 @@
+{
+  "appId": "com.kythie.sullyos",
+  "appName": "SullyOS·糯米机",
+  "webDir": "dist",
+  "server": {
+    "url": "https://sully-os-gray.vercel.app",
+    "androidScheme": "https",
+    "cleartext": false,
+    "allowNavigation": ["sully-os-gray.vercel.app"]
+  },
+  "android": {
+    "backgroundColor": "#0f1115",
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 0 },
+    "StatusBar": { "overlaysWebView": false, "backgroundColor": "#0f1115", "style": "DARK" },
+    "Keyboard": { "resize": "body", "style": "dark", "resizeOnFullScreen": true },
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}

@@ -1,0 +1,146 @@
+# 个人二改：打包安卓 App（只在 Actions 页面手动点「Run workflow」才跑）
+# 生成一个 Capacitor 壳，直接打开线上 SullyOS；打好的 APK 发到 Releases 的 android-latest。
+# 需要的 Secrets 见 native/noah-apk/README.md。
+name: 打包安卓 App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: noah-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      APP_ID: com.kythie.sullyos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Capacitor config
+        run: |
+          cp native/noah-apk/capacitor.config.json capacitor.config.json
+          rm -rf dist && mkdir -p dist
+          cp native/noah-apk/offline.html dist/index.html
+
+      - name: Add Android platform
+        run: |
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+
+      - name: Patch native project
+        run: |
+          set -e
+          PKG_DIR="android/app/src/main/java/$(echo "$APP_ID" | tr . /)"
+          mkdir -p "$PKG_DIR"
+          cp native/noah-apk/MainActivity.java "$PKG_DIR/MainActivity.java"
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          # 麦克风（通话 / 语音识别）、通知、系统语音识别服务的可见性
+          python3 - "$MANIFEST" <<'PY'
+          import sys, re
+          p = sys.argv[1]; s = open(p, encoding='utf-8').read()
+          perms = ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS',
+                   'android.permission.POST_NOTIFICATIONS', 'android.permission.WAKE_LOCK',
+                   'android.permission.VIBRATE']
+          add = ''.join(f'    <uses-permission android:name="{x}" />\n' for x in perms if x not in s)
+          queries = '' if 'android.speech.RecognitionService' in s else (
+              '    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n    </queries>\n')
+          s = s.replace('</manifest>', add + queries + '</manifest>')
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+          echo "---- manifest ----"; cat "$MANIFEST"
+
+      - name: Firebase config (主动消息推送)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+            python3 -c "import json;d=json.load(open('android/app/google-services.json'));pk=[c['client_info']['android_client_info']['package_name'] for c in d['client']];print('firebase packages:',pk);assert '$APP_ID' in pk, 'google-services.json 里的包名不是 $APP_ID'"
+          else
+            echo "::warning::没有配置 GOOGLE_SERVICES_JSON，这个 APK 收不到主动消息推送"
+          fi
+
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ]; then
+            echo "::error::没有配置 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD。签名不固定的话，以后每次更新都得卸载重装、数据会丢，所以不打包。"
+            exit 1
+          fi
+          printf '%s' "$KS_B64" | base64 -d > android/app/noah-release.keystore
+          cat >> android/app/build.gradle <<GRADLE
+
+          android {
+              signingConfigs {
+                  noah {
+                      storeFile file('noah-release.keystore')
+                      storePassword System.getenv('KS_PASS')
+                      keyAlias 'noah'
+                      keyPassword System.getenv('KS_PASS')
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.noah
+                      minifyEnabled false
+                  }
+              }
+          }
+          GRADLE
+
+      - name: Build APK
+        env:
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          ls -la app/build/outputs/apk/release/
+
+      - name: Publish to Releases (android-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          STAMP=$(date -u +%Y%m%d-%H%M)
+          cp "$APK" "SullyOS-noah-$STAMP.apk"
+          NOTES="自动打包 $STAMP（${GITHUB_SHA::7}）。用手机浏览器下载后安装；签名固定，可以直接覆盖旧版。"
+          if gh release view android-latest >/dev/null 2>&1; then
+            for name in $(gh release view android-latest --json assets --jq '.assets[].name'); do gh release delete-asset android-latest "$name" --yes || true; done
+            gh release edit android-latest --notes "$NOTES" --target "$GITHUB_SHA"
+          else
+            gh release create android-latest --title "诺亚手机 App（安卓）" --notes "$NOTES" --target "$GITHUB_SHA" --prerelease
+          fi
+          gh release upload android-latest "SullyOS-noah-$STAMP.apk" --clobber

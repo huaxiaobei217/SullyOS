@@ -29,6 +29,7 @@ concurrency:
 jobs:
   external:
     name: keyless 外部检查
+    if: github.repository_owner == 'qegj567-cloud'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
