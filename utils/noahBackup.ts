@@ -8,6 +8,8 @@
  */
 
 export const NOAH_LOCAL_KEYS: readonly string[] = [
+  // 自己的网络代理地址（只是网址，不是密钥）
+  'sully_proxy_worker_url_v1',
   // 音乐
   'sully_music_cfg_v1', 'sully_music_state_v1', 'sully_music_local_album_v1', 'sully_music_playlists_v2',
   'sully_music_last_playlist_v1', 'sully_music_lx_quality_v1', 'sully_music_listen_api_v1',
