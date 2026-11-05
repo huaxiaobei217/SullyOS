@@ -13,6 +13,8 @@ import {
 import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import TokenImg from '../components/os/TokenImg';
+import { useReadAloud, readAloudSupported } from '../hooks/useReadAloud';
+import { loadVocab, VOCAB_EVENT, addVocab, removeVocab, hasVocab, tokenize, isLatinText, lookupWord, sentenceOf, type VocabItem } from '../utils/shelfVocab';
 
 const T = {
   paper: '#f6f1e7', paperDeep: '#ece4d3', ink: '#2f2a24', muted: '#8a7f70', faint: '#b9ae9c',
@@ -88,6 +90,12 @@ const ShelfApp: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const voiceCache = useRef(new Map<string, Promise<string | null>>());
   const [playing, setPlaying] = useState('');
+  /* 生词本 */
+  const [vocab, setVocab] = useState<VocabItem[]>(loadVocab());
+  useEffect(() => { const h = () => setVocab(loadVocab()); window.addEventListener(VOCAB_EVENT, h); return () => window.removeEventListener(VOCAB_EVENT, h); }, []);
+  const [vocabPara, setVocabPara] = useState<number | null>(null);
+  const [lookup, setLookup] = useState<{ word: string; sentence: string; res?: { phonetic?: string; meaning: string; note?: string }; err?: string } | null>(null);
+  const [showVocab, setShowVocab] = useState(false);
   const userName = userProfile?.name || '我';
   const lang = char?.callVoiceLang || 'en';
   const hasVoice = !!char && characterHasVoice(char, apiConfig);
@@ -206,6 +214,13 @@ const ShelfApp: React.FC = () => {
   }, [chapterNotes]);
   const chat = book ? store.chat.filter(c => c.bookId === book.id && c.charId === charId) : [];
 
+  const doLookup = async (word: string, para: string) => {
+    const sentence = sentenceOf(para, word);
+    setLookup({ word, sentence });
+    try { const res = await lookupWord(apiConfig, word, sentence); setLookup(l => l && l.word === word ? { ...l, res } : l); }
+    catch (e: any) { setLookup(l => l && l.word === word ? { ...l, err: e?.message || '没查到' } : l); }
+  };
+
   const goChapter = (i: number) => {
     if (!book || i < 0 || i >= chapters.length) return;
     setCh(i); setShowToc(false); setTapped(null);
@@ -278,10 +293,29 @@ const ShelfApp: React.FC = () => {
     onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); suppressClick.current = true; setTapped(i); },
   });
 
+  /* ───── 听书（系统朗读） ───── */
+  const ra = useReadAloud(
+    i => chapters[ch]?.paras[i] ?? null,
+    i => {
+      lastActive.current = Date.now();
+      if (flip) { const pg = pageOf(i); if (pg !== page) setPage(pg); }
+      else paraRefs.current[i]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (book) savePosition(book.id, ch, i);
+    },
+    () => { if (ch < chapters.length - 1) { finishChapter(); goChapter(ch + 1); return true; } finishChapter(); return false; },
+  );
+  const toggleListen = () => {
+    if (ra.active) { ra.stop(); return; }
+    let from = 0;
+    if (flip) { for (let i = 0; i < (chapters[ch]?.paras.length || 0); i++) { if (pageOf(i) < page) from = i + 1; else break; } }
+    else { const b = loadShelf().books.find(x => x.id === bookId); from = b && b.pos.ch === ch ? b.pos.para : 0; }
+    if (!ra.start(Math.min(from, Math.max(0, (chapters[ch]?.paras.length || 1) - 1)))) addToast?.('这个浏览器不支持朗读', 'error');
+  };
+
   /* ───────── 书架 ───────── */
   if (!book) {
     return (
-      <div className="h-full w-full flex flex-col" style={{ background: T.paper, color: T.ink }}>
+      <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
         <div className="shrink-0 px-5 pb-3 flex items-center justify-between" style={{ paddingTop: 'calc(var(--chrome-top) + 0.5rem)' }}>
           <button onClick={closeApp} className="text-sm" style={{ color: T.muted }}>‹ 返回</button>
           <div className="font-serif text-lg tracking-widest">书影架</div>
@@ -308,6 +342,33 @@ const ShelfApp: React.FC = () => {
           <span>读完一章，他自动在页边写批注（每章一次）</span>
           <input type="checkbox" checked={store.autoNote} onChange={e => toggleAutoNote(e.target.checked)} />
         </label>
+        {vocab.length > 0 && (
+          <button onClick={() => setShowVocab(true)} className="mx-5 mb-3 flex items-center justify-between text-[11.5px] rounded-xl px-3 py-2" style={{ background: '#fffdf8', border: `1px solid ${T.line}`, color: T.mine }}>
+            <span>生词本 · {vocab.length} 个词</span><span style={{ color: T.faint }}>›</span>
+          </button>
+        )}
+        {showVocab && (
+          <div className="absolute inset-0 z-40 flex flex-col" style={{ background: T.paper }}>
+            <div className="shrink-0 px-5 pb-3 flex items-center justify-between" style={{ paddingTop: 'calc(var(--chrome-top) + 0.5rem)' }}>
+              <button onClick={() => setShowVocab(false)} className="text-sm" style={{ color: T.muted }}>‹ 书架</button>
+              <div className="font-serif">生词本</div><span className="w-10" />
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-10 space-y-2.5">
+              {vocab.map(v => (
+                <div key={v.id} className="rounded-xl p-3" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div><span className="font-serif text-[16px] font-semibold">{v.word}</span>{v.phonetic && <span className="ml-2 text-[11px]" style={{ color: T.muted }}>{v.phonetic}</span>}</div>
+                    <button onClick={() => removeVocab(v.id)} className="text-[11px]" style={{ color: T.faint }}>删</button>
+                  </div>
+                  <div className="text-[13px] mt-0.5">{v.meaning}</div>
+                  {v.note && <div className="text-[11.5px] mt-0.5" style={{ color: T.muted }}>{v.note}</div>}
+                  <div className="text-[11.5px] mt-1.5 font-serif italic leading-relaxed" style={{ color: T.muted }}>{v.sentence}</div>
+                  <div className="text-[10px] mt-1" style={{ color: T.faint }}>《{v.bookTitle}》</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {(() => {
           const st = loadStats();
           const now = Date.now();
@@ -368,11 +429,12 @@ const ShelfApp: React.FC = () => {
   return (
     <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
       <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
-        <button onClick={() => { setBookId(null); setChapters([]); setShowChat(false); }} className="text-sm shrink-0" style={{ color: T.muted }}>‹</button>
+        <button onClick={() => { ra.stop(); setBookId(null); setChapters([]); setShowChat(false); }} className="text-sm shrink-0" style={{ color: T.muted }}>‹</button>
         <button onClick={() => setShowToc(true)} className="flex-1 min-w-0 text-left">
           <div className="text-[10px] truncate" style={{ color: T.muted }}>{book.title}</div>
           <div className="text-[13px] font-serif truncate">{chapter?.title || ''}</div>
         </button>
+        {readAloudSupported() && <button onClick={toggleListen} className="text-xs px-1" style={{ color: ra.active ? T.accent : T.muted }}>{ra.active ? '■ 停' : '听书'}</button>}
         <button onClick={() => { const v = !flip; setFlip(v); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, v ? '1' : '0'); } catch { /* ignore */ } if (!v) setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }} className="text-xs px-1" style={{ color: T.muted }}>{flip ? '翻页' : '滚动'}</button>
         <button onClick={() => { const v = size >= 22 ? 15 : size + 1; setSize(v); try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }} className="text-xs px-1.5" style={{ color: T.muted }}>Aa {size}</button>
         {char && <button onClick={() => setShowChat(true)} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ background: T.paperDeep }}>
@@ -387,12 +449,14 @@ const ShelfApp: React.FC = () => {
           <div ref={pageBoxRef} onClick={onBoxClick} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="flex-1 relative overflow-hidden px-6 pt-5 pb-3 select-none">
             <div ref={colRef} className="font-serif relative" style={{ height: box.h || '100%', columnWidth: box.w ? `${box.w}px` : undefined, columnGap: `${GAP}px`, columnFill: 'auto', transform: `translateX(${-page * (box.w + GAP)}px)`, transition: 'transform 320ms cubic-bezier(.2,.7,.2,1)' }}>
         {chapter?.paras.map((p, i) => (
-          <div key={i} ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} onClick={e => { if (tapped === i) e.stopPropagation(); }}>
+          <div key={i} ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} onClick={e => { if (tapped === i) e.stopPropagation(); }} style={ra.para === i ? { background: 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
             <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { /* 翻页模式：点按交给翻页，长按出菜单 */ }} />
             {tapped === i && (
               <div className="flex gap-2 -mt-1.5 mb-3 font-sans" style={{ breakInside: 'avoid' }} onClick={e => e.stopPropagation()}>
                 <button onClick={() => { setQuote(p.length > 60 ? p.slice(0, 60) + '…' : p); setTapped(null); setShowChat(true); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>💬 跟他吐槽这段</button>
                 <button onClick={() => { setTapped(null); savePosition(book.id, ch, i); runAnnotate(i); }} disabled={!!busy} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 让他批注到这里</button>
+                {isLatinText(p) && <button onClick={() => { setTapped(null); setVocabPara(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.mine }}>查词</button>}
+                <button onClick={() => { setTapped(null); ra.start(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>从这听</button>
               </div>
             )}
           </div>
@@ -417,12 +481,14 @@ const ShelfApp: React.FC = () => {
       ) : (
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28 font-serif">
         {chapter?.paras.map((p, i) => (
-          <div key={i} ref={el => { paraRefs.current[i] = el; }}>
+          <div key={i} ref={el => { paraRefs.current[i] = el; }} style={ra.para === i ? { background: 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
             <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { lastActive.current = Date.now(); setTapped(tapped === i ? null : i); }} />
             {tapped === i && (
               <div className="flex gap-2 -mt-1.5 mb-3 font-sans">
                 <button onClick={() => { setQuote(p.length > 60 ? p.slice(0, 60) + '…' : p); setTapped(null); setShowChat(true); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>💬 跟他吐槽这段</button>
                 <button onClick={() => { setTapped(null); savePosition(book.id, ch, i); runAnnotate(i); }} disabled={!!busy} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 让他批注到这里</button>
+                {isLatinText(p) && <button onClick={() => { setTapped(null); setVocabPara(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.mine }}>查词</button>}
+                <button onClick={() => { setTapped(null); ra.start(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>从这听</button>
               </div>
             )}
           </div>
@@ -438,6 +504,41 @@ const ShelfApp: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
+
+      {ra.active && (
+        <div className="absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 text-[11px] px-3.5 py-1.5 rounded-full shadow font-sans" style={{ bottom: 'calc(var(--safe-bottom, 0px) + 2.2rem)', background: T.ink, color: T.paper }}>
+          <span>在念第 {(ra.para ?? 0) + 1} 段</span>
+          <button onClick={() => ra.setRate(ra.rate >= 1.75 ? 0.75 : Math.round((ra.rate + 0.25) * 100) / 100)}>{ra.rate}x</button>
+          <button onClick={ra.stop}>■</button>
+        </div>
+      )}
+
+      {/* 查词：点这段里的词 */}
+      {vocabPara !== null && chapter?.paras[vocabPara] && (
+        <div className="absolute inset-0 z-40 flex items-end" style={{ background: 'rgba(0,0,0,0.25)' }} onClick={() => { setVocabPara(null); setLookup(null); }}>
+          <div className="w-full m-3 rounded-2xl p-4 shadow-xl max-h-[75%] overflow-y-auto" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }} onClick={e => e.stopPropagation()}>
+            <div className="text-[11px] mb-2 font-sans" style={{ color: T.muted }}>点不认识的词</div>
+            <div className="font-serif text-[15px] leading-[2]">
+              {tokenize(chapter.paras[vocabPara]).map((tk, k) => tk.word
+                ? <span key={k} onClick={() => doLookup(tk.t.replace(/['’]s$/, ''), chapter.paras[vocabPara])} className="cursor-pointer rounded px-0.5" style={lookup?.word === tk.t.replace(/['’]s$/, '') ? { background: '#e4ece4', color: T.mine } : hasVocab(tk.t) ? { textDecoration: 'underline dotted', textDecorationColor: T.mine } : undefined}>{tk.t}</span>
+                : <span key={k}>{tk.t}</span>)}
+            </div>
+            {lookup && (
+              <div className="mt-3 pt-3 border-t font-sans" style={{ borderColor: T.line }}>
+                <div className="flex items-baseline gap-2"><span className="font-serif text-[17px] font-semibold">{lookup.word}</span>{lookup.res?.phonetic && <span className="text-[11px]" style={{ color: T.muted }}>{lookup.res.phonetic}</span>}</div>
+                {!lookup.res && !lookup.err && <div className="text-[12px] mt-1" style={{ color: T.faint }}>在查…</div>}
+                {lookup.err && <div className="text-[12px] mt-1" style={{ color: '#b0563c' }}>{lookup.err}</div>}
+                {lookup.res && <>
+                  <div className="text-[13px] mt-1">{lookup.res.meaning}</div>
+                  {lookup.res.note && <div className="text-[11.5px] mt-1" style={{ color: T.muted }}>{lookup.res.note}</div>}
+                  <button onClick={() => { addVocab({ word: lookup.word, phonetic: lookup.res!.phonetic, meaning: lookup.res!.meaning, note: lookup.res!.note, sentence: lookup.sentence, bookTitle: book.title }); addToast?.('收进生词本了', 'success'); }}
+                    className="mt-2 text-[12px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.mine }}>{hasVocab(lookup.word) ? '已在生词本（再收一次会更新）' : '＋ 收进生词本'}</button>
+                </>}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* 批注气泡 */}
