@@ -111,13 +111,17 @@ export function useHandsFreeCall(o: Opts): HandsFreeStatus {
     const now = Date.now();
     if (loud) { heardRef.current = true; lastLoudAt.current = now; return; }
     if (heardRef.current && lastLoudAt.current && now - lastLoudAt.current > SILENCE_END_MS) { latest.current.stopListening(); return; }
-    if (!heardRef.current && now - listenStartedAt.current > NO_SPEECH_MS) { autoRef.current = false; setArmed(true); latest.current.stopListening(); }
+    if (!heardRef.current && now - listenStartedAt.current > NO_SPEECH_MS) { setArmed(true); latest.current.stopListening(); }
   }, [active, o.isListening, level, loud]);
 
   /* 识别结束、文字到了：自动发送 */
   useEffect(() => {
     if (!active || o.isListening || o.isTranscribing || !autoRef.current) return;
-    if (!o.draftInput.trim()) { if (!o.isTranscribing) autoRef.current = false; return; }
+    if (!o.draftInput.trim()) {
+      // 有的识别平台先关麦、过一会儿才把文字送回来：给 2.5 秒宽限，还是空的才算这一轮没说话
+      const g = setTimeout(() => { const n = latest.current; if (!n.isListening && !n.isTranscribing && !n.draftInput.trim()) autoRef.current = false; }, 2500);
+      return () => clearTimeout(g);
+    }
     autoRef.current = false;
     const t = setTimeout(() => latest.current.send(), 150);
     return () => clearTimeout(t);

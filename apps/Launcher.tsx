@@ -940,6 +940,26 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
       applyNoahOrder();
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDataLoaded]);
+  // 二改：后来新加的 App 第一次出现时，插到它在常用顺序里的邻居后面（不打乱你自己排过的桌面）
+  useEffect(() => {
+      if (!isDataLoaded) return;
+      let placed: string[] = [];
+      try { placed = JSON.parse(localStorage.getItem('sully_launcher_noah_placed_v1') || '[]'); } catch { /* ignore */ }
+      const saved = theme.launcherAppOrder || [];
+      const fresh = NOAH_LAUNCHER_ORDER.filter(id => availableGridIds.includes(id) && !placed.includes(id) && !saved.includes(id));
+      const markAll = () => { try { localStorage.setItem('sully_launcher_noah_placed_v1', JSON.stringify(Array.from(new Set([...placed, ...NOAH_LAUNCHER_ORDER])))); } catch { /* ignore */ } };
+      if (!fresh.length || !saved.length) { markAll(); return; }
+      const next = launcherAppOrderRef.current.filter(id => !fresh.includes(id));
+      for (const id of fresh) {
+          const i = NOAH_LAUNCHER_ORDER.indexOf(id);
+          const before = NOAH_LAUNCHER_ORDER.slice(0, i).reverse().find(x => next.includes(x));
+          next.splice(before ? next.indexOf(before) + 1 : next.length, 0, id);
+      }
+      markAll();
+      launcherAppOrderRef.current = next; setLauncherAppOrder(next);
+      void updateTheme({ launcherAppOrder: next, launcherDockOrder: launcherDockOrderRef.current, launcherPinwheelOrder: pinwheelOrderRef.current });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDataLoaded]);
 
   const finishLayoutEditing = () => {
       finishLayoutPointer();
