@@ -14,6 +14,7 @@ import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import TokenImg from '../components/os/TokenImg';
 import { useReadAloud, readAloudSupported } from '../hooks/useReadAloud';
+import { curlGeom, poly, FoldStrip, PageSheet, type Pt } from '../components/shelf/pageCurl';
 import { loadVocab, VOCAB_EVENT, addVocab, removeVocab, hasVocab, tokenize, isLatinText, lookupWord, sentenceOf, type VocabItem } from '../utils/shelfVocab';
 
 const T = {
@@ -24,6 +25,11 @@ const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
 const FONT_KEY = 'sully_shelf_font_v1';
 const FLIP_KEY = 'sully_shelf_flip_v1';
 const GAP = 48;
+const FAMILY_KEY = 'sully_shelf_family_v1';
+const FONTS = {
+  serif: '"Noto Serif SC","Source Han Serif SC","Songti SC",STSong,"Noto Serif CJK SC",Georgia,serif',
+  sans: '-apple-system,"PingFang SC","Noto Sans SC","Source Han Sans SC","Microsoft YaHei",system-ui,sans-serif',
+};
 
 const useShelf = () => {
   const [s, set] = useState(loadShelf());
@@ -48,11 +54,33 @@ const Para: React.FC<{ text: string; notes: { n: number; note: ShelfNote }[]; on
   }
   parts.push(text.slice(cur));
   return (
-    <p onClick={onTap} className="mb-3 leading-[1.95] text-justify" style={{ fontSize: size, textIndent: '2em', color: T.ink, borderLeft: notes.length && marks.every(m => m.at < 0) ? `2px solid ${T.pencil}55` : undefined, paddingLeft: notes.length && marks.every(m => m.at < 0) ? 6 : 0 }}>
+    <p onClick={onTap} className="text-justify" style={{ fontSize: size, lineHeight: 1.85, marginBottom: Math.round(size * 0.7), letterSpacing: '0.02em', textIndent: '2em', color: T.ink, borderLeft: notes.length && marks.every(m => m.at < 0) ? `2px solid ${T.pencil}55` : undefined, paddingLeft: notes.length && marks.every(m => m.at < 0) ? 6 : 0 }}>
       {parts}{tail}
     </p>
   );
 };
+
+/** 一章的正文排版（标题 + 段落）。正在读的那页和翻页时的「纸」共用它，保证排版一致 */
+const ChapterContent: React.FC<{
+  title: string; paras: string[]; size: number;
+  notesFor?: (i: number) => { n: number; note: ShelfNote }[]; onNote?: (n: ShelfNote) => void;
+  wrap?: (i: number, node: React.ReactNode) => React.ReactNode; tail?: React.ReactNode;
+}> = ({ title, paras, size, notesFor, onNote, wrap, tail }) => (
+  <>
+    <div style={{ breakInside: 'avoid', paddingTop: size * 1.6, paddingBottom: size * 1.8 }}>
+      <div style={{ fontSize: Math.round(size * 1.4), fontWeight: 700, lineHeight: 1.45, color: T.ink, letterSpacing: '0.04em' }}>{title}</div>
+      <div style={{ width: 26, height: 2, background: T.accent, opacity: 0.45, marginTop: size * 0.9 }} />
+    </div>
+    {paras.map((p, i) => {
+      const node = <Para text={p} size={size} notes={notesFor?.(i) || []} onNote={onNote || (() => {})} onTap={() => {}} />;
+      return <React.Fragment key={i}>{wrap ? wrap(i, node) : <div>{node}</div>}</React.Fragment>;
+    })}
+    {tail}
+  </>
+);
+
+type SheetSpec = { ch: number; page: number | 'last' };
+type CurlState = { dir: 1 | -1; C: Pt; F: Pt; flat: boolean; top: SheetSpec; bottom: SheetSpec };
 
 const ShelfApp: React.FC = () => {
   const { closeApp, characters, activeCharacterId, apiConfig, userProfile, addToast } = useOS() as any;
@@ -86,11 +114,15 @@ const ShelfApp: React.FC = () => {
   const touchRef = useRef<{ x: number; y: number; t: number; lock?: 'h' | 'v' } | null>(null);
   /* 沉浸式翻页：手指拖着走、松手吸附；中间点一下呼出菜单 */
   const [bars, setBars] = useState(false);
-  const [dx, setDx] = useState(0);
-  const [anim, setAnim] = useState(true);
+  const [family, setFamily] = useState<'serif' | 'sans'>(() => { try { return localStorage.getItem(FAMILY_KEY) === 'sans' ? 'sans' : 'serif'; } catch { return 'serif'; } });
+  const [sheet, setSheet] = useState({ w: 0, h: 0 });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [curl, setCurlState] = useState<CurlState | null>(null);
+  const curlRef = useRef<CurlState | null>(null);
+  const setCurl = (c: CurlState | null) => { curlRef.current = c; setCurlState(c); };
+  const animRef = useRef<number | null>(null);
+  const settleRef = useRef(false);
   const [menuAt, setMenuAt] = useState<{ i: number; top: number } | null>(null);
-  const turningRef = useRef(false);
-  const enterRef = useRef(false);
   const suppressClick = useRef(false);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -230,7 +262,7 @@ const ShelfApp: React.FC = () => {
 
   const goChapter = (i: number) => {
     if (!book || i < 0 || i >= chapters.length) return;
-    setAnim(false); setDx(0); setMenuAt(null);
+    setCurl(null); setMenuAt(null);
     setCh(i); setShowToc(false); setTapped(null);
     savePosition(book.id, i, 0);
     setTimeout(() => scrollRef.current?.scrollTo({ top: 0 }), 30);
@@ -239,11 +271,11 @@ const ShelfApp: React.FC = () => {
 
   /* ───── 翻页 ───── */
   useEffect(() => {
-    const el = pageBoxRef.current;
-    if (!el || !flip) return;
-    const measure = () => { const cs = getComputedStyle(el); setBox({ w: el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), h: el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) }); };
+    const el = contentRef.current; const pb = pageBoxRef.current;
+    if (!el || !pb || !flip) return;
+    const measure = () => { setBox({ w: el.clientWidth, h: el.clientHeight }); setSheet({ w: pb.clientWidth, h: pb.clientHeight }); };
     measure();
-    const ro = new ResizeObserver(measure); ro.observe(el);
+    const ro = new ResizeObserver(measure); ro.observe(el); ro.observe(pb);
     return () => ro.disconnect();
   }, [flip, bookId, chapters.length]);
 
@@ -260,14 +292,14 @@ const ShelfApp: React.FC = () => {
       } else if (restoreRef.current === 'last') setPage(n - 1);
       else setPage(p => Math.min(p, n - 1));
       restoreRef.current = null;
-      if (enterRef.current) {
-        enterRef.current = false;
-        requestAnimationFrame(() => requestAnimationFrame(() => { setAnim(true); setDx(0); turningRef.current = false; }));
+      if (settleRef.current) {
+        settleRef.current = false;
+        requestAnimationFrame(() => requestAnimationFrame(() => setCurl(null)));
       }
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flip, box.w, box.h, ch, chapters, size, store.notes.length]);
+  }, [flip, box.w, box.h, ch, chapters, size, family, store.notes.length]);
 
   const savePagePos = (pg: number) => {
     if (!book) return;
@@ -275,33 +307,55 @@ const ShelfApp: React.FC = () => {
     for (let i = 0; i < (chapters[ch]?.paras.length || 0); i++) { if (pageOf(i) <= pg) first = i; else break; }
     savePosition(book.id, ch, first);
   };
-  const stride = () => box.w + GAP;
-  /** 换章：当前页先滑出去，新章从另一边滑进来 */
-  const crossChapter = (dir: 1 | -1) => {
-    if (!book || turningRef.current) return;
-    const target = ch + dir;
-    if (target < 0 || target >= chapters.length) { setAnim(true); setDx(0); if (dir > 0) finishChapter(); return; }
-    turningRef.current = true;
-    setAnim(true); setDx(-dir * stride());
-    setTimeout(() => {
-      if (dir > 0) { finishChapter(); restoreRef.current = null; }
-      else restoreRef.current = 'last';
-      setAnim(false); setDx(dir * stride());
-      setCh(target); savePosition(book.id, target, 0); if (dir > 0) setPage(0);
-      enterRef.current = true;
-      // 兜底：万一排版没触发，也别卡在半路
-      setTimeout(() => { if (enterRef.current) { enterRef.current = false; setAnim(true); setDx(0); turningRef.current = false; } }, 700);
-    }, 200);
+  const canTurn = (dir: 1 | -1) => dir > 0 ? (page < pages - 1 || ch < chapters.length - 1) : (page > 0 || ch > 0);
+
+  /* ───── 仿真翻页：从右下 / 右上角卷起 ───── */
+  const makeCurl = (dir: 1 | -1, startY: number, flat: boolean): CurlState => {
+    const W = sheet.w, H = sheet.h;
+    const C = { x: W, y: flat || startY > H / 3 ? H : 0 };
+    const top: SheetSpec = dir > 0 ? { ch, page } : (page > 0 ? { ch, page: page - 1 } : { ch: ch - 1, page: 'last' });
+    const bottom: SheetSpec = dir > 0 ? (page < pages - 1 ? { ch, page: page + 1 } : { ch: ch + 1, page: 0 }) : { ch, page };
+    return { dir, C, F: dir > 0 ? { ...C } : { x: -W, y: C.y }, flat, top, bottom };
   };
-  const turn = (dir: 1 | -1) => {
-    lastActive.current = Date.now();
-    setTapped(null); setMenuAt(null);
+  const stopAnim = () => { if (animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = null; } };
+  const animate = (path: (t: number) => Pt, ms: number, done: () => void) => {
+    stopAnim();
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const c = curlRef.current; if (!c) { animRef.current = null; return; }
+      const t = Math.min(1, (now - t0) / ms);
+      setCurl({ ...c, F: path(t) });
+      if (t < 1) animRef.current = requestAnimationFrame(step); else { animRef.current = null; done(); }
+    };
+    animRef.current = requestAnimationFrame(step);
+  };
+  const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+  const commitTurn = (dir: 1 | -1) => {
     if (!book) return;
+    lastActive.current = Date.now();
     const next = page + dir;
-    if (next >= pages || next < 0) { crossChapter(dir); return; }
-    setAnim(true); setDx(0); setPage(next);
-    savePagePos(next);
-    if (next === pages - 1) finishChapter();
+    if (next >= 0 && next < pages) {
+      setPage(next); savePagePos(next); setCurl(null);
+      if (next === pages - 1) finishChapter();
+      return;
+    }
+    // 换章：新章排好版之前，翻好的那张「纸」先盖着，排完再撤
+    settleRef.current = true;
+    if (dir > 0) { finishChapter(); restoreRef.current = null; setPage(0); savePosition(book.id, ch + 1, 0); setCh(ch + 1); }
+    else { restoreRef.current = 'last'; savePosition(book.id, ch - 1, 0); setCh(ch - 1); }
+    setTimeout(() => { if (settleRef.current) { settleRef.current = false; setCurl(null); } }, 900);
+  };
+  /** 点两边翻页：整页卷过去 */
+  const turn = (dir: 1 | -1) => {
+    setTapped(null); setMenuAt(null);
+    if (!book || animRef.current || !canTurn(dir)) { if (dir > 0 && !canTurn(1)) finishChapter(); return; }
+    if (!sheet.w) { commitTurn(dir); return; }
+    const c = makeCurl(dir, sheet.h, false); setCurl(c);
+    const W = sheet.w, H = sheet.h, lift = H * 0.16;
+    const path = dir > 0
+      ? (t: number) => { const e = ease(t); return { x: W - 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; }
+      : (t: number) => { const e = ease(t); return { x: -W + 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; };
+    animate(path, 430, () => commitTurn(dir));
   };
 
   const onBoxClick = (e: React.MouseEvent) => {
@@ -312,31 +366,47 @@ const ShelfApp: React.FC = () => {
     if (bars) { setBars(false); return; }
     if (x < 0.3) turn(-1); else if (x > 0.7) turn(1); else setBars(true);
   };
-  const onTouchStart = (e: React.TouchEvent) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, t: Date.now() }; setAnim(false); };
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (animRef.current) return;
+    const t = e.touches[0]; const r = pageBoxRef.current!.getBoundingClientRect();
+    touchRef.current = { x: t.clientX, y: t.clientY - r.top, t: Date.now() };
+  };
   const onTouchMove = (e: React.TouchEvent) => {
-    const s0 = touchRef.current; if (!s0 || turningRef.current) return;
-    const t = e.touches[0]; const mx = t.clientX - s0.x; const my = t.clientY - s0.y;
+    const s0 = touchRef.current; if (!s0 || animRef.current) return;
+    const r = pageBoxRef.current!.getBoundingClientRect();
+    const t = e.touches[0]; const mx = t.clientX - s0.x; const my = (t.clientY - r.top) - s0.y;
     if (!s0.lock) { if (Math.abs(mx) > 8 || Math.abs(my) > 8) s0.lock = Math.abs(mx) > Math.abs(my) ? 'h' : 'v'; else return; }
     if (s0.lock !== 'h') return;
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-    // 第一章第一页往右拖、最后一章最后一页往左拖：有阻力
-    const atStart = page === 0 && ch === 0 && mx > 0;
-    const atEnd = page === pages - 1 && ch === chapters.length - 1 && mx < 0;
-    setDx(atStart || atEnd ? mx * 0.25 : mx);
+    let c = curlRef.current;
+    if (!c) {
+      const dir: 1 | -1 = mx < 0 ? 1 : -1;
+      if (!canTurn(dir) || !sheet.w) return;
+      // 从上下三分之一按住：从角上卷；从中间按住：整条边翻
+      const flat = s0.y > sheet.h / 3 && s0.y < sheet.h * 2 / 3;
+      c = makeCurl(dir, s0.y, flat);
+    }
+    const W = sheet.w, H = sheet.h;
+    const dist = c.dir > 0 ? Math.max(0, -mx) : Math.max(0, mx);
+    const fx = c.dir > 0 ? Math.max(-W, W - 2 * dist) : Math.min(W, -W + 2 * dist);
+    const fy = c.flat ? c.C.y : Math.max(-H * 0.2, Math.min(H * 1.2, c.C.y + my * 0.8));
+    setCurl({ ...c, F: { x: fx, y: fy } });
   };
   const onTouchEnd = (e: React.TouchEvent) => {
     const s0 = touchRef.current; touchRef.current = null;
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-    if (!s0 || turningRef.current) { setAnim(true); return; }
+    if (!s0) return;
+    if (s0.lock !== 'h') return;
+    suppressClick.current = true;
+    const c = curlRef.current; if (!c) return;
     const t = e.changedTouches[0];
     const mx = t.clientX - s0.x; const dt = Math.max(1, Date.now() - s0.t);
-    if (s0.lock === 'h') {
-      suppressClick.current = true;
-      const v = mx / dt; // px/ms
-      const go = Math.abs(mx) > box.w * 0.2 || (Math.abs(mx) > 24 && Math.abs(v) > 0.35);
-      setAnim(true);
-      if (go) turn(mx < 0 ? 1 : -1); else setDx(0);
-    } else setAnim(true);
+    const dist = c.dir > 0 ? -mx : mx;
+    const go = dist > sheet.w * 0.18 || (dist > 20 && Math.abs(mx / dt) > 0.3);
+    const W = sheet.w; const F0 = { ...c.F };
+    const done = go ? (c.dir > 0 ? { x: -W, y: c.C.y } : { ...c.C }) : (c.dir > 0 ? { ...c.C } : { x: -W, y: c.C.y });
+    animate(tt => { const k = ease(tt); return { x: F0.x + (done.x - F0.x) * k, y: F0.y + (done.y - F0.y) * k }; }, go ? 300 : 220,
+      () => { if (go) commitTurn(c.dir); else setCurl(null); });
   };
   const openMenu = (i: number) => {
     const el = paraRefs.current[i] as HTMLElement | null; const root = pageBoxRef.current;
@@ -484,6 +554,12 @@ const ShelfApp: React.FC = () => {
 
   /* ───────── 阅读 ───────── */
   const chapter = chapters[ch];
+  const contentStyle: React.CSSProperties = { position: 'absolute', left: 26, right: 26, top: 'calc(var(--chrome-top) + 2.1rem)', bottom: 'calc(var(--safe-bottom, 0px) + 2.3rem)', fontFamily: FONTS[family] };
+  const tailFor = (ci: number) => (char && !book.annotatedChapters?.includes(ci) && !store.autoNote) ? (
+    <div className="pt-3 pb-2 text-center font-sans" style={{ breakInside: 'avoid' }}>
+      <button onClick={e => { e.stopPropagation(); runAnnotate(); }} disabled={!!busy} className="text-[12px] px-4 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 请{char.name}在这章写批注</button>
+    </div>
+  ) : null;
   return (
     <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
       {!flip && <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
@@ -504,26 +580,52 @@ const ShelfApp: React.FC = () => {
 
       {flip ? (
         <>
-          {/* 页眉：只有一行很淡的章节名 */}
-          <div className="absolute left-0 right-0 z-10 px-6 flex justify-between text-[10.5px] font-sans pointer-events-none" style={{ top: 'calc(var(--chrome-top) + 0.35rem)', color: T.faint }}>
-            <span className="truncate max-w-[70%]">{chapter?.title || book.title}</span>
-          </div>
           <div ref={pageBoxRef} onClick={onBoxClick} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-            className="flex-1 relative overflow-hidden px-6 select-none"
-            style={{ paddingTop: 'calc(var(--chrome-top) + 1.9rem)', paddingBottom: 'calc(var(--safe-bottom, 0px) + 2.1rem)', touchAction: 'none', WebkitUserSelect: 'none' }}>
-            <div ref={colRef} className="font-serif relative" style={{ height: box.h || '100%', columnWidth: box.w ? `${box.w}px` : undefined, columnGap: `${GAP}px`, columnFill: 'auto', transform: `translate3d(${-page * (box.w + GAP) + dx}px,0,0)`, transition: anim ? 'transform 260ms cubic-bezier(.22,.8,.3,1)' : 'none', willChange: 'transform' }}>
-        {chapter?.paras.map((p, i) => (
-          <div key={i} ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} style={ra.para === i || tapped === i ? { background: tapped === i ? 'rgba(122,78,58,0.12)' : 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
-            <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { /* 翻页模式：点按交给翻页，长按出菜单 */ }} />
-          </div>
-        ))}
-        {/* 章末不单独占一页：只有还没批注、又没开自动批注时，才留一个小按钮 */}
-        {char && !book.annotatedChapters?.includes(ch) && !store.autoNote && (
-          <div ref={el => { paraRefs.current[chapter?.paras.length || 0] = el; }} className="pt-3 pb-2 text-center font-sans" style={{ breakInside: 'avoid' }}>
-            <button onClick={e => { e.stopPropagation(); runAnnotate(); }} disabled={!!busy} className="text-[12px] px-4 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 请{char.name}在这章写批注</button>
-          </div>
-        )}
+            className="flex-1 relative overflow-hidden select-none" style={{ touchAction: 'none', WebkitUserSelect: 'none', background: '#e9e1cf' }}>
+            {/* 正在读的这页 */}
+            <div className="absolute inset-0 overflow-hidden" style={{ background: T.paper, visibility: curl ? 'hidden' : 'visible' }}>
+              <div className="absolute left-0 right-0 px-[26px] text-[10.5px] font-sans truncate pointer-events-none" style={{ top: 'calc(var(--chrome-top) + 0.35rem)', color: T.faint }}>{page === 0 ? book.title : (chapter?.title || '')}</div>
+              <div ref={contentRef} style={contentStyle} className="overflow-hidden">
+                <div ref={colRef} className="relative" style={{ height: box.h || '100%', columnWidth: box.w ? `${box.w}px` : undefined, columnGap: `${GAP}px`, columnFill: 'auto', transform: `translate3d(${-page * (box.w + GAP)}px,0,0)` }}>
+                  {chapter && <ChapterContent title={chapter.title} paras={chapter.paras} size={size} notesFor={i => notesByPara.get(i) || []} onNote={setOpenNote} tail={tailFor(ch)}
+                    wrap={(i, node) => <div ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} style={ra.para === i || tapped === i ? { background: tapped === i ? 'rgba(122,78,58,0.12)' : 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>{node}</div>} />}
+                </div>
+              </div>
+              <div className="absolute left-0 right-0 px-[26px] flex justify-between text-[10px] font-sans pointer-events-none" style={{ bottom: 'calc(var(--safe-bottom, 0px) + 0.7rem)', color: T.faint }}>
+                <span>{Math.round(((ch + (page + 1) / Math.max(1, pages)) / Math.max(1, chapters.length)) * 1000) / 10}%</span>
+                <span>{page + 1} / {pages}</span>
+              </div>
             </div>
+
+            {/* 翻页中：下面一张、上面一张（被折线裁掉一块）、折过来的纸背 */}
+            {curl && (() => {
+              const W = sheet.w, H = sheet.h;
+              const g = curlGeom(W, H, curl.C, curl.F);
+              const sheetOf = (sp: SheetSpec) => {
+                const c2 = chapters[sp.ch]; if (!c2) return null;
+                return (
+                  <PageSheet w={box.w} h={box.h} gap={GAP} page={sp.page} paper={T.paper} faint={T.faint} contentStyle={contentStyle} fontClass="" header={sp.page === 0 ? book.title : c2.title}>
+                    <ChapterContent title={c2.title} paras={c2.paras} size={size} notesFor={sp.ch === ch ? (i => notesByPara.get(i) || []) : undefined} tail={tailFor(sp.ch)} />
+                  </PageSheet>
+                );
+              };
+              return (
+                <div className="absolute inset-0 pointer-events-none">
+                  {sheetOf(curl.bottom)}
+                  {g && <div className="absolute inset-0" style={{ clipPath: poly(g.removed) }}><FoldStrip g={g} W={W} H={H} toward={1} width={34} from="rgba(40,30,15,0.30)" /></div>}
+                  <div className="absolute inset-0" style={{ clipPath: g ? poly(g.kept) : undefined }}>
+                    {sheetOf(curl.top)}
+                    {g && <FoldStrip g={g} W={W} H={H} toward={-1} width={Math.min(60, Math.hypot(curl.C.x - curl.F.x, curl.C.y - curl.F.y) / 2 + 12)} from="rgba(40,30,15,0.16)" />}
+                  </div>
+                  {g && (
+                    <div className="absolute inset-0" style={{ clipPath: poly(g.flap), background: '#efe7d5' }}>
+                      <FoldStrip g={g} W={W} H={H} toward={-1} width={Math.max(30, Math.hypot(curl.C.x - curl.F.x, curl.C.y - curl.F.y) / 2)} from="rgba(255,255,255,0.55)" to="rgba(80,60,30,0.10)" />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* 长按一段：浮在段落旁边的菜单（不挤动排版） */}
             {menuAt && chapter?.paras[menuAt.i] != null && (
               <div className="absolute left-4 right-4 z-20 flex flex-wrap gap-2 p-2 rounded-2xl shadow-lg font-sans" style={{ top: menuAt.top, background: '#fffdf8', border: `1px solid ${T.line}` }} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
@@ -533,11 +635,6 @@ const ShelfApp: React.FC = () => {
                 <button onClick={() => { const i = menuAt.i; setTapped(null); setMenuAt(null); ra.start(i); }} className="text-[12px] px-3 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>从这听</button>
               </div>
             )}
-          </div>
-          {/* 页脚：页码 */}
-          <div className="absolute left-0 right-0 z-10 px-6 flex justify-between text-[10px] font-sans pointer-events-none" style={{ bottom: 'calc(var(--safe-bottom, 0px) + 0.7rem)', color: T.faint }}>
-            <span>{Math.round(((ch + (page + 1) / Math.max(1, pages)) / Math.max(1, chapters.length)) * 1000) / 10}%</span>
-            <span>{page + 1} / {pages}</span>
           </div>
 
           {/* 中间点一下：上下菜单 */}
@@ -556,13 +653,14 @@ const ShelfApp: React.FC = () => {
               <div className="absolute left-0 right-0 bottom-0 z-30 px-5 pt-3 font-sans" style={{ paddingBottom: 'calc(var(--safe-bottom, 0px) + 0.8rem)', background: 'rgba(250,246,238,0.97)', borderTop: `1px solid ${T.line}` }}>
                 <div className="flex items-center gap-3 text-[12px]">
                   <button onClick={() => { setBars(false); goChapter(ch - 1); }} disabled={ch === 0} className="disabled:opacity-30" style={{ color: T.muted }}>上一章</button>
-                  <input type="range" min={0} max={Math.max(0, pages - 1)} value={page} onChange={e => { const v = Number(e.target.value); setAnim(false); setPage(v); savePagePos(v); }} className="flex-1" style={{ accentColor: T.accent }} />
+                  <input type="range" min={0} max={Math.max(0, pages - 1)} value={page} onChange={e => { const v = Number(e.target.value); setCurl(null); setPage(v); savePagePos(v); }} className="flex-1" style={{ accentColor: T.accent }} />
                   <button onClick={() => { setBars(false); finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="disabled:opacity-30" style={{ color: T.muted }}>下一章</button>
                 </div>
-                <div className="grid grid-cols-5 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
+                <div className="grid grid-cols-6 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
                   <button onClick={() => { setBars(false); setShowToc(true); }}>☰<div className="mt-0.5" style={{ color: T.muted }}>目录</div></button>
                   <button onClick={() => { const v = Math.max(14, size - 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A-<div className="mt-0.5" style={{ color: T.muted }}>{size}</div></button>
                   <button onClick={() => { const v = Math.min(24, size + 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A+<div className="mt-0.5" style={{ color: T.muted }}>字号</div></button>
+                  <button onClick={() => { const v = family === 'serif' ? 'sans' : 'serif'; setFamily(v); restoreRef.current = 'pos'; try { localStorage.setItem(FAMILY_KEY, v); } catch { /* ignore */ } }}><span style={{ fontFamily: FONTS[family === 'serif' ? 'serif' : 'sans'] }}>{family === 'serif' ? '宋' : '黑'}</span><div className="mt-0.5" style={{ color: T.muted }}>字体</div></button>
                   {readAloudSupported() ? <button onClick={() => { setBars(false); toggleListen(); }} style={{ color: ra.active ? T.accent : T.ink }}>{ra.active ? '■' : '♪'}<div className="mt-0.5" style={{ color: T.muted }}>{ra.active ? '停止' : '听书'}</div></button> : <span />}
                   <button onClick={() => { setBars(false); setFlip(false); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, '0'); } catch { /* ignore */ } setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }}>⇅<div className="mt-0.5" style={{ color: T.muted }}>滚动</div></button>
                 </div>
@@ -571,7 +669,7 @@ const ShelfApp: React.FC = () => {
           )}
         </>
       ) : (
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28 font-serif">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28" style={{ fontFamily: FONTS[family] }}>
         {chapter?.paras.map((p, i) => (
           <div key={i} ref={el => { paraRefs.current[i] = el; }} style={ra.para === i ? { background: 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
             <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { lastActive.current = Date.now(); setTapped(tapped === i ? null : i); }} />
