@@ -2,6 +2,8 @@
  * 安卓「添加到主屏幕」版（个人二改）：
  *  1. 顶部状态栏颜色跟着当前页面顶边走（改 <meta name="theme-color">），不再一条固定黑边
  *  2. 可选「沉浸全屏」：打开后每次进 App 第一次点屏幕就进入全屏，状态栏和底部导航条都藏起来（像柏宝阁那样）
+ *     网页没法只藏导航条、留着系统状态栏，所以全屏时自己画一条极简状态栏：左边时间、右边电量，
+ *     透明背景，字的深浅跟着页面顶边颜色走，看起来和没全屏时的沉浸状态栏一样
  * 只在安卓 + 主屏幕模式生效；浏览器标签页、iOS、打包的 App 都不动。
  */
 import { Capacitor } from '@capacitor/core';
@@ -45,6 +47,7 @@ export const installAndroidSystemBars = (): (() => void) => {
       const color = await sampleTopEdgeColor(null, cache);
       if (disposed || rev !== revision) return;
       if (color && meta!.content !== color) meta!.content = color;
+      if (color) setInk(color);
     } catch { /* ignore */ }
   };
   const schedule = () => { revision++; if (timer !== undefined) return; timer = window.setTimeout(() => { timer = undefined; void update(revision); }, 80); };
@@ -65,10 +68,41 @@ export const installAndroidSystemBars = (): (() => void) => {
   document.addEventListener('load', schedule, true);
   schedule();
 
+  /* ── 全屏时自己画的极简状态栏 ── */
+  const bar = document.createElement('div');
+  bar.setAttribute('aria-hidden', 'true');
+  bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483646;pointer-events:none;display:none;align-items:center;justify-content:space-between;padding:0 20px;height:max(env(safe-area-inset-top,0px),26px);font:600 13px/1 system-ui,-apple-system,"Roboto","PingFang SC",sans-serif;letter-spacing:.02em;font-variant-numeric:tabular-nums;transition:color .3s';
+  const timeEl = document.createElement('span');
+  const battEl = document.createElement('span');
+  battEl.style.cssText = 'display:flex;align-items:center;gap:5px';
+  bar.append(timeEl, battEl);
+  document.body.appendChild(bar);
+  function setInk(color: string) {
+    const m = color.match(/\d+(\.\d+)?/g); if (!m) return;
+    const [r, g, b] = m.map(Number);
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    bar.style.color = lum > 150 ? 'rgba(20,20,28,0.88)' : 'rgba(255,255,255,0.92)';
+  }
+  let battery: any = null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const renderBar = () => {
+    const d = new Date();
+    timeEl.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (battery) {
+      const lvl = Math.round(battery.level * 100);
+      battEl.innerHTML = `${battery.charging ? '<span style="font-size:11px">⚡</span>' : ''}<span>${lvl}</span><span style="position:relative;display:inline-block;width:22px;height:11px;border:1.4px solid currentColor;border-radius:3.5px;opacity:.9"><span style="position:absolute;left:1.5px;top:1.5px;bottom:1.5px;width:calc((100% - 3px) * ${lvl / 100});background:currentColor;border-radius:1.5px"></span><span style="position:absolute;right:-4px;top:3px;width:2px;height:3.5px;background:currentColor;border-radius:0 1px 1px 0"></span></span>`;
+    }
+  };
+  try { (navigator as any).getBattery?.().then((b: any) => { battery = b; b.addEventListener?.('levelchange', renderBar); b.addEventListener?.('chargingchange', renderBar); renderBar(); }); } catch { /* ignore */ }
+  const clock = window.setInterval(renderBar, 10_000);
+  const syncBar = () => { const show = !!document.fullscreenElement && isImmersiveOn(); bar.style.display = show ? 'flex' : 'none'; if (show) { renderBar(); schedule(); } };
+  document.addEventListener('fullscreenchange', syncBar);
+  renderBar();
+
   /* ── 沉浸全屏：浏览器规定必须由一次点按触发，所以挂在「下一次点屏幕」上 ── */
   const onTap = () => { if (isImmersiveOn()) enterFullscreen(); };
   document.addEventListener('pointerup', onTap, true);
-  const onToggle = () => { if (!isImmersiveOn() && document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); };
+  const onToggle = () => { if (!isImmersiveOn() && document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); syncBar(); };
   window.addEventListener(IMMERSIVE_EVENT, onToggle);
 
   return () => {
@@ -82,6 +116,8 @@ export const installAndroidSystemBars = (): (() => void) => {
     document.removeEventListener('load', schedule, true);
     document.removeEventListener('pointerup', onTap, true);
     window.removeEventListener(IMMERSIVE_EVENT, onToggle);
+    document.removeEventListener('fullscreenchange', syncBar);
+    clearInterval(clock); bar.remove();
     meta!.content = original;
   };
 };
