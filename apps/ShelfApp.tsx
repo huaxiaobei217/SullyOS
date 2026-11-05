@@ -83,7 +83,14 @@ const ShelfApp: React.FC = () => {
   const pageBoxRef = useRef<HTMLDivElement>(null);
   const colRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<'pos' | 'last' | null>('pos');
-  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const touchRef = useRef<{ x: number; y: number; t: number; lock?: 'h' | 'v' } | null>(null);
+  /* 沉浸式翻页：手指拖着走、松手吸附；中间点一下呼出菜单 */
+  const [bars, setBars] = useState(false);
+  const [dx, setDx] = useState(0);
+  const [anim, setAnim] = useState(true);
+  const [menuAt, setMenuAt] = useState<{ i: number; top: number } | null>(null);
+  const turningRef = useRef(false);
+  const enterRef = useRef(false);
   const suppressClick = useRef(false);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -110,7 +117,7 @@ const ShelfApp: React.FC = () => {
       const b = loadShelf().books.find(x => x.id === bookId);
       setCh(b?.pos.ch || 0);
       restoreRef.current = 'pos';
-      try { if (flip && !localStorage.getItem('sully_shelf_flip_hint_v1')) { localStorage.setItem('sully_shelf_flip_hint_v1', '1'); addToast?.('点右边或往左滑翻下一页；长按一段可以跟他吐槽', 'info'); } } catch { /* ignore */ }
+      try { if (flip && !localStorage.getItem('sully_shelf_flip_hint_v2')) { localStorage.setItem('sully_shelf_flip_hint_v2', '1'); addToast?.('左右滑或点两边翻页，中间点一下出菜单，长按一段跟他吐槽', 'info'); } } catch { /* ignore */ }
       if (!flip) setTimeout(() => { paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60);
     });
     return () => { alive = false; };
@@ -223,6 +230,7 @@ const ShelfApp: React.FC = () => {
 
   const goChapter = (i: number) => {
     if (!book || i < 0 || i >= chapters.length) return;
+    setAnim(false); setDx(0); setMenuAt(null);
     setCh(i); setShowToc(false); setTapped(null);
     savePosition(book.id, i, 0);
     setTimeout(() => scrollRef.current?.scrollTo({ top: 0 }), 30);
@@ -252,45 +260,95 @@ const ShelfApp: React.FC = () => {
       } else if (restoreRef.current === 'last') setPage(n - 1);
       else setPage(p => Math.min(p, n - 1));
       restoreRef.current = null;
+      if (enterRef.current) {
+        enterRef.current = false;
+        requestAnimationFrame(() => requestAnimationFrame(() => { setAnim(true); setDx(0); turningRef.current = false; }));
+      }
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flip, box.w, box.h, ch, chapters, size, store.notes.length]);
 
+  const savePagePos = (pg: number) => {
+    if (!book) return;
+    let first = 0;
+    for (let i = 0; i < (chapters[ch]?.paras.length || 0); i++) { if (pageOf(i) <= pg) first = i; else break; }
+    savePosition(book.id, ch, first);
+  };
+  const stride = () => box.w + GAP;
+  /** 换章：当前页先滑出去，新章从另一边滑进来 */
+  const crossChapter = (dir: 1 | -1) => {
+    if (!book || turningRef.current) return;
+    const target = ch + dir;
+    if (target < 0 || target >= chapters.length) { setAnim(true); setDx(0); if (dir > 0) finishChapter(); return; }
+    turningRef.current = true;
+    setAnim(true); setDx(-dir * stride());
+    setTimeout(() => {
+      if (dir > 0) { finishChapter(); restoreRef.current = null; }
+      else restoreRef.current = 'last';
+      setAnim(false); setDx(dir * stride());
+      setCh(target); savePosition(book.id, target, 0); if (dir > 0) setPage(0);
+      enterRef.current = true;
+      // 兜底：万一排版没触发，也别卡在半路
+      setTimeout(() => { if (enterRef.current) { enterRef.current = false; setAnim(true); setDx(0); turningRef.current = false; } }, 700);
+    }, 200);
+  };
   const turn = (dir: 1 | -1) => {
     lastActive.current = Date.now();
-    setTapped(null);
+    setTapped(null); setMenuAt(null);
     if (!book) return;
     const next = page + dir;
-    if (next >= pages) { if (ch < chapters.length - 1) { finishChapter(); goChapter(ch + 1); } else finishChapter(); return; }
-    if (next < 0) { if (ch > 0) { restoreRef.current = 'last'; setCh(ch - 1); savePosition(book.id, ch - 1, 0); } return; }
-    setPage(next);
-    // 这一页最上面那段记成进度
-    let first = 0;
-    for (let i = 0; i < (chapters[ch]?.paras.length || 0); i++) { if (pageOf(i) <= next) first = i; else break; }
-    savePosition(book.id, ch, first);
+    if (next >= pages || next < 0) { crossChapter(dir); return; }
+    setAnim(true); setDx(0); setPage(next);
+    savePagePos(next);
     if (next === pages - 1) finishChapter();
   };
 
   const onBoxClick = (e: React.MouseEvent) => {
     if (suppressClick.current) { suppressClick.current = false; return; }
+    if (menuAt) { setMenuAt(null); setTapped(null); return; }
     const r = pageBoxRef.current!.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
-    if (x < 0.3) turn(-1); else if (x > 0.7) turn(1); else setTapped(null);
+    if (bars) { setBars(false); return; }
+    if (x < 0.3) turn(-1); else if (x > 0.7) turn(1); else setBars(true);
   };
-  const onTouchStart = (e: React.TouchEvent) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, t: Date.now() }; };
+  const onTouchStart = (e: React.TouchEvent) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, t: Date.now() }; setAnim(false); };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const s0 = touchRef.current; if (!s0 || turningRef.current) return;
+    const t = e.touches[0]; const mx = t.clientX - s0.x; const my = t.clientY - s0.y;
+    if (!s0.lock) { if (Math.abs(mx) > 8 || Math.abs(my) > 8) s0.lock = Math.abs(mx) > Math.abs(my) ? 'h' : 'v'; else return; }
+    if (s0.lock !== 'h') return;
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+    // 第一章第一页往右拖、最后一章最后一页往左拖：有阻力
+    const atStart = page === 0 && ch === 0 && mx > 0;
+    const atEnd = page === pages - 1 && ch === chapters.length - 1 && mx < 0;
+    setDx(atStart || atEnd ? mx * 0.25 : mx);
+  };
   const onTouchEnd = (e: React.TouchEvent) => {
     const s0 = touchRef.current; touchRef.current = null;
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-    if (!s0) return;
+    if (!s0 || turningRef.current) { setAnim(true); return; }
     const t = e.changedTouches[0];
-    const dx = t.clientX - s0.x; const dy = t.clientY - s0.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { suppressClick.current = true; turn(dx < 0 ? 1 : -1); }
+    const mx = t.clientX - s0.x; const dt = Math.max(1, Date.now() - s0.t);
+    if (s0.lock === 'h') {
+      suppressClick.current = true;
+      const v = mx / dt; // px/ms
+      const go = Math.abs(mx) > box.w * 0.2 || (Math.abs(mx) > 24 && Math.abs(v) > 0.35);
+      setAnim(true);
+      if (go) turn(mx < 0 ? 1 : -1); else setDx(0);
+    } else setAnim(true);
+  };
+  const openMenu = (i: number) => {
+    const el = paraRefs.current[i] as HTMLElement | null; const root = pageBoxRef.current;
+    if (!el || !root) { setTapped(i); return; }
+    const r = el.getBoundingClientRect(); const rr = root.getBoundingClientRect();
+    const top = Math.max(r.top, rr.top) - rr.top;
+    setTapped(i); setMenuAt({ i, top: Math.min(Math.max(top + 4, 8), rr.height - 120) });
   };
   const longPress = (i: number) => ({
-    onTouchStart: () => { if (pressTimer.current) clearTimeout(pressTimer.current); pressTimer.current = setTimeout(() => { suppressClick.current = true; setTapped(i); try { navigator.vibrate?.(20); } catch { /* ignore */ } }, 520); },
+    onTouchStart: () => { if (pressTimer.current) clearTimeout(pressTimer.current); pressTimer.current = setTimeout(() => { suppressClick.current = true; openMenu(i); try { navigator.vibrate?.(20); } catch { /* ignore */ } }, 480); },
     onTouchMove: () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } },
-    onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); suppressClick.current = true; setTapped(i); },
+    onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); suppressClick.current = true; openMenu(i); },
   });
 
   /* ───── 听书（系统朗读） ───── */
@@ -428,7 +486,7 @@ const ShelfApp: React.FC = () => {
   const chapter = chapters[ch];
   return (
     <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
-      <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
+      {!flip && <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
         <button onClick={() => { ra.stop(); setBookId(null); setChapters([]); setShowChat(false); }} className="text-sm shrink-0" style={{ color: T.muted }}>‹</button>
         <button onClick={() => setShowToc(true)} className="flex-1 min-w-0 text-left">
           <div className="text-[10px] truncate" style={{ color: T.muted }}>{book.title}</div>
@@ -440,43 +498,77 @@ const ShelfApp: React.FC = () => {
         {char && <button onClick={() => setShowChat(true)} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ background: T.paperDeep }}>
           <TokenImg value={char.avatar} className="w-5 h-5 rounded-full object-cover" />伴读{chat.length ? ` ${Math.ceil(chat.length / 2)}` : ''}
         </button>}
-      </div>
+      </div>}
 
       {busy && <div className="absolute left-1/2 -translate-x-1/2 z-30 text-[11px] px-3 py-1 rounded-full shadow" style={{ top: 'calc(var(--chrome-top) + 3.4rem)', background: T.ink, color: T.paper }}>{busy}</div>}
 
       {flip ? (
         <>
-          <div ref={pageBoxRef} onClick={onBoxClick} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="flex-1 relative overflow-hidden px-6 pt-5 pb-3 select-none">
-            <div ref={colRef} className="font-serif relative" style={{ height: box.h || '100%', columnWidth: box.w ? `${box.w}px` : undefined, columnGap: `${GAP}px`, columnFill: 'auto', transform: `translateX(${-page * (box.w + GAP)}px)`, transition: 'transform 320ms cubic-bezier(.2,.7,.2,1)' }}>
+          {/* 页眉：只有一行很淡的章节名 */}
+          <div className="absolute left-0 right-0 z-10 px-6 flex justify-between text-[10.5px] font-sans pointer-events-none" style={{ top: 'calc(var(--chrome-top) + 0.35rem)', color: T.faint }}>
+            <span className="truncate max-w-[70%]">{chapter?.title || book.title}</span>
+          </div>
+          <div ref={pageBoxRef} onClick={onBoxClick} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+            className="flex-1 relative overflow-hidden px-6 select-none"
+            style={{ paddingTop: 'calc(var(--chrome-top) + 1.9rem)', paddingBottom: 'calc(var(--safe-bottom, 0px) + 2.1rem)', touchAction: 'none', WebkitUserSelect: 'none' }}>
+            <div ref={colRef} className="font-serif relative" style={{ height: box.h || '100%', columnWidth: box.w ? `${box.w}px` : undefined, columnGap: `${GAP}px`, columnFill: 'auto', transform: `translate3d(${-page * (box.w + GAP) + dx}px,0,0)`, transition: anim ? 'transform 260ms cubic-bezier(.22,.8,.3,1)' : 'none', willChange: 'transform' }}>
         {chapter?.paras.map((p, i) => (
-          <div key={i} ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} onClick={e => { if (tapped === i) e.stopPropagation(); }} style={ra.para === i ? { background: 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
+          <div key={i} ref={el => { paraRefs.current[i] = el; }} {...longPress(i)} style={ra.para === i || tapped === i ? { background: tapped === i ? 'rgba(122,78,58,0.12)' : 'rgba(122,78,58,0.08)', borderRadius: 4 } : undefined}>
             <Para text={p} size={size} notes={notesByPara.get(i) || []} onNote={setOpenNote} onTap={() => { /* 翻页模式：点按交给翻页，长按出菜单 */ }} />
-            {tapped === i && (
-              <div className="flex gap-2 -mt-1.5 mb-3 font-sans" style={{ breakInside: 'avoid' }} onClick={e => e.stopPropagation()}>
-                <button onClick={() => { setQuote(p.length > 60 ? p.slice(0, 60) + '…' : p); setTapped(null); setShowChat(true); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>💬 跟他吐槽这段</button>
-                <button onClick={() => { setTapped(null); savePosition(book.id, ch, i); runAnnotate(i); }} disabled={!!busy} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 让他批注到这里</button>
-                {isLatinText(p) && <button onClick={() => { setTapped(null); setVocabPara(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.mine }}>查词</button>}
-                <button onClick={() => { setTapped(null); ra.start(i); }} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>从这听</button>
+          </div>
+        ))}
+        <div ref={el => { paraRefs.current[chapter?.paras.length || 0] = el; }} className="pt-6 pb-4 text-center font-sans" style={{ breakInside: 'avoid' }}>
+          <div className="text-[11px] mb-3" style={{ color: T.faint }}>— 本章完 · 往左翻进下一章 —</div>
+          {char && !book.annotatedChapters?.includes(ch) && !store.autoNote && (
+            <button onClick={e => { e.stopPropagation(); runAnnotate(); }} disabled={!!busy} className="text-[12px] px-4 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 请{char.name}在这章写批注</button>
+          )}
+        </div>
+            </div>
+            {/* 长按一段：浮在段落旁边的菜单（不挤动排版） */}
+            {menuAt && chapter?.paras[menuAt.i] != null && (
+              <div className="absolute left-4 right-4 z-20 flex flex-wrap gap-2 p-2 rounded-2xl shadow-lg font-sans" style={{ top: menuAt.top, background: '#fffdf8', border: `1px solid ${T.line}` }} onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
+                <button onClick={() => { const p = chapter.paras[menuAt.i]; setQuote(p.length > 60 ? p.slice(0, 60) + '…' : p); setTapped(null); setMenuAt(null); setShowChat(true); }} className="text-[12px] px-3 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.accent }}>💬 吐槽这段</button>
+                <button onClick={() => { const i = menuAt.i; setTapped(null); setMenuAt(null); savePosition(book.id, ch, i); runAnnotate(i); }} disabled={!!busy} className="text-[12px] px-3 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.pencil }}>✎ 批注到这里</button>
+                {isLatinText(chapter.paras[menuAt.i]) && <button onClick={() => { const i = menuAt.i; setTapped(null); setMenuAt(null); setVocabPara(i); }} className="text-[12px] px-3 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.mine }}>查词</button>}
+                <button onClick={() => { const i = menuAt.i; setTapped(null); setMenuAt(null); ra.start(i); }} className="text-[12px] px-3 py-1.5 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>从这听</button>
               </div>
             )}
           </div>
-        ))}
-        <div ref={el => { paraRefs.current[chapter?.paras.length || 0] = el; }} className="pt-6 pb-4 text-center font-sans" style={{ breakInside: 'avoid' }} onClick={e => e.stopPropagation()}>
-          <div className="text-[11px] mb-3" style={{ color: T.faint }}>— 本章完 —</div>
-          {char && !book.annotatedChapters?.includes(ch) && !store.autoNote && (
-            <button onClick={() => runAnnotate()} disabled={!!busy} className="text-[12px] px-4 py-1.5 rounded-full mb-3" style={{ background: T.paperDeep, color: T.pencil }}>✎ 请{char.name}在这章写批注</button>
+          {/* 页脚：页码 */}
+          <div className="absolute left-0 right-0 z-10 px-6 flex justify-between text-[10px] font-sans pointer-events-none" style={{ bottom: 'calc(var(--safe-bottom, 0px) + 0.7rem)', color: T.faint }}>
+            <span>{Math.round(((ch + (page + 1) / Math.max(1, pages)) / Math.max(1, chapters.length)) * 1000) / 10}%</span>
+            <span>{page + 1} / {pages}</span>
+          </div>
+
+          {/* 中间点一下：上下菜单 */}
+          {bars && (
+            <>
+              <div className="absolute left-0 right-0 top-0 z-30 px-4 pb-3 flex items-center gap-2 shadow-sm" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', background: 'rgba(250,246,238,0.97)', borderBottom: `1px solid ${T.line}` }}>
+                <button onClick={() => { ra.stop(); setBars(false); setBookId(null); setChapters([]); setShowChat(false); }} className="text-lg px-1 shrink-0" style={{ color: T.muted }}>‹</button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] truncate" style={{ color: T.muted }}>{book.title}</div>
+                  <div className="text-[13px] font-serif truncate">{chapter?.title || ''}</div>
+                </div>
+                {char && <button onClick={() => { setBars(false); setShowChat(true); }} className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full shrink-0" style={{ background: T.paperDeep }}>
+                  <TokenImg value={char.avatar} className="w-5 h-5 rounded-full object-cover" />伴读{chat.length ? ` ${Math.ceil(chat.length / 2)}` : ''}
+                </button>}
+              </div>
+              <div className="absolute left-0 right-0 bottom-0 z-30 px-5 pt-3 font-sans" style={{ paddingBottom: 'calc(var(--safe-bottom, 0px) + 0.8rem)', background: 'rgba(250,246,238,0.97)', borderTop: `1px solid ${T.line}` }}>
+                <div className="flex items-center gap-3 text-[12px]">
+                  <button onClick={() => { setBars(false); goChapter(ch - 1); }} disabled={ch === 0} className="disabled:opacity-30" style={{ color: T.muted }}>上一章</button>
+                  <input type="range" min={0} max={Math.max(0, pages - 1)} value={page} onChange={e => { const v = Number(e.target.value); setAnim(false); setPage(v); savePagePos(v); }} className="flex-1" style={{ accentColor: T.accent }} />
+                  <button onClick={() => { setBars(false); finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="disabled:opacity-30" style={{ color: T.muted }}>下一章</button>
+                </div>
+                <div className="grid grid-cols-5 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
+                  <button onClick={() => { setBars(false); setShowToc(true); }}>☰<div className="mt-0.5" style={{ color: T.muted }}>目录</div></button>
+                  <button onClick={() => { const v = Math.max(14, size - 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A-<div className="mt-0.5" style={{ color: T.muted }}>{size}</div></button>
+                  <button onClick={() => { const v = Math.min(24, size + 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A+<div className="mt-0.5" style={{ color: T.muted }}>字号</div></button>
+                  {readAloudSupported() ? <button onClick={() => { setBars(false); toggleListen(); }} style={{ color: ra.active ? T.accent : T.ink }}>{ra.active ? '■' : '♪'}<div className="mt-0.5" style={{ color: T.muted }}>{ra.active ? '停止' : '听书'}</div></button> : <span />}
+                  <button onClick={() => { setBars(false); setFlip(false); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, '0'); } catch { /* ignore */ } setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }}>⇅<div className="mt-0.5" style={{ color: T.muted }}>滚动</div></button>
+                </div>
+              </div>
+            </>
           )}
-          <div className="flex justify-center gap-3">
-            <button onClick={() => goChapter(ch - 1)} disabled={ch === 0} className="text-[12px] px-4 py-2 rounded-xl disabled:opacity-30" style={{ background: T.paperDeep }}>上一章</button>
-            <button onClick={() => { finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="text-[12px] px-4 py-2 rounded-xl text-white disabled:opacity-30" style={{ background: T.accent }}>下一章</button>
-          </div>
-        </div>
-            </div>
-          </div>
-          <div className="shrink-0 px-6 pb-3 flex justify-between text-[10px] font-sans" style={{ color: T.faint, paddingBottom: 'calc(var(--safe-bottom, 0px) + 0.6rem)' }}>
-            <span className="truncate max-w-[60%]">{chapter?.title || ''}</span>
-            <span>{page + 1} / {pages} · 第 {ch + 1}/{chapters.length} 章</span>
-          </div>
         </>
       ) : (
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 pt-5 pb-28 font-serif">
