@@ -9,13 +9,14 @@ import { getBannedTropes, setBannedTropes, countHits, getTropeMode, setTropeMode
 import { resolveDialogueApi } from '../../utils/characterApi';
 import { isMoneyOff, setMoneyOff } from '../../utils/moneyOff';
 import EndearmentGateRow from './EndearmentGateRow';
+import OldLedgerRow from './OldLedgerRow';
 import { MemoryNodeDB } from '../../utils/memoryPalace/db';
 import { updateStoredMemoryNode } from '../../utils/memoryPalace/vectorStore';
 
 type Hit = { kind: 'memory' | 'refined' | 'palace'; key: string; label: string; text: string };
 
 const TropeCleanPanel: React.FC = () => {
-  const { characters, updateCharacter, addToast, apiConfig, memoryPalaceConfig, remoteVectorConfig } = useOS() as any;
+  const { characters, updateCharacter, addToast, apiConfig, memoryPalaceConfig, remoteVectorConfig, userProfile } = useOS() as any;
   const [mode, setModeState] = useState<TropeMode>(getTropeMode());
   const [rewriting, setRewriting] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
@@ -139,6 +140,7 @@ const TropeCleanPanel: React.FC = () => {
             </label>
           )}
           {char && <EndearmentGateRow charId={char.id} charName={char.name} />}
+          {char && <OldLedgerRow charId={char.id} charName={char.name} userName={userProfile?.name || '她'} />}
           <div className="flex flex-wrap gap-1.5">
             {list.map(w => (
               <span key={w} className="px-2 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
