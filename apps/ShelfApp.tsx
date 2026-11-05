@@ -122,6 +122,8 @@ const ShelfApp: React.FC = () => {
   const setCurl = (c: CurlState | null) => { curlRef.current = c; setCurlState(c); };
   const animRef = useRef<number | null>(null);
   const settleRef = useRef(false);
+  const queuedTurn = useRef<0 | 1 | -1>(0);
+  const turnRef = useRef<(d: 1 | -1) => void>(() => {});
   const [menuAt, setMenuAt] = useState<{ i: number; top: number } | null>(null);
   const suppressClick = useRef(false);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -348,14 +350,25 @@ const ShelfApp: React.FC = () => {
   /** 点两边翻页：整页卷过去 */
   const turn = (dir: 1 | -1) => {
     setTapped(null); setMenuAt(null);
-    if (!book || animRef.current || !canTurn(dir)) { if (dir > 0 && !canTurn(1)) finishChapter(); return; }
+    // 动画还没走完又点了：记下来，这页翻完马上接着翻（连点不丢）
+    if (animRef.current || settleRef.current) { queuedTurn.current = dir; return; }
+    if (!book || !canTurn(dir)) { if (dir > 0 && !canTurn(1)) finishChapter(); return; }
     if (!sheet.w) { commitTurn(dir); return; }
     const c = makeCurl(dir, sheet.h, false); setCurl(c);
     const W = sheet.w, H = sheet.h, lift = H * 0.16;
     const path = dir > 0
       ? (t: number) => { const e = ease(t); return { x: W - 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; }
       : (t: number) => { const e = ease(t); return { x: -W + 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; };
-    animate(path, 430, () => commitTurn(dir));
+    animate(path, 380, () => { commitTurn(dir); flushQueued(); });
+  };
+  turnRef.current = turn;
+  const flushQueued = () => {
+    const tryRun = (n: number) => setTimeout(() => {
+      const q = queuedTurn.current; if (!q) return;
+      if (settleRef.current && n < 20) { tryRun(n + 1); return; }
+      queuedTurn.current = 0; turnRef.current(q);
+    }, 40);
+    tryRun(0);
   };
 
   const onBoxClick = (e: React.MouseEvent) => {
