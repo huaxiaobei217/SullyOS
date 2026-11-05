@@ -575,6 +575,8 @@ const CallApp: React.FC = () => {
   useEffect(() => () => { callTextAbortRef.current?.abort(); }, [selectedCharId, currentSessionId, viewMode]);
   useEffect(() => () => { streamedCallAudio.current.clear(); streamedAutoPlayed.current.clear(); }, [selectedCharId, currentSessionId]);
   const [draftInput, setDraftInput] = useState('');
+  // 二改 · 免提模式（像 ChatGPT 语音）：自动开麦、说完自动发、他念完自动接着听、开口能打断
+  const [handsFree, setHandsFree] = useState(() => { try { return localStorage.getItem('sully_call_handsfree_v1') === '1'; } catch { return false; } });
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const sttSessionRef = useRef<SttSession | null>(null);
@@ -2852,6 +2854,41 @@ ${sentencePlan}`;
   useEffect(() => {
     loadCallRecords(selectedCharId);
   }, [selectedCharId]);
+  const handsFreeStatus = useHandsFreeCall({
+    enabled: handsFree,
+    inCall: viewMode === 'in-call',
+    callState, isListening, isTranscribing, isAudioPlaying, draftInput,
+    startListening: () => { void toggleStt(); },
+    stopListening: () => { sttSessionRef.current?.stop(); },
+    send: () => { void handleTurn(); },
+    interrupt: () => { pauseAudio(); },
+  });
+  const toggleHandsFree = () => {
+    const next = !handsFree;
+    setHandsFree(next);
+    try { localStorage.setItem('sully_call_handsfree_v1', next ? '1' : '0'); } catch { /* ignore */ }
+    if (next) primeCallAudioFromGesture();
+    else if (isListening) sttSessionRef.current?.stop();
+    addToast(next ? '免提：直接说话，停顿一下就发；他说话时开口可以打断' : '已切回点按说话', 'info');
+  };
+  const handsFreeBar = (
+    <div className={`shrink-0 flex items-center justify-center gap-2 ${callMode === 'video' ? 'px-3 pb-1' : 'px-4 pb-1.5'}`}>
+      <button onClick={toggleHandsFree} className="text-[11px] px-3 py-1 rounded-full border transition active:scale-95"
+        style={handsFree ? { background: 'rgba(240,86,159,0.25)', borderColor: 'rgba(240,86,159,0.6)', color: '#fff' } : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}>
+        {handsFree ? '免提 · 开' : '点按说话'}
+      </button>
+      {handsFree && (
+        <span className="text-[10.5px] text-white/55">
+          {handsFreeStatus === 'listening' ? (isListening ? '在听你说…' : '马上开始听…')
+            : handsFreeStatus === 'waiting' ? '等你开口'
+            : handsFreeStatus === 'sending' ? '在转文字…'
+            : handsFreeStatus === 'thinking' ? `${selectedChar?.name || '对方'}在想…`
+            : handsFreeStatus === 'speaking' ? '他在说 · 开口可以打断' : ''}
+        </span>
+      )}
+    </div>
+  );
+
   const handleDeleteRecord = async (record: CallRecord) => {
     setDeleteConfirmRecord(record);
   };
@@ -3551,6 +3588,7 @@ ${sentencePlan}`;
       <div className={`h-full w-full bg-gradient-to-b text-white px-5 pb-6 flex flex-col ${lightTheme ? 'sully-call-light from-[#f5f2fd] via-[#eef0f8] to-[#eef0f8]' : 'from-[#140d28] via-[#0a0613] to-[#0a0613]'}`} style={{ paddingTop: 'max(2.5rem, var(--safe-top))' }}>
         {lightTheme && <style>{CALL_LIGHT_THEME_CSS}</style>}
         <StreamingVoiceBar state={streamingVoice.state} onStop={pauseAudio} />
+      {handsFreeBar}
         <div className="flex items-center justify-between">
           <button onClick={() => setViewMode('history')} className="text-sm text-white/45">← 返回</button>
           <div className="text-sm text-white/80 font-medium">{recordDetail.characterName}</div>
@@ -4028,6 +4066,7 @@ ${sentencePlan}`;
       </div>
       )}
       <StreamingVoiceBar state={streamingVoice.state} onStop={pauseAudio} />
+      {handsFreeBar}
       {showInputPanel && (
         <div className={`shrink-0 ${callMode === 'video' ? 'px-3 pb-1.5' : 'px-4 pb-2'}`}>
           <div className={`${callMode === 'video' ? 'rounded-[1.15rem] p-1.5' : 'rounded-2xl p-2'} border border-white/12 bg-black/30 backdrop-blur-md flex gap-2 items-center`} style={{ boxShadow: `inset 0 0 20px ${accentColor}1f` }}>
@@ -4268,4 +4307,5 @@ ${sentencePlan}`;
 };
 export default CallApp;
 import { useAppShortcut } from '../utils/appShortcutLaunch';
+import { useHandsFreeCall } from '../hooks/useHandsFreeCall';
 import { AppID as ShortcutAppID } from '../types';
