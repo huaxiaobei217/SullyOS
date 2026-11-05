@@ -47,6 +47,13 @@ export interface SttProviderOption {
 
 export const STT_PROVIDER_OPTIONS: SttProviderOption[] = [
   {
+    id: 'openai',
+    label: '中文识别 · SenseVoice / Whisper',
+    shortLabel: 'SenseVoice',
+    desc: '硅基流动 SenseVoice（免费，普通话很准）或 Groq / OpenAI Whisper，填自己的地址和 Key',
+    keyHint: '需先在下面「中文识别」里填地址和 Key',
+  },
+  {
     id: 'minimax',
     label: 'MiniMax ASR',
     shortLabel: 'MiniMax',
@@ -123,6 +130,20 @@ export const resolveFishAudioSttApiKey = (apiConfig?: Partial<APIConfig> | null)
 export const resolveElevenLabsSttApiKey = (apiConfig?: Partial<APIConfig> | null): string =>
   normalizeApiKey(apiConfig?.elevenLabsApiKey || '');
 
+/* 个人二改：OpenAI 兼容转写（硅基流动 SenseVoice / Groq Whisper…），配置只存本机 */
+export const STT_OPENAI_LS_KEY = 'sully_stt_openai_v1';
+export interface SttOpenAiConfig { baseUrl: string; apiKey: string; model: string }
+export const STT_OPENAI_PRESETS = [
+  { id: 'siliconflow', label: '硅基流动 SenseVoice（免费，国内直连）', baseUrl: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' },
+  { id: 'groq', label: 'Groq Whisper large v3（快，需外网）', baseUrl: 'https://api.groq.com/openai/v1', model: 'whisper-large-v3' },
+  { id: 'openai', label: 'OpenAI gpt-4o-transcribe', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-transcribe' },
+];
+export const getSttOpenAiConfig = (): SttOpenAiConfig => {
+  try { const v = JSON.parse(localStorage.getItem(STT_OPENAI_LS_KEY) || '{}'); return { baseUrl: v.baseUrl || '', apiKey: v.apiKey || '', model: v.model || '' }; }
+  catch { return { baseUrl: '', apiKey: '', model: '' }; }
+};
+export const setSttOpenAiConfig = (cfg: SttOpenAiConfig) => { try { localStorage.setItem(STT_OPENAI_LS_KEY, JSON.stringify(cfg)); } catch { /* ignore */ } };
+
 export const isSttProviderConfigured = (
   provider: SttProvider,
   apiConfig?: Partial<APIConfig> | null,
@@ -131,13 +152,14 @@ export const isSttProviderConfigured = (
   if (provider === 'minimax') return Boolean(resolveMiniMaxSttApiKey(apiConfig));
   if (provider === 'fishaudio') return Boolean(resolveFishAudioSttApiKey(apiConfig));
   if (provider === 'elevenlabs') return Boolean(resolveElevenLabsSttApiKey(apiConfig));
+  if (provider === 'openai') { const c = getSttOpenAiConfig(); return Boolean(c.baseUrl && c.apiKey && c.model); }
   return false;
 };
 
 export const getConfiguredApiSttProviders = (
   apiConfig?: Partial<APIConfig> | null,
-): Array<'minimax' | 'fishaudio' | 'elevenlabs'> => {
-  const providers: Array<'minimax' | 'fishaudio' | 'elevenlabs'> = ['elevenlabs', 'fishaudio', 'minimax'];
+): Array<'minimax' | 'fishaudio' | 'elevenlabs' | 'openai'> => {
+  const providers: Array<'minimax' | 'fishaudio' | 'elevenlabs' | 'openai'> = ['openai', 'elevenlabs', 'fishaudio', 'minimax'];
   return providers.filter((p) => isSttProviderConfigured(p, apiConfig));
 };
 
@@ -359,11 +381,34 @@ export const cleanFishAsrText = (raw: string): string =>
  */
 export async function transcribeAudioWithProvider(
   wavBlob: Blob,
-  provider: 'minimax' | 'fishaudio' | 'elevenlabs',
+  provider: 'minimax' | 'fishaudio' | 'elevenlabs' | 'openai',
   lang: string,
   apiConfig?: Partial<APIConfig> | null,
 ): Promise<string> {
   const normalizedLang = (lang || '').trim().toLowerCase();
+
+  if (provider === 'openai') {
+    const c = getSttOpenAiConfig();
+    if (!c.baseUrl || !c.apiKey || !c.model) throw new Error('「中文识别」还没填地址 / Key / 模型');
+    const form = new FormData();
+    form.append('file', wavBlob, 'speech.wav');
+    form.append('model', c.model);
+    if (/whisper|transcribe/i.test(c.model)) {
+      if (normalizedLang.startsWith('zh')) { form.append('language', 'zh'); form.append('prompt', '以下是普通话的句子，使用简体中文。'); }
+      else if (normalizedLang) form.append('language', normalizedLang.slice(0, 2));
+    }
+    const res = await fetch(`${location.origin}/api/openai/stt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${c.apiKey}`, 'x-stt-base': c.baseUrl.replace(/\/+$/, '') },
+      body: form,
+    });
+    const rawText = await res.text();
+    if (!res.ok) throw new Error(formatSttHttpError('中文识别', res.status, rawText));
+    let data: any;
+    try { data = JSON.parse(rawText); } catch { throw new Error('中文识别返回格式异常'); }
+    // SenseVoice 会带 <|zh|><|NEUTRAL|> 之类的标签和情绪 emoji，去掉
+    return String(data?.text || '').replace(/<\|[^|]*\|>/g, '').replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim();
+  }
 
   if (provider === 'minimax') {
     const apiKey = resolveMiniMaxSttApiKey(apiConfig);
@@ -496,7 +541,7 @@ const MAX_RECORDING_MS = 60_000;
 const MIN_RECORDING_SAMPLES_AT_16K = 3200; // ~0.2s
 
 const startApiStt = async (
-  provider: 'minimax' | 'fishaudio' | 'elevenlabs',
+  provider: 'minimax' | 'fishaudio' | 'elevenlabs' | 'openai',
   lang: string,
   apiConfig: Partial<APIConfig> | null | undefined,
   cb: SttCallbacks,
@@ -735,7 +780,7 @@ export const startStt = async (
 ): Promise<SttSession> => {
   const language = lang || 'zh-CN';
   const provider = resolveSttProvider(apiConfig);
-  if (provider === 'minimax' || provider === 'fishaudio' || provider === 'elevenlabs') {
+  if (provider === 'minimax' || provider === 'fishaudio' || provider === 'elevenlabs' || provider === 'openai') {
     return startApiStt(provider, language, apiConfig, cb);
   }
   const hasPaid = hasAnyApiSttConfigured(apiConfig);

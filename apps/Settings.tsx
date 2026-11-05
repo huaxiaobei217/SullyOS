@@ -59,6 +59,7 @@ import ApiOverviewPanel from '../components/settings/ApiOverviewPanel';
 import TropeCleanPanel from '../components/settings/TropeCleanPanel';
 import NewsTastePanel from '../components/settings/NewsTastePanel';
 import NoahBackupPanel from '../components/settings/NoahBackupPanel';
+import SttOpenAiPanel from '../components/settings/SttOpenAiPanel';
 import AndroidImmersivePanel from '../components/settings/AndroidImmersivePanel';
 import NaiSettingsPanel from '../components/settings/NaiSettingsPanel';
 import { DB } from '../utils/db';
@@ -540,6 +541,7 @@ const Settings: React.FC = () => {
       : 'minimax'
   );
   const [localSttProvider, setLocalSttProvider] = useState<SttProvider | undefined>(apiConfig.sttProvider);
+  const [, setSttPanelTick] = useState(0);
   const [localFishKey, setLocalFishKey] = useState(apiConfig.fishAudioApiKey || '');
   const [localFishModel, setLocalFishModel] = useState(apiConfig.fishAudioModel || 's2.1-pro');
   const [localElevenLabsKey, setLocalElevenLabsKey] = useState(apiConfig.elevenLabsApiKey || '');
@@ -3074,7 +3076,7 @@ const Settings: React.FC = () => {
 
                 {/* 通话语音转文字（你开口说话 → 转文字）四选一 —— 可与角色发声平台自由搭配，填了 Key 才能选对应平台 */}
                 <div className="group rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5 block">语音转文字 · 通话麦克风（四选一）</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5 block">语音转文字 · 通话麦克风（五选一）</label>
                     <p className="text-[11px] text-slate-400 mb-2.5">
                         电话里点麦克风说话走哪条路转成文字。可与上方角色发声平台分开搭配（比如语音用 MiniMax、识别用 ElevenLabs 或鱼声）；填好对应官方 Key 后即可切换。
                     </p>
@@ -3116,6 +3118,7 @@ const Settings: React.FC = () => {
                             );
                         })}
                     </div>
+                    <SttOpenAiPanel onSaved={() => setSttPanelTick(t => t + 1)} />
                 </div>
 
                 {/* 语音提示词（高级）—— 自定义注入角色 system prompt 的「语音表演指南」，按服务商分别保存 */}

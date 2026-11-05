@@ -577,6 +577,10 @@ const CallApp: React.FC = () => {
   const [avatarPerformance, setAvatarPerformance] = useState<AvatarPerformanceDirection>(DEFAULT_AVATAR_PERFORMANCE);
   const [bubbles, setBubbles] = useState<CallBubble[]>([]);
   const [callShowOrig, setCallShowOrig] = useState<Set<string>>(new Set());
+  // 字幕偏好：英文在上 / 中文在上；原文是否一直显示（个人二改，存本机）
+  const [subPref, setSubPrefState] = useState<{ enFirst: boolean; enAlways: boolean }>(() => { try { return { enFirst: false, enAlways: false, ...JSON.parse(localStorage.getItem('sully_call_sub_v1') || '{}') }; } catch { return { enFirst: false, enAlways: false }; } });
+  const setSubPref = (p: { enFirst: boolean; enAlways: boolean }) => { setSubPrefState(p); try { localStorage.setItem('sully_call_sub_v1', JSON.stringify(p)); } catch { /* ignore */ } };
+  const [subMenu, setSubMenu] = useState(false);
   const toggleCallOrig = (id: string) => setCallShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [callRecords, setCallRecords] = useState<CallRecord[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => `call-${Date.now()}`);
@@ -4069,6 +4073,18 @@ ${sentencePlan}`;
         </div>
       ) : (
       <div ref={callScrollableRef} className={`flex-1 ${callMode === 'video' ? 'min-h-0' : 'min-h-[11rem]'} overflow-y-auto no-scrollbar mx-4 mb-2 px-4 py-3 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md`} style={{ boxShadow: `inset 0 1px 0 ${accentColor}33` }}>
+        <div className="sticky top-0 z-10 -mt-1 -mr-1 flex justify-end">
+          <div className="relative">
+            <button type="button" onClick={() => setSubMenu(v => !v)} className="text-[10px] px-2 py-0.5 rounded-full border border-white/12 bg-black/30 text-white/55 backdrop-blur">字幕 ⚙</button>
+            {subMenu && (
+              <div className="absolute right-0 mt-1 w-44 rounded-xl border border-white/12 bg-[#1a1530]/95 p-2 text-[11.5px] text-white/80 shadow-xl backdrop-blur space-y-1.5">
+                <button type="button" onClick={() => setSubPref({ ...subPref, enFirst: false })} className={`block w-full text-left px-2 py-1 rounded-lg ${!subPref.enFirst ? 'bg-white/10 text-white' : ''}`}>中文在上，英文在下</button>
+                <button type="button" onClick={() => setSubPref({ ...subPref, enFirst: true })} className={`block w-full text-left px-2 py-1 rounded-lg ${subPref.enFirst ? 'bg-white/10 text-white' : ''}`}>英文在上，中文在下</button>
+                {!subPref.enFirst && <label className="flex items-center justify-between px-2 py-1"><span>英文一直显示</span><input type="checkbox" checked={subPref.enAlways} onChange={e => setSubPref({ ...subPref, enAlways: e.target.checked })} /></label>}
+              </div>
+            )}
+          </div>
+        </div>
         {callMode === 'video' && videoCallLayout === 'stage' && videoTranscriptExpanded && (
           <div className="sticky top-0 z-10 -mx-1 flex justify-end pb-1">
             <button onClick={() => setVideoTranscriptExpanded(false)} className="rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] text-white/48 backdrop-blur">收成字幕</button>
@@ -4092,7 +4108,7 @@ ${sentencePlan}`;
           const isLatest = fromBottom === 0;
           const line = bubble.text.trim();
           const opacity = Math.max(0.55, 1 - fromBottom * 0.12);
-          const sizeClass = isLatest ? 'text-[17px]' : fromBottom === 1 ? 'text-[15px]' : 'text-[14px]';
+          const sizeClass = isLatest ? 'text-[16px]' : fromBottom === 1 ? 'text-[14px]' : 'text-[13px]';
           return (
           <div
             key={bubble.id}
@@ -4142,10 +4158,15 @@ ${sentencePlan}`;
                       <div className="mt-2 whitespace-pre-wrap border-t border-white/8 pt-2 leading-relaxed text-white/60">{bubble.thinkingChain}</div>
                     </details>
                   )}
-                  {renderAssistantLine(display, accentColor)}
-                  {cleanVoice && (callShowOrig.has(bubble.id)
-                    ? <div onClick={() => toggleCallOrig(bubble.id)} className="mt-1.5 text-[12px] italic leading-snug text-white/55">{cleanVoice}</div>
-                    : <button onClick={() => toggleCallOrig(bubble.id)} className="mt-1 block text-[10.5px] text-white/40">原文 ›</button>)}
+                  {subPref.enFirst && cleanVoice ? <>
+                    <div className="leading-relaxed text-white/95">{cleanVoice}</div>
+                    <div className="mt-1.5 text-[13px] leading-snug text-white/60">{renderAssistantLine(display, accentColor)}</div>
+                  </> : <>
+                    {renderAssistantLine(display, accentColor)}
+                    {cleanVoice && (subPref.enAlways || callShowOrig.has(bubble.id)
+                      ? <div onClick={() => toggleCallOrig(bubble.id)} className="mt-1.5 text-[12px] italic leading-snug text-white/55">{cleanVoice}</div>
+                      : <button onClick={() => toggleCallOrig(bubble.id)} className="mt-1 block text-[10.5px] text-white/40">原文 ›</button>)}
+                  </>}
                 </>;
               })() : (line || bubble.text)}
             </div>

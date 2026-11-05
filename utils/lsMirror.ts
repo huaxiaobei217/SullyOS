@@ -98,6 +98,8 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_body_log_v1',
     'sully_shelf_vocab_v1',
     'sully_body_inject_v1',
+    'sully_stt_openai_v1',
+    'sully_call_sub_v1',
     'sully_sleep_playlist_v1',
     'sully_hate_counter_v1',
     'sully_reroll_notes_v1',                // 口癖清洗：每个角色用腻了的梗
