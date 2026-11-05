@@ -110,6 +110,33 @@ const sampleImageTop = (url: string, width: number, height: number): Promise<Col
     image.src = url;
 });
 
+/**
+ * 给安卓主屏幕版用：读页面顶边的代表色（同一套取色，不挂 iOS 的裁色条）。
+ * 跨域图片没 CORS 时回退 CSS 底色，不走代理、不上传像素。
+ */
+export const sampleTopEdgeColor = async (skip: HTMLElement | null, cache: Map<string, Promise<Color | null>>): Promise<string> => {
+    const layers: Color[] = [];
+    for (const surface of readTopSurfaces(skip || document.createElement('div'))) {
+        let imageColor: Color | null = null;
+        const url = surface.image.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+        if (url) {
+            const key = `${url}|${surface.width}|${surface.height}`;
+            if (!cache.has(key)) {
+                if (cache.size >= 12) cache.delete(cache.keys().next().value!);
+                cache.set(key, sampleImageTop(url, surface.width, surface.height));
+            }
+            imageColor = await cache.get(key)!;
+        } else if (surface.image.includes('gradient(')) {
+            const firstStop = surface.image.match(/rgba?\([^)]+\)|#[\da-f]{3,8}/i)?.[0];
+            imageColor = firstStop ? parseStatusBarColor(firstStop) : null;
+        }
+        if (imageColor) layers.push([imageColor[0], imageColor[1], imageColor[2], imageColor[3] * surface.opacity]);
+        layers.push([surface.color[0], surface.color[1], surface.color[2], surface.color[3] * surface.opacity]);
+        if (layers.some(color => color[3] === 1)) break;
+    }
+    return blendStatusBarColors(layers);
+};
+
 export const installIOSStatusBarEdge = (): (() => void) => {
     const noop = () => {};
     if (typeof document === 'undefined' || !document.body) return noop;

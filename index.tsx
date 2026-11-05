@@ -12,6 +12,7 @@ import { ProactiveChat } from './utils/proactiveChat';
 import { VRScheduler } from './utils/vrWorld/scheduler';
 import { installIOSStandaloneWorkaround } from './utils/iosStandalone';
 import { installIOSStatusBarEdge } from './utils/iosStatusBarEdge';
+import { installAndroidSystemBars } from './utils/androidSystemBars';
 import { installWakeListener } from './utils/proactivePushConfig';
 import { initAnalytics } from './utils/analytics';
 import { Capacitor } from '@capacitor/core';
@@ -43,6 +44,8 @@ Promise.all([databaseReady, keepAliveReady]).then(() => {
 }).catch(error => console.error('后台任务暂未启动：本地数据或保活服务未就绪', error));
 
 const disposeIOSStatusBarEdge = installIOSStatusBarEdge();
+const disposeAndroidSystemBars = installAndroidSystemBars();
+if (import.meta.hot) import.meta.hot.dispose(disposeAndroidSystemBars);
 installIOSStandaloneWorkaround();
 if (import.meta.hot) import.meta.hot.dispose(disposeIOSStatusBarEdge);
 
