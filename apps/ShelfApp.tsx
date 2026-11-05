@@ -137,6 +137,8 @@ const ShelfApp: React.FC = () => {
   const [vocabPara, setVocabPara] = useState<number | null>(null);
   const [lookup, setLookup] = useState<{ word: string; sentence: string; res?: { phonetic?: string; meaning: string; note?: string }; err?: string } | null>(null);
   const [showVocab, setShowVocab] = useState(false);
+  const [showOrig, setShowOrig] = useState<Set<string>>(new Set());
+  const toggleOrig = (id: string) => setShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const userName = userProfile?.name || '我';
   const lang = char?.callVoiceLang || 'en';
   const hasVoice = !!char && characterHasVoice(char, apiConfig);
@@ -751,7 +753,10 @@ const ShelfApp: React.FC = () => {
             {openNote.quote && <div className="text-[12px] font-serif mb-2 pl-2" style={{ color: T.muted, borderLeft: `2px solid ${T.pencil}` }}>{openNote.quote}</div>}
             <div className="flex items-start gap-2">
               <TokenImg value={char.avatar} className="w-7 h-7 rounded-full object-cover shrink-0" />
-              <div className="flex-1 text-[14px] leading-relaxed" style={{ color: T.pencil, fontFamily: `'Caveat','Long Cang','Ma Shan Zheng',cursive` }}>{openNote.zh}</div>
+              <div className="flex-1">
+                <div className="text-[14px] leading-relaxed" style={{ color: T.pencil, fontFamily: `'Caveat','Long Cang','Ma Shan Zheng',cursive` }}>{openNote.zh}</div>
+                {openNote.voice && showOrig.has(openNote.id) && <div className="mt-1.5 text-[11px] italic leading-snug" style={{ color: T.muted }}>{openNote.voice}</div>}
+              </div>
             </div>
             <div className="flex gap-2 mt-3">
               {hasVoice && (openNote.voice || openNote.zh) && (
@@ -759,6 +764,7 @@ const ShelfApp: React.FC = () => {
                   {playing === openNote.id ? '■ 停' : `▶ 听他念${openNote.voice ? `（${voiceLanguageLabel(lang)}）` : ''}`}
                 </button>
               )}
+              {openNote.voice && <button onClick={() => toggleOrig(openNote.id)} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>{showOrig.has(openNote.id) ? '收起原文' : '看原文'}</button>}
               <button onClick={() => share(() => shareShelfNote(openNote, book, char.name, userName))} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>发到聊天</button>
             </div>
           </div>
@@ -802,9 +808,13 @@ const ShelfApp: React.FC = () => {
               <div key={c.id} className="flex items-start gap-2">
                 <TokenImg value={char.avatar} className="w-6 h-6 rounded-full object-cover shrink-0" />
                 <div className="max-w-[85%]">
-                  <div className="text-[13px] rounded-2xl rounded-tl-sm px-3 py-2 leading-relaxed" style={{ background: T.paperDeep, color: T.ink }}>{c.text}</div>
+                  <div className="text-[13px] rounded-2xl rounded-tl-sm px-3 py-2 leading-relaxed" style={{ background: T.paperDeep, color: T.ink }}>
+                    {c.text}
+                    {c.voice && showOrig.has(c.id) && <div className="mt-1.5 pt-1.5 text-[11px] italic leading-snug border-t" style={{ color: T.muted, borderColor: T.line }}>{c.voice}</div>}
+                  </div>
                   <div className="flex gap-3 mt-0.5 ml-1">
                     {hasVoice && <button onClick={() => play(c.id, c.voice || c.text)} className="text-[10.5px]" style={{ color: T.accent }}>{playing === c.id ? '■ 停' : `▶ 听${c.voice ? voiceLanguageLabel(lang) : ''}`}</button>}
+                    {c.voice && <button onClick={() => toggleOrig(c.id)} className="text-[10.5px]" style={{ color: T.muted }}>{showOrig.has(c.id) ? '收起原文' : `看${voiceLanguageLabel(lang)}原文`}</button>}
                     <button onClick={() => share(() => shareShelfTalk(c as ShelfChat, book, char.name, userName))} className="text-[10.5px]" style={{ color: T.faint }}>发到聊天</button>
                   </div>
                 </div>

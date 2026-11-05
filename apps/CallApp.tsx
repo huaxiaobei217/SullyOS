@@ -576,6 +576,8 @@ const CallApp: React.FC = () => {
   const [avatarEmotion, setAvatarEmotion] = useState('calm');
   const [avatarPerformance, setAvatarPerformance] = useState<AvatarPerformanceDirection>(DEFAULT_AVATAR_PERFORMANCE);
   const [bubbles, setBubbles] = useState<CallBubble[]>([]);
+  const [callShowOrig, setCallShowOrig] = useState<Set<string>>(new Set());
+  const toggleCallOrig = (id: string) => setCallShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [callRecords, setCallRecords] = useState<CallRecord[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => `call-${Date.now()}`);
   const streamingVoice = useStreamingVoice(`${selectedCharId}:${currentSessionId}:${viewMode}`);
@@ -3781,8 +3783,8 @@ ${sentencePlan}`;
             </div>
           ) : (
             <>
-              <div className="mt-2.5 text-[11px] tracking-[0.25em] text-white/55">{connSub}</div>
-              <div className="mt-1.5 text-lg tabular-nums font-extralight tracking-[0.2em]" style={{ color: accentColor }}>{formatDuration(elapsedSeconds)}</div>
+              {!bubbles.length && <div className="mt-2.5 text-[11px] tracking-[0.25em] text-white/55">{connSub}</div>}
+              <div className={`${bubbles.length ? 'mt-1 text-sm' : 'mt-1.5 text-lg'} tabular-nums font-extralight tracking-[0.2em]`} style={{ color: accentColor }}>{formatDuration(elapsedSeconds)}</div>
             </>
           )}
           {callMode === 'video' && (
@@ -3903,10 +3905,10 @@ ${sentencePlan}`;
           )}
         </div>
       ) : (
-      <div className="sully-call-hero pt-3 pb-1 flex flex-col items-center justify-center">
+      <div className={`sully-call-hero flex items-center justify-center ${bubbles.length ? 'pt-1 pb-1 flex-row gap-4' : 'pt-3 pb-1 flex-col'}`}>
         <button
           type="button"
-          className="relative h-40 w-40 touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+          className={`relative ${bubbles.length ? 'h-16 w-16' : 'h-40 w-40'} touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-white/70`}
           aria-label={`戳戳${selectedChar?.name || '对方'}`}
           onPointerDown={handleVoiceAvatarPointerDown}
           onPointerMove={handleVoiceAvatarPointerMove}
@@ -3937,12 +3939,12 @@ ${sentencePlan}`;
           </div>
         </button>
         {/* analyzing status + waveform */}
-        <div className="mt-5 flex flex-col items-center gap-2">
+        <div className={`flex flex-col items-center ${bubbles.length ? 'gap-1' : 'mt-5 gap-2'}`}>
           <div className="text-center leading-tight">
             <div className="text-sm text-white/85">{analyzeLabel.cn}{waveActive ? '…' : ''}</div>
             <div className="text-[9px] tracking-[0.3em] text-white/35 mt-0.5">{analyzeLabel.en}</div>
           </div>
-          <div className="flex items-center justify-center gap-[3px] h-7">
+          <div className={`flex items-center justify-center gap-[3px] ${bubbles.length ? 'h-4 scale-y-50' : 'h-7'}`}>
             {CALL_WAVE.map((h, i) => (
               <span key={i} className={`w-[3px] rounded-full transition-all duration-300 ${waveActive ? 'animate-pulse' : ''}`}
                 style={{ height: `${waveActive ? h : 3}px`, background: `linear-gradient(to top, ${accentColor}33, ${accentColor})`, animationDelay: `${i * 60}ms` }} />
@@ -3978,7 +3980,7 @@ ${sentencePlan}`;
           <button onClick={() => setVideoTranscriptExpanded(true)} className="shrink-0 rounded-full border border-white/12 px-2.5 py-1.5 text-[9px] text-white/52 active:scale-95">记录</button>
         </div>
       ) : (
-      <div ref={callScrollableRef} className="flex-1 min-h-0 overflow-y-auto no-scrollbar mx-4 mb-2 px-4 py-3 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md" style={{ boxShadow: `inset 0 1px 0 ${accentColor}33` }}>
+      <div ref={callScrollableRef} className={`flex-1 ${callMode === 'video' ? 'min-h-0' : 'min-h-[11rem]'} overflow-y-auto no-scrollbar mx-4 mb-2 px-4 py-3 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-md`} style={{ boxShadow: `inset 0 1px 0 ${accentColor}33` }}>
         {callMode === 'video' && videoCallLayout === 'stage' && videoTranscriptExpanded && (
           <div className="sticky top-0 z-10 -mx-1 flex justify-end pb-1">
             <button onClick={() => setVideoTranscriptExpanded(false)} className="rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] text-white/48 backdrop-blur">收成字幕</button>
@@ -4002,7 +4004,7 @@ ${sentencePlan}`;
           const isLatest = fromBottom === 0;
           const line = bubble.text.trim();
           const opacity = Math.max(0.55, 1 - fromBottom * 0.12);
-          const sizeClass = isLatest ? 'text-[19px]' : fromBottom === 1 ? 'text-[16px]' : 'text-[14px]';
+          const sizeClass = isLatest ? 'text-[17px]' : fromBottom === 1 ? 'text-[15px]' : 'text-[14px]';
           return (
           <div
             key={bubble.id}
@@ -4053,7 +4055,9 @@ ${sentencePlan}`;
                     </details>
                   )}
                   {renderAssistantLine(display, accentColor)}
-                  {cleanVoice && <div className={`mt-1.5 italic ${isLatest ? 'text-[14px] text-white/65' : 'text-[12px] text-white/50'}`}>{cleanVoice}</div>}
+                  {cleanVoice && (callShowOrig.has(bubble.id)
+                    ? <div onClick={() => toggleCallOrig(bubble.id)} className="mt-1.5 text-[12px] italic leading-snug text-white/55">{cleanVoice}</div>
+                    : <button onClick={() => toggleCallOrig(bubble.id)} className="mt-1 block text-[10.5px] text-white/40">原文 ›</button>)}
                 </>;
               })() : (line || bubble.text)}
             </div>
