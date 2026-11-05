@@ -2878,6 +2878,7 @@ ${sentencePlan}`;
     stopListening: () => { sttSessionRef.current?.stop(); },
     send: () => { void handleTurn(); },
     interrupt: () => { pauseAudio(); },
+    releaseMic: resolveSttProvider(apiConfig) === 'browser',
   });
   const toggleHandsFree = () => {
     const next = !handsFree;
