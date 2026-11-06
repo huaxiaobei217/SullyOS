@@ -105,6 +105,8 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_char_city_v1',
     'sully_our_dates_v1',
     'sully_good_days_on_v1',
+    'sully_ledger_budget_v1',
+    'sully_ledger_talk_v1',
     'sully_busy_reply_v1',
     'sully_char_daystate_v1',
     'sully_shelf_stage_v1',

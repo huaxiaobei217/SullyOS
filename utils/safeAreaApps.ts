@@ -45,6 +45,7 @@ export const SELF_SAFE_AREA_APPS: ReadonlySet<AppID> = new Set<AppID>([
     AppID.Footnote,
     AppID.Shelf,
     AppID.Body,
+    AppID.Ledger,
     AppID.WorldHome,
     AppID.CharCreatorDev,
     AppID.SpecialMoments,
