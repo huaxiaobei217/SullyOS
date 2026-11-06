@@ -342,9 +342,13 @@ export const fetchHotNews = async (platforms?: string[], perPlatform = 12, total
     const perPlatformResults = await Promise.all(list.map(async (p): Promise<NewsItem[]> => {
         const label = HOTNEWS_PLATFORM_LABELS[p] || p;
         try {
+            // 二改：对方卡住时浏览器要等 60 多秒才放弃，热榜和聊天里的新闻会一直转圈；15 秒拉不到就算了
+            const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = ac ? setTimeout(() => ac.abort(), 15000) : null;
             const res = await fetch(`${HOTNEWS_API_BASE_URL}/?platform=${encodeURIComponent(p)}`, {
                 headers: { 'Accept': 'application/json' },
-            });
+                ...(ac ? { signal: ac.signal } : {}),
+            }).finally(() => { if (timer) clearTimeout(timer); });
             if (!res.ok) {
                 console.warn(`[hot_news] ${label}(${p}) HTTP ${res.status}`);
                 return [];
