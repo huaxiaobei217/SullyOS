@@ -10,6 +10,7 @@ import { loadCharacterContextRange } from './chatContextRange';
 import { ChatPrompts } from './chatPrompts';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
+import { buildTripSchedulePrompt, acceptTripFromSchedule } from './charTrip';
 import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
 
 
@@ -291,7 +292,7 @@ export async function generateDailyScheduleForChar(
     const visitPrompt=await scheduleHomeVisitPrompt(char);
     const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)) + homePrompt + visitPrompt;
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户')) + homePrompt + visitPrompt;
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -364,6 +365,7 @@ export async function generateDailyScheduleForChar(
 
         // Missing or stale room IDs must not overwrite a usable old schedule.
         if (homePrompt && !hasHomeSchedulePositions(schedule, char)) return null;
+        if (style !== 'mindful') { try { acceptTripFromSchedule(char.id, today, parsed.trip); } catch { /* ignore */ } }
         await submitScheduleHomeVisits(char,schedule.date,parsed.homeVisits,schedule);
         return schedule;
     } catch (e) {

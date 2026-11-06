@@ -96,6 +96,7 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_listen_plays_inject_v1',
     'sully_study_homeroom_v1',
     'sully_body_log_v1',
+    'sully_char_trip_v1',
     'sully_shelf_vocab_v1',
     'sully_body_inject_v1',
     'sully_stt_openai_v1',
