@@ -1,14 +1,14 @@
 /**
  * 称呼频率闸：模型会照着自己最近的回复学，称呼和颜文字一旦挂得多，就会越挂越多
  * （babe / 甜心 / my love / ＾＾ 变成每句结尾的固定格式）。
- * 这里只看他最近 20 条消息：挂了称呼的超过两成，这一轮就提醒他一个都别用；没超就什么都不加。
+ * 这里只看他最近 20 条消息：挂了称呼的超过一成，这一轮就提醒他一个都别用；没超就什么都不加。
  */
 const LS = 'sully_endearment_gate_v1';
 export const DEFAULT_ENDEARMENTS = ['babe', 'my love', '甜心', 'honey', 'darling', 'sweetheart', 'sweetie', '宝贝', '＾＾'];
 
 interface GateCfg { on: boolean; words: string[]; ratio: number }
 const all = (): Record<string, GateCfg> => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
-export const getGate = (charId: string): GateCfg => ({ on: true, words: DEFAULT_ENDEARMENTS, ratio: 0.2, ...(all()[charId] || {}) });
+export const getGate = (charId: string): GateCfg => ({ on: true, words: DEFAULT_ENDEARMENTS, ratio: 0.1, ...(all()[charId] || {}) });
 export const setGate = (charId: string, patch: Partial<GateCfg>) => {
   const a = all(); a[charId] = { ...getGate(charId), ...patch };
   try { localStorage.setItem(LS, JSON.stringify(a)); } catch { /* ignore */ }

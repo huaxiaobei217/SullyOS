@@ -10,6 +10,7 @@ import { buildListenHistoryBlock } from './music/listenHistory';
 import { buildStudyLogBlock } from './studyHomeroom';
 import { buildShelfBlock } from './shelf';
 import { buildEndearmentBlock } from './endearmentGate';
+import { buildStyleDriftBlock } from './styleDrift';
 import { buildBodyBlock } from './bodyLog';
 import { buildTripChatBlock } from './charTrip';
 import { buildSongPickBlock } from './charSongPicks';
@@ -662,6 +663,8 @@ ${groupLogStr}\n`;
             if (tropeBlock) volatileState += `\n${tropeBlock}\n`;
             const endearBlock = buildEndearmentBlock(char.id, (currentMsgs || []).filter(m => m.role === 'assistant' && (m.type || 'text') === 'text').slice(-20).map(m => String(m.content || '')));
             if (endearBlock) volatileState += `\n${endearBlock}\n`;
+            const driftBlock = buildStyleDriftBlock((currentMsgs || []).filter(m => m.role === 'assistant' && (m.type || 'text') === 'text').slice(-30).map(m => String(m.content || '')), userProfile.name);
+            if (driftBlock) volatileState += `\n${driftBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }
 
         // 群聊背景带时间戳、随群消息实时滚动 → 易变；日记标题/生活记录变化很慢 → 稳定。
