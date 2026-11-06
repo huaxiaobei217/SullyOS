@@ -24,7 +24,8 @@ export const CATS: Record<string, { emoji: string; label: string; color: string;
   transport: { emoji: '🚇', label: '交通', color: '#4f8fd6', re: /车|地铁|公交|打车|滴滴|油费|加油|停车|出租|高铁|火车|机票|骑行|单车/ },
   shopping: { emoji: '🛍️', label: '购物', color: '#a368c9', re: /买|购|淘宝|京东|拼多多|商场|衣服|鞋|包|化妆|护肤|日用/ },
   fun: { emoji: '🎮', label: '玩乐', color: '#58a967', re: /游戏|电影|娱乐|ktv|酒吧|玩|演出|门票|旅游|展/ },
-  bills: { emoji: '🏠', label: '房租账单', color: '#e0a23a', re: /话费|水电|房租|网费|会员|订阅|物业|燃气|api|vps|服务器|域名|梯子|节点/i },
+  rent: { emoji: '🏠', label: '房租水电', color: '#e0a23a', re: /房租|租金|押金|水电|电费|水费|燃气|物业|宽带/ },
+  bills: { emoji: '📱', label: '订阅话费', color: '#c9a227', re: /话费|网费|会员|订阅|api|vps|服务器|域名|梯子|节点|流量/i },
   health: { emoji: '💊', label: '医疗', color: '#d9534f', re: /医|药|体检|看病|挂号|牙/ },
   study: { emoji: '📚', label: '学习', color: '#5c6bc0', re: /书|课|学习|培训|考试|报名/ },
   social: { emoji: '🎁', label: '人情', color: '#d36f9c', re: /红包|礼物|请客|份子|生日/ },
@@ -93,7 +94,7 @@ const LedgerApp: React.FC = () => {
   }, [inMonth]);
   const daily = useMemo(() => {
     const n = daysIn(month); const arr = Array(n).fill(0);
-    for (const t of inMonth.filter(isExpense)) arr[Number(t.dateStr.slice(8)) - 1] += t.amount;
+    for (const t of inMonth.filter(isExpense)) if (catOf(t) !== 'rent') arr[Number(t.dateStr.slice(8)) - 1] += t.amount;
     return arr.map(roundMoney);
   }, [inMonth, month]);
 
@@ -109,7 +110,7 @@ const LedgerApp: React.FC = () => {
       const { text } = await callAsChar(him, apiConfig,
         `### 【她的账本】她把这个月的账给你看，让你帮她看看。
 用你平时跟她说话的口气，3～6 句：说说钱主要花在哪、有没有哪里明显多了（和上个月比）、一两个具体的小建议（能做到的那种）。
-不要说教、不要列表、不要念一堆数字（挑一两个关键的说就行）、不要当理财顾问；可以损她一句，也可以夸她。她刚开始工作，钱不多。`,
+不要说教、不要列表、不要念一堆数字（挑一两个关键的说就行）、不要当理财顾问；可以损她一句，也可以夸她。她刚开始工作，钱不多；房租水电是固定开销，别拿它说她花多了。`,
         `${month}：支出 ${money(spent)}，收入 ${money(earned)}${budget ? `，月预算 ${money(budget)}` : ''}；上个月支出 ${money(lastSpent)}。
 分类：${catText || '没什么支出'}
 最大的几笔：${top || '无'}`, '账本·他看看', 900);
@@ -240,7 +241,7 @@ const LedgerApp: React.FC = () => {
 
             {/* 每天 */}
             <div className="rounded-2xl p-3.5" style={{ background: C.card }}>
-              <div className="flex justify-between text-[12px] mb-2"><span className="font-semibold">每天花了多少</span><span style={{ color: C.muted }}>日均 ¥{money(spent / Math.max(1, isThisMonth ? Number(today.slice(8)) : daysIn(month)))}</span></div>
+              <div className="flex justify-between text-[12px] mb-2"><span className="font-semibold">每天花了多少</span><span style={{ color: C.muted }}>日均 ¥{money((spent - (cats.find(c => c.k === 'rent')?.v || 0)) / Math.max(1, isThisMonth ? Number(today.slice(8)) : daysIn(month)))}{cats.some(c => c.k === 'rent') ? '（不含房租）' : ''}</span></div>
               <div className="flex items-end gap-[2px] h-20">
                 {daily.map((v, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center justify-end h-full" title={`${i + 1}日 ¥${money(v)}`}>
