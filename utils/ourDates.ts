@@ -20,7 +20,7 @@ export function getOurDates(char: Pick<CharacterProfile, 'id'> & { systemPrompt?
   return { ...v, charBirthday, custom: v.custom || [] };
 }
 export function setOurDates(charId: string, patch: Partial<OurDates>) {
-  const a = all(); a[charId] = { custom: [], ...(a[charId] || {}), ...patch };
+  const a = all(); const prev: Partial<OurDates> = a[charId] || {}; a[charId] = { ...prev, ...patch, custom: patch.custom ?? prev.custom ?? [] };
   try { localStorage.setItem(LS, JSON.stringify(a)); } catch { /* ignore */ }
 }
 

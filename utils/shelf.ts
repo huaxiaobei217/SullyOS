@@ -527,6 +527,12 @@ export function buildShelfBlock(charId: string, userName: string): string {
     const chTitle = b.chapterTitles[b.pos.ch] || '';
     const done = b.readTo.filter((r, i) => r >= (b.chapterSizes[i] || 1) - 1).length;
     lines.push(`- 《${b.title}》${b.author ? `（${b.author}）` : ''}：读到「${chTitle}」（${done}/${b.chapterTitles.length} 章读完）`);
+    // 二改：三小时内刚读完一章，带上这章梗概——他知道你刚读到了什么
+    if (now - b.lastReadAt < 3 * 3600 * 1000) {
+      let last = -1; b.readTo.forEach((r, i) => { if (r >= (b.chapterSizes[i] || 1) - 1) last = i; });
+      const outline = last >= 0 ? s.outlines[b.id]?.[last] : '';
+      if (outline) lines.push(`  · 她刚读完「${b.chapterTitles[last]}」，这章讲的是：${outline.slice(0, 160)}${outline.length > 160 ? '…' : ''}（可以随口聊一句你的看法，不用复述剧情）`);
+    }
     const notes = s.notes.filter(n => n.bookId === b.id && n.charId === charId).slice(0, 3);
     for (const n of notes) lines.push(`  · 你在页边写过：「${(n.quote || '').slice(0, 30)}」——${n.zh.slice(0, 60)}`);
     const talk = s.chat.filter(c => c.bookId === b.id && c.charId === charId).slice(-2);

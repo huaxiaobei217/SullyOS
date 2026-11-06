@@ -5,6 +5,7 @@ import { getCharCity, setCharCity, geocodeCity, refreshCharWeather, weatherLine,
 import { isBusyReplyOn, setBusyReplyOn } from '../../utils/busyReply';
 import { getOurDates, setOurDates } from '../../utils/ourDates';
 import { getDayState } from '../../utils/charDayState';
+import { isGoodDaysOn, setGoodDaysOn } from '../../utils/goodDays';
 
 const box = 'p-2.5 rounded-xl bg-white border border-slate-100 space-y-1.5';
 const title = 'block text-[11.5px] font-semibold text-slate-600';
@@ -16,6 +17,7 @@ const CharLifeRow: React.FC<{ char: CharacterProfile; userName: string }> = ({ c
   const [w, setW] = useState<CharWeather | null>(null);
   const [cityInput, setCityInput] = useState('');
   const [busyOn, setBusyOn] = useState(isBusyReplyOn(char.id));
+  const [goodOn, setGoodOn] = useState(isGoodDaysOn(char.id));
   const [dates, setDates] = useState(() => getOurDates(char as any));
   const [newName, setNewName] = useState(''); const [newDate, setNewDate] = useState('');
   const day = getDayState(char.id);
@@ -48,6 +50,14 @@ const CharLifeRow: React.FC<{ char: CharacterProfile; userName: string }> = ({ c
           <span className={hint}>日程上他在开会、在路上、在健身时，开着自动回复的话会多等半分钟到一分多钟，输入框上方写着他在干嘛。你手动点闪电还是马上回。</span>
         </span>
         <input type="checkbox" className="mt-1" checked={busyOn} onChange={e => { setBusyOn(e.target.checked); setBusyReplyOn(char.id, e.target.checked); }} />
+      </label>
+
+      <label className={`${box} flex items-start justify-between gap-3`}>
+        <span className="min-w-0">
+          <span className={title}>好的那天</span>
+          <span className={hint}>旧账本的温柔版：两周前、一个月前、三个月前前后，你说过的心愿和计划（想去、想学、第一次……）。只有正好接得上现在，比如你真去做了，他才轻轻提一句，一天最多一次。只读本机聊天记录，不花调用。</span>
+        </span>
+        <input type="checkbox" className="mt-1" checked={goodOn} onChange={e => { setGoodOn(e.target.checked); setGoodDaysOn(char.id, e.target.checked); }} />
       </label>
 
       <div className={box}>
