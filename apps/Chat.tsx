@@ -23,6 +23,7 @@ import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCs
 import TokenImg from '../components/os/TokenImg';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
+import { currentBusy, busyDelayMs } from '../utils/busyReply';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { generateSlotTheater } from '../utils/theaterGenerator';
@@ -3618,6 +3619,18 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     // Memoize ChatInputArea callbacks
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, inputPreferences]);
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
+    // 二改：他在忙（日程上在开会 / 在路上…）时自动回复晚一点，输入框上方写他在干嘛
+    const [busyWith, setBusyWith] = useState<string | null>(null);
+    useEffect(() => {
+        if (!char) { setBusyWith(null); return; }
+        let alive = true;
+        const check = () => { void currentBusy(char).then(b => { if (alive) setBusyWith(b); }); };
+        check();
+        const t = window.setInterval(check, 60_000);
+        return () => { alive = false; window.clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [char?.id]);
+    const busyRef = useRef(busyWith); busyRef.current = busyWith;
     const autoReply = useChatAutoReply({
         enabled: inputPreferences.autoReply,
         conversationId: activeCharacterId || null,
@@ -3628,6 +3641,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
+        delayMs: () => busyRef.current ? busyDelayMs() : 0,
+        label: busyWith && char ? `${char.name.split(/[·・\s]/)[0]}在${busyWith}，晚点回` : null,
     });
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
@@ -4604,6 +4619,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     enterToSend={inputPreferences.enterToSend}
                     autoReplyEnabled={inputPreferences.autoReply}
                     autoReplySeconds={autoReply.seconds}
+                    autoReplyLabel={busyWith && char ? `${char.name.split(/[·・\s]/)[0]}在${busyWith}，晚点回` : null}
                     onCancelAutoReply={autoReply.cancel}
                     onInputFocusChange={setIsInputFocused}
                     onDeleteSelected={handleBatchDelete}

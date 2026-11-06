@@ -15,6 +15,7 @@ import { buildBodyBlock } from './bodyLog';
 import { buildTripChatBlock } from './charTrip';
 import { buildCharWeatherBlock } from './charWeather';
 import { buildDayStateBlock } from './charDayState';
+import { buildOurDatesBlock } from './ourDates';
 import { buildSongPickBlock } from './charSongPicks';
 import { buildOurMusicBlock } from './music/musicStats';
 import { getScheduleDateKey } from './scheduleTime';
@@ -653,6 +654,8 @@ ${groupLogStr}\n`;
             }
             const weatherBlock = buildCharWeatherBlock(char);
             if (weatherBlock) volatileState += `\n${weatherBlock}\n`;
+            const datesBlock = buildOurDatesBlock(char, getScheduleDateKey(char), userProfile.name);
+            if (datesBlock) volatileState += `\n${datesBlock}\n`;
             const dayBlock = buildDayStateBlock(char.id, getScheduleDateKey(char));
             if (dayBlock) volatileState += `\n${dayBlock}\n`;
             const tripBlock = buildTripChatBlock(char, getScheduleDateKey(char), userProfile.name);

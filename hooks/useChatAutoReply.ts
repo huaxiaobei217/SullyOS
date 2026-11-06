@@ -9,6 +9,10 @@ interface Options {
     blocked: boolean;
     generating: boolean;
     onGenerate: () => void;
+    /** 二改：这次要等多久（他在忙时会久一点）；不填就是默认的 2 秒 */
+    delayMs?: () => number;
+    /** 倒计时旁边写什么（比如「他在开会」） */
+    label?: string | null;
 }
 
 const newWork = () => ({ pending: false, sends: new Set<symbol>(), cancelVersion: 0 });
@@ -79,14 +83,16 @@ export function useChatAutoReply(options: Options) {
             setSeconds(null);
             return;
         }
-        setSeconds(2);
-        const tick = window.setTimeout(() => { if (ready()) setSeconds(1); }, 1000);
+        const total = Math.max(CHAT_AUTO_REPLY_DELAY_MS, current.current.delayMs?.() || CHAT_AUTO_REPLY_DELAY_MS);
+        const startAt = Date.now();
+        setSeconds(Math.ceil(total / 1000));
+        const tick = window.setInterval(() => { if (ready()) setSeconds(Math.max(1, Math.ceil((total - (Date.now() - startAt)) / 1000))); }, 1000);
         const timer = window.setTimeout(() => {
             if (!ready()) return;
             cancel();
             current.current.onGenerate();
-        }, CHAT_AUTO_REPLY_DELAY_MS);
-        return () => { window.clearTimeout(tick); window.clearTimeout(timer); };
+        }, total);
+        return () => { window.clearInterval(tick); window.clearTimeout(timer); };
     }, [revision, visible, options.enabled, options.active, options.blocked, options.generating, options.conversationId, cancel]);
 
     return { seconds, beginSend, cancel };
