@@ -467,7 +467,17 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
 };
 
 const PhoneShell: React.FC = () => {
-  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation } = useOS();
+  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation, cloudBackupConfig } = useOS();
+  // 二改：给小克看的备份——开了每天自动的话，打开一分钟后悄悄传（距上次超过 20 小时才传）
+  const cloudCfgRef = useRef(cloudBackupConfig); cloudCfgRef.current = cloudBackupConfig;
+  useEffect(() => {
+    if (!isDataLoaded) return;
+    const run = () => { void import('../utils/claudeReadable').then(m => m.maybeAutoClaudeBackup(cloudCfgRef.current)).catch(() => {}); };
+    const t = window.setTimeout(run, 60000);
+    const onVis = () => { if (document.visibilityState === 'visible') window.setTimeout(run, 60000); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [isDataLoaded]);
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
   const deploymentNotice = useDeploymentNotice();
 

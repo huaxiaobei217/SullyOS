@@ -60,6 +60,7 @@ import TropeCleanPanel from '../components/settings/TropeCleanPanel';
 import NewsTastePanel from '../components/settings/NewsTastePanel';
 import NoahBackupPanel from '../components/settings/NoahBackupPanel';
 import SttOpenAiPanel from '../components/settings/SttOpenAiPanel';
+import ClaudeBackupRow from '../components/settings/ClaudeBackupRow';
 import AndroidImmersivePanel from '../components/settings/AndroidImmersivePanel';
 import NaiSettingsPanel from '../components/settings/NaiSettingsPanel';
 import { DB } from '../utils/db';
@@ -2501,6 +2502,7 @@ const Settings: React.FC = () => {
                             🔗 在 GitHub 上查看备份 (github.com/{cloudBackupConfig.githubOwner}/{cloudBackupConfig.githubRepo || 'sully-backup'}/releases) ↗
                         </a>
                     )}
+                    <ClaudeBackupRow config={cloudBackupConfig} />
 
                     {/* Switch-provider hint — shown to existing users so the
                         new GitHub option is discoverable from the connected

@@ -145,7 +145,7 @@ const authHeaders = (token: string, extra: Record<string, string> = {}): Record<
     ...extra,
 });
 
-type GhMethod = 'GET' | 'POST' | 'DELETE' | 'PATCH';
+type GhMethod = 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT';
 type GhResponse = {
     status: number;
     headers: Record<string, string>;
@@ -1094,4 +1094,40 @@ export const cleanupOldBackups = async (
         if (await deleteBackup(config, file)) deleted++;
     }
     return deleted;
+};
+
+
+/**
+ * 二改：往备份仓库里写一个普通文件（Contents API，覆盖同名文件）。
+ * 「给小克看的备份」用：去掉密钥的纯文字快照，git 历史自动留旧版。
+ */
+export const putRepoFile = async (
+    config: CloudBackupConfig,
+    path: string,
+    base64Content: string,
+    message: string,
+): Promise<{ ok: boolean; message: string }> => {
+    const token = config.githubToken;
+    const owner = config.githubOwner;
+    const repo = repoName(config);
+    if (!token || !owner) return { ok: false, message: '还没连接 GitHub 备份' };
+    const url = `${API_HOST}/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+    try {
+        const ensured = await ensureRepo(config);
+        if (!ensured.ok) return ensured;
+        let sha: string | undefined;
+        const get = await ghRequest(config, url, 'GET', { headers: authHeaders(token) });
+        if (get.status === 200) { try { sha = (await get.json())?.sha; } catch { /* ignore */ } }
+        const put = await ghRequest(config, url, 'PUT', {
+            headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ message, content: base64Content, ...(sha ? { sha } : {}) }),
+        });
+        if (put.status === 200 || put.status === 201) return { ok: true, message: '已上传' };
+        if (put.status === 413 || put.status === 422) return { ok: false, message: `GitHub 拒收（${put.status}），可能文件太大` };
+        if (put.status === 401) return { ok: false, message: 'Token 无效或已过期' };
+        if (put.status === 403 || put.status === 404) return { ok: false, message: 'Token 没有这个仓库的写权限' };
+        return { ok: false, message: `上传失败（${put.status}）` };
+    } catch (e: any) {
+        return { ok: false, message: `连接失败：${e?.message || '网络错误'}` };
+    }
 };
