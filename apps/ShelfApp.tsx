@@ -152,6 +152,8 @@ const ShelfApp: React.FC = () => {
   const [stage, setStage] = useState<{ ch: number; para: number } | null>(null);
   const [tocTab, setTocTab] = useState<'toc' | 'people'>('toc');
   const [noteSay, setNoteSay] = useState('');
+  const [showType, setShowType] = useState(false);
+  const [showDraw, setShowDraw] = useState(false);
   const [noteBusy, setNoteBusy] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const toggleOrig = (id: string) => setShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -411,7 +413,7 @@ const ShelfApp: React.FC = () => {
     if (menuAt) { setMenuAt(null); setTapped(null); return; }
     const r = pageBoxRef.current!.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
-    if (bars) { setBars(false); return; }
+    if (bars) { setBars(false); setShowType(false); return; }
     if (x < 0.3) turn(-1); else if (x > 0.7) turn(1); else setBars(true);
   };
   const onTouchStart = (e: React.TouchEvent) => {
@@ -727,14 +729,24 @@ const ShelfApp: React.FC = () => {
                   <input type="range" min={0} max={Math.max(0, pages - 1)} value={page} onChange={e => { const v = Number(e.target.value); setCurl(null); setPage(v); savePagePos(v); }} className="flex-1" style={{ accentColor: T.accent }} />
                   <button onClick={() => { setBars(false); finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="disabled:opacity-30" style={{ color: T.muted }}>下一章</button>
                 </div>
-                <div className="grid grid-cols-7 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
+                {showType && (
+                  <div className="flex items-center justify-center gap-4 mt-3 py-2 rounded-xl text-[12px]" style={{ background: T.paperDeep, color: T.ink }}>
+                    <button onClick={() => { const v = Math.max(14, size - 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }} className="px-2">A−</button>
+                    <span style={{ color: T.muted }}>{size}</span>
+                    <button onClick={() => { const v = Math.min(24, size + 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }} className="px-2">A+</button>
+                    <span className="w-px h-4" style={{ background: T.line }} />
+                    {(['serif', 'sans'] as const).map(f => (
+                      <button key={f} onClick={() => { setFamily(f); restoreRef.current = 'pos'; try { localStorage.setItem(FAMILY_KEY, f); } catch { /* ignore */ } }} className="px-2 py-0.5 rounded-md" style={{ fontFamily: FONTS[f], background: family === f ? '#fffdf8' : 'transparent' }}>{f === 'serif' ? '宋体' : '黑体'}</button>
+                    ))}
+                    <span className="w-px h-4" style={{ background: T.line }} />
+                    <button onClick={() => { setBars(false); setShowType(false); setFlip(false); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, '0'); } catch { /* ignore */ } setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }} className="px-1" style={{ color: T.muted }}>改成滚动</button>
+                  </div>
+                )}
+                <div className="grid grid-cols-4 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
                   <button onClick={() => { setBars(false); setShowToc(true); }}>☰<div className="mt-0.5" style={{ color: T.muted }}>目录</div></button>
-                  <button onClick={() => { const v = Math.max(14, size - 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A-<div className="mt-0.5" style={{ color: T.muted }}>{size}</div></button>
-                  <button onClick={() => { const v = Math.min(24, size + 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A+<div className="mt-0.5" style={{ color: T.muted }}>字号</div></button>
-                  <button onClick={() => { const v = family === 'serif' ? 'sans' : 'serif'; setFamily(v); restoreRef.current = 'pos'; try { localStorage.setItem(FAMILY_KEY, v); } catch { /* ignore */ } }}><span style={{ fontFamily: FONTS[family === 'serif' ? 'serif' : 'sans'] }}>{family === 'serif' ? '宋' : '黑'}</span><div className="mt-0.5" style={{ color: T.muted }}>字体</div></button>
+                  <button onClick={() => setShowType(v => !v)} style={{ color: showType ? T.accent : T.ink }}>Aa<div className="mt-0.5" style={{ color: T.muted }}>排版</div></button>
                   {readAloudSupported() ? <button onClick={() => { setBars(false); toggleListen(); }} style={{ color: ra.active ? T.accent : T.ink }}>{ra.active ? '■' : '♪'}<div className="mt-0.5" style={{ color: T.muted }}>{ra.active ? '停止' : '听书'}</div></button> : <span />}
                   <button onClick={openStage}><span style={{ fontFamily: FONTS.serif }}>演</span><div className="mt-0.5" style={{ color: T.muted }}>演出</div></button>
-                  <button onClick={() => { setBars(false); setFlip(false); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, '0'); } catch { /* ignore */ } setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }}>⇅<div className="mt-0.5" style={{ color: T.muted }}>滚动</div></button>
                 </div>
               </div>
             </>
@@ -915,17 +927,20 @@ const ShelfApp: React.FC = () => {
             ))}
             <div ref={chatEnd} />
           </div>
-          <div className="flex gap-1.5 px-4 pb-1.5 overflow-x-auto no-scrollbar">
-            {([['relation', '☍ 人物关系'], ['timeline', '┊ 时间线'], ['radar', '✳ 人物对比'], ['mentions', '▥ 出场次数']] as const).map(([k, label]) => (
-              <button key={k} onClick={() => drawChart(k)} disabled={!!busy} className="shrink-0 text-[11px] px-2.5 py-1 rounded-full disabled:opacity-40" style={{ background: T.paperDeep, color: T.accent }}>{label}</button>
-            ))}
-          </div>
+          {showDraw && (
+            <div className="flex gap-1.5 px-4 pb-1.5 overflow-x-auto no-scrollbar">
+              {([['relation', '☍ 人物关系'], ['timeline', '┊ 时间线'], ['radar', '✳ 人物对比'], ['mentions', '▥ 出场次数']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => { setShowDraw(false); drawChart(k); }} disabled={!!busy} className="shrink-0 text-[11px] px-2.5 py-1 rounded-full disabled:opacity-40" style={{ background: T.paperDeep, color: T.accent }}>{label}</button>
+              ))}
+            </div>
+          )}
           {quote && (
             <div className="mx-4 mb-1 text-[11px] flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: T.paperDeep, color: T.muted }}>
               <span className="flex-1 truncate">指着：「{quote}」</span><button onClick={() => setQuote('')}>×</button>
             </div>
           )}
           <div className="flex gap-2 px-4 pb-4 pt-1" style={{ paddingBottom: 'calc(var(--safe-bottom, 0px) + 1rem)' }}>
+            <button onClick={() => setShowDraw(v => !v)} className="shrink-0 w-9 rounded-xl text-[15px]" style={{ background: showDraw ? T.paperDeep : T.paper, border: `1px solid ${T.line}`, color: T.accent }} aria-label="画图">▥</button>
             <input value={say} onChange={e => setSay(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send(); }} placeholder="吐槽一句…" className="flex-1 min-w-0 px-3 py-2 rounded-xl text-[13px] outline-none" style={{ background: T.paper, border: `1px solid ${T.line}` }} />
             <button onClick={send} disabled={!say.trim() || !!busy} className="px-4 rounded-xl text-[13px] text-white disabled:opacity-40" style={{ background: T.accent }}>说</button>
           </div>
