@@ -7,7 +7,7 @@ import { useOS } from '../context/OSContext';
 import type { CharacterProfile } from '../types';
 import {
   loadShelf, SHELF_EVENT, importBook, loadChapters, deleteBook, savePosition, annotateChapter, chatAboutBook, toggleAutoNote,
-  summarizeChapter, addReadingSeconds, markFinishedIfDone, loadStats, readingStreak, fmtMinutes, dayKeyOf, shareShelfNote, shareShelfTalk,
+  summarizeChapter, addReadingSeconds, askChart, mentionChart, pushChartMessage, markFinishedIfDone, loadStats, readingStreak, fmtMinutes, dayKeyOf, shareShelfNote, shareShelfTalk,
   type ShelfBook, type ShelfChapter, type ShelfNote, type ShelfChat,
 } from '../utils/shelf';
 import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
@@ -16,6 +16,7 @@ import TokenImg from '../components/os/TokenImg';
 import { useReadAloud, readAloudSupported } from '../hooks/useReadAloud';
 import { curlGeom, poly, FoldStrip, PageSheet, type Pt } from '../components/shelf/pageCurl';
 import StageMode from '../components/shelf/StageMode';
+import ChartCard from '../components/shelf/ChartCard';
 import { loadVocab, VOCAB_EVENT, addVocab, removeVocab, hasVocab, tokenize, isLatinText, lookupWord, sentenceOf, type VocabItem } from '../utils/shelfVocab';
 
 const T = {
@@ -232,6 +233,23 @@ const ShelfApp: React.FC = () => {
     setBusy('');
   };
   useEffect(() => { if (showChat) chatEnd.current?.scrollIntoView({ block: 'end' }); }, [showChat, store.chat.length]);
+
+  /** 伴读图表：人物关系 / 时间线 / 对比请他画；出场次数本地数 */
+  const drawChart = async (kind: 'relation' | 'timeline' | 'radar' | 'mentions') => {
+    if (!book || !char || busy) return;
+    const pos = loadShelf().books.find(b => b.id === book.id)?.pos || { ch, para: 0 };
+    const para = pos.ch === ch ? pos.para : (chapters[ch]?.paras.length || 1) - 1;
+    if (kind === 'mentions') {
+      const spec = await mentionChart(book, ch, para);
+      if (!spec) { addToast?.('读过的部分里还认不出几个人名', 'info'); return; }
+      pushChartMessage(book, char.id, ch, spec, '数了一下，到你读到的地方为止——');
+      return;
+    }
+    setBusy(`${char.name}在画…`);
+    try { await askChart(char, apiConfig, userName, book, ch, para, kind); }
+    catch (e: any) { addToast?.(`没画成：${e?.message || e}`, 'error'); }
+    setBusy('');
+  };
 
   const play = async (id: string, text: string) => {
     if (!char || !text) return;
@@ -836,6 +854,7 @@ const ShelfApp: React.FC = () => {
                     {c.text}
                     {c.voice && showOrig.has(c.id) && <div className="mt-1.5 pt-1.5 text-[11px] italic leading-snug border-t" style={{ color: T.muted, borderColor: T.line }}>{c.voice}</div>}
                   </div>
+                  {c.chart && <ChartCard spec={c.chart} />}
                   <div className="flex gap-3 mt-0.5 ml-1">
                     {hasVoice && <button onClick={() => play(c.id, c.voice || c.text)} className="text-[10.5px]" style={{ color: T.accent }}>{playing === c.id ? '■ 停' : `▶ 听${c.voice ? voiceLanguageLabel(lang) : ''}`}</button>}
                     {c.voice && <button onClick={() => toggleOrig(c.id)} className="text-[10.5px]" style={{ color: T.muted }}>{showOrig.has(c.id) ? '收起原文' : `看${voiceLanguageLabel(lang)}原文`}</button>}
@@ -845,6 +864,11 @@ const ShelfApp: React.FC = () => {
               </div>
             ))}
             <div ref={chatEnd} />
+          </div>
+          <div className="flex gap-1.5 px-4 pb-1.5 overflow-x-auto no-scrollbar">
+            {([['relation', '☍ 人物关系'], ['timeline', '┊ 时间线'], ['radar', '✳ 人物对比'], ['mentions', '▥ 出场次数']] as const).map(([k, label]) => (
+              <button key={k} onClick={() => drawChart(k)} disabled={!!busy} className="shrink-0 text-[11px] px-2.5 py-1 rounded-full disabled:opacity-40" style={{ background: T.paperDeep, color: T.accent }}>{label}</button>
+            ))}
           </div>
           {quote && (
             <div className="mx-4 mb-1 text-[11px] flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: T.paperDeep, color: T.muted }}>

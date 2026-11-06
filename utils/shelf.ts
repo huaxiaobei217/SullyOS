@@ -11,6 +11,8 @@ import { DB } from './db';
 import { callAsChar } from './footnote';
 import { voiceLanguageLabel } from './voiceLanguage';
 import { safeFetchJson, extractContent } from './safeApi';
+import { extractChart, CHART_FORMAT, type ChartSpec } from './shelfChart';
+import { harvestNames } from './shelfStage';
 
 export interface ShelfChapter { title: string; paras: string[] }
 export interface ShelfBook {
@@ -38,7 +40,7 @@ export interface ShelfNote {
   voice: string;             // 用他的语音语言写的同一句，念出来用
   at: number;
 }
-export interface ShelfChat { id: string; bookId: string; charId: string; role: 'me' | 'him'; text: string; voice?: string; quote?: string; ch: number; at: number }
+export interface ShelfChat { id: string; bookId: string; charId: string; role: 'me' | 'him'; text: string; voice?: string; quote?: string; ch: number; at: number; chart?: ChartSpec }
 
 interface Store {
   books: ShelfBook[]; notes: ShelfNote[]; chat: ShelfChat[]; autoNote: boolean;
@@ -349,14 +351,65 @@ export async function chatAboutBook(char: CharacterProfile, api: APIConfig, user
   const { text } = await callAsChar(char, api,
     `${ROLE(userName, book, ch, pct)}
 【伴读聊天】她在跟你吐槽 / 讨论，你接着她的话聊，1～4 句，像并排坐着看书时小声说话。可以接梗、反驳、讲你的感受、联系前面的情节；别总结剧情，别说教，不要用括号写动作。前情只是帮你回忆，和当前原文冲突时以原文为准；记不清的就直说，别编。
-先写中文回复；然后另起一行写 [VOICE]，再写同一段话的${langNote(lang)}版本（你会用这门语言念给她听）。`,
+先写中文回复；然后另起一行写 [VOICE]，再写同一段话的${langNote(lang)}版本（你会用这门语言念给她听）。
+如果她让你画图、理人物关系、排时间线、做对比，最后再另起一行写 [CHART] 加一个 JSON。${CHART_FORMAT}
+没让画就不要画。`,
     `${background ? `【前情】之前各章的梗概：\n${background}\n\n` : ''}${myNotes ? `【你在这章页边写过的批注】\n${myNotes}\n\n` : ''}【当前场景】她读到的地方附近的原文：\n${scene}\n\n${quote ? `她指着这一句：「${quote}」\n` : ''}${history ? `\n【你们刚才的对话】\n${history}\n` : ''}\n${userName}：${said}`,
     '书影架·伴读', 1200);
-  const { zh, voice } = splitVoice(text);
+  const { text: noChart, chart } = extractChart(text);
+  const { zh, voice } = splitVoice(noChart);
   const mine: ShelfChat = { id: uid('sc'), bookId: book.id, charId: char.id, role: 'me', text: said, quote, ch, at: Date.now() };
-  const his: ShelfChat = { id: uid('sc'), bookId: book.id, charId: char.id, role: 'him', text: zh, voice, ch, at: Date.now() + 1 };
+  const his: ShelfChat = { id: uid('sc'), bookId: book.id, charId: char.id, role: 'him', text: zh, voice, ch, at: Date.now() + 1, ...(chart ? { chart } : {}) };
   updateShelf(s => ({ ...s, chat: [...s.chat, mine, his] }));
   return his;
+}
+
+/* ───────── 伴读图表 ───────── */
+/** 已读范围的原文（到 ch 章第 para 段为止） */
+async function readTexts(bookId: string, ch: number, para: number): Promise<string[]> {
+  const chapters = await loadChapters(bookId);
+  return chapters.slice(0, ch + 1).map((c, i) => (i < ch ? c.paras : c.paras.slice(0, para + 1)).join('\n'));
+}
+
+/** 出场次数：本地数，不花调用 */
+export async function mentionChart(book: ShelfBook, ch: number, para: number): Promise<ChartSpec | null> {
+  const texts = await readTexts(book.id, ch, para);
+  const names = [...harvestNames(texts).entries()].filter(([, c]) => c >= 2).map(([n]) => n);
+  const all = texts.join('\n');
+  const counts = names.map(n => [n, all.split(n).length - 1] as const).filter(([, c]) => c >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (counts.length < 2) return null;
+  return { type: 'bar', title: '到这里为止谁出场最多', labels: counts.map(x => x[0]), values: counts.map(x => x[1]), unit: '次', note: '按你读过的部分数的，名字是从「某某说」里认出来的，可能漏人' };
+}
+
+/** 请他画一张：人物关系 / 时间线 / 人物对比 */
+export async function askChart(char: CharacterProfile, api: APIConfig, userName: string, book: ShelfBook, ch: number, para: number, kind: 'relation' | 'timeline' | 'radar'): Promise<ShelfChat> {
+  const chapters = await loadChapters(book.id);
+  const chapter = chapters[ch];
+  const background = backgroundOf(book.id, ch, 6000);
+  const cur = (chapter?.paras.slice(0, para + 1) || []).join('\n').slice(-5000);
+  const texts = await readTexts(book.id, ch, para);
+  const names = [...harvestNames(texts).entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).slice(0, 16).map(([n]) => n);
+  const ask = kind === 'relation' ? '把到目前为止的主要人物关系画成关系图（只画读到的部分里确定的关系）'
+    : kind === 'timeline' ? '把到目前为止的主要事件排成时间线（按发生顺序，when 写第几章或书里的时间）'
+    : '挑两三个主要人物，按 4～6 个维度打分做个雷达图对比（0～10，维度你来定，要有意思）';
+  const { text } = await callAsChar(char, api,
+    `${ROLE(userName, book, ch)}
+【画图】她让你${ask}。不剧透：只用下面给你的已读内容，没写到的不要补。
+先写一句你的话（口语，1 句，像边画边随口说的）；然后另起一行写 [CHART]，后面跟一个 JSON。
+${CHART_FORMAT}`,
+    `${background ? `【前情】已读各章梗概：\n${background}\n\n` : ''}【这一章读到的部分】\n${cur}\n\n${names.length ? `【读到的部分里说过话的人】${names.join('、')}\n` : ''}`,
+    '书影架·画图', 2200);
+  const { text: words, chart } = extractChart(text);
+  if (!chart) throw new Error('他画的图格式没对上，再试一次');
+  const his: ShelfChat = { id: uid('sc'), bookId: book.id, charId: char.id, role: 'him', text: splitVoice(words).zh || '画好了', ch, at: Date.now(), chart };
+  updateShelf(s => ({ ...s, chat: [...s.chat, his] }));
+  return his;
+}
+
+/** 本地数出来的图也放进伴读记录里 */
+export function pushChartMessage(book: ShelfBook, charId: string, ch: number, chart: ChartSpec, text: string) {
+  const msg: ShelfChat = { id: uid('sc'), bookId: book.id, charId, role: 'him', text, ch, at: Date.now(), chart };
+  updateShelf(s => ({ ...s, chat: [...s.chat, msg] }));
 }
 
 /* ───────── 读书统计 ───────── */
