@@ -12,6 +12,8 @@ import { cleanApiMessages, flattenImageContentParts } from './promptMessageClean
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 import { buildTripSchedulePrompt, acceptTripFromSchedule } from './charTrip';
 import { buildYesterdayTraces } from './lifeThread';
+import { buildDayStatePrompt, acceptDayState } from './charDayState';
+import { refreshCharWeather, weatherLine } from './charWeather';
 import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
 
 
@@ -291,9 +293,10 @@ export async function generateDailyScheduleForChar(
     const {scheduleHomeVisitPrompt,submitScheduleHomeVisits}=await import('./homeVisits');
     const homePrompt = buildHomeSchedulePrompt(char);
     const visitPrompt=await scheduleHomeVisitPrompt(char);
+    const weather = style === 'mindful' ? null : await refreshCharWeather(char).catch(() => null);
     const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户') + buildYesterdayTraces(char.id)) + homePrompt + visitPrompt;
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户') + buildYesterdayTraces(char.id) + buildDayStatePrompt(char, userProfile?.name || '用户') + (weather ? `\n\n### 你那边今天的天气（真实的）\n${weatherLine(weather)}。日程要和天气对得上（下雨就别安排在公园晒太阳）。` : '')) + homePrompt + visitPrompt;
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -367,6 +370,7 @@ export async function generateDailyScheduleForChar(
         // Missing or stale room IDs must not overwrite a usable old schedule.
         if (homePrompt && !hasHomeSchedulePositions(schedule, char)) return null;
         if (style !== 'mindful') { try { acceptTripFromSchedule(char.id, today, parsed.trip); } catch { /* ignore */ } }
+        if (style !== 'mindful') { try { acceptDayState(char.id, today, parsed.condition, parsed.threads); } catch { /* ignore */ } }
         await submitScheduleHomeVisits(char,schedule.date,parsed.homeVisits,schedule);
         return schedule;
     } catch (e) {

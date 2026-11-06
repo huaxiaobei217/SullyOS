@@ -10,6 +10,8 @@ import { getCurrentSlot } from './charMusicSchedule';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { buildTripChatBlock } from './charTrip';
 import { getScheduleDateKey } from './scheduleTime';
+import { refreshCharWeather, weatherLine } from './charWeather';
+import { buildDayStateBlock } from './charDayState';
 
 /** 他今天的日程 + 出门状态（写纸条、录电台用） */
 export async function buildTodayLifeBlock(char: CharacterProfile, userName: string): Promise<string> {
@@ -24,6 +26,8 @@ export async function buildTodayLifeBlock(char: CharacterProfile, userName: stri
     }
   } catch { /* 没日程就算了 */ }
   try { const trip = buildTripChatBlock(char, getScheduleDateKey(char), userName); if (trip) parts.push(trip.replace(/^###\s*/, '')); } catch { /* ignore */ }
+  try { const w = await refreshCharWeather(char); if (w) parts.push(`天气：${weatherLine(w)}`); } catch { /* ignore */ }
+  try { const d = buildDayStateBlock(char.id, getScheduleDateKey(char)); if (d) parts.push(d.replace(/^###\s*你今天\n/, '')); } catch { /* ignore */ }
   if (!parts.length) return '';
   return `### 你今天的生活（背景）
 ${parts.join('\n\n')}
