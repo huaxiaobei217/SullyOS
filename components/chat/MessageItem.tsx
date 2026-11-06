@@ -3354,6 +3354,8 @@ const MessageItem = React.memo(({
     // 也是中文，用户看到两份一样的翻译。这类消息把双语文字统一收进语音条，
     // 顶部不再重复渲染正文，也不再显示（此时已无意义的）译/原文切换按钮。
     const isForeignVoiceMsg = !isUser && m.type === 'text' && !!voiceData?.url && !!voiceData?.lang && !!cleanVoiceText(voiceData?.spokenText);
+    // 二改：语音消息像微信那样只显示语音条，文字点开（或者点播放）才看到，不在语音条上面再铺一遍
+    const hideTextForVoice = !isUser && m.type === 'text' && (isForeignVoiceMsg || hasVoiceTag);
 
     return commonLayout(
         <div className={isVoiceOnlyMsg
@@ -3397,7 +3399,7 @@ const MessageItem = React.memo(({
 
             {/* Layer 4: Text Content — shown when there's visible text after stripping voice tags */}
             {/* 外语语音消息把双语文字交给下方语音条渲染，顶部不再重复正文 */}
-            {displayContent && !isForeignVoiceMsg && (
+            {displayContent && !hideTextForVoice && (
             <div className="relative z-10 text-[15px] leading-relaxed whitespace-pre-wrap break-normal [overflow-wrap:anywhere] select-text" style={{ color: styleConfig.textColor }}>
                 {renderContent(displayContent)}
                 {showExpandedTranslation && (
@@ -3417,7 +3419,7 @@ const MessageItem = React.memo(({
             )}
 
             {/* Layer 5: 双语「翻译/原文」切换 —— 气泡内右下角，细分隔线压层级，小灰字克制易找 */}
-            {showTranslateButton && displayContent && !isForeignVoiceMsg && (
+            {showTranslateButton && displayContent && !hideTextForVoice && (
                 <div
                     className="relative z-10 mt-2 pt-1.5 flex justify-end"
                     style={{ borderTop: '1px solid rgba(127, 127, 127, 0.16)' }}
@@ -3451,13 +3453,13 @@ const MessageItem = React.memo(({
                 const vbText = styleConfig.voiceBarTextColor;
                 // Voice-only mode: no visible text, voice bar is primary content.
                 // 外语语音消息顶部正文已隐藏（交给语音条渲染），同样按纯语音处理，去掉多余上间距。
-                const isVoiceOnly = !!voiceData?.url && (!displayContent || isForeignVoiceMsg);
+                const isVoiceOnly = (!!voiceData?.url || hasVoiceTag) && (!displayContent || hideTextForVoice);
                 return (
                 <div className={`sully-voice-bar-shell relative z-10 ${isVoiceOnly ? '' : 'mt-2.5'}`}>
                     {voiceData?.url ? (
                         <div className="max-w-[260px]">
                             <button
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); if (!isVoicePlaying) trackEvent('播放语音条'); }}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); if (!isVoicePlaying) { trackEvent('播放语音条'); setShowVoiceText(true); } }}
                                 className="sully-voice-bar group flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl transition-all duration-300 active:scale-[0.97] select-none"
                                 style={{
                                     background: isVoicePlaying
@@ -3581,7 +3583,7 @@ const MessageItem = React.memo(({
                                 style={{ background: vbBg || 'linear-gradient(135deg, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0.06) 100%)', border: '1px solid rgba(0,0,0,0.05)' }}
                             >
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); }}
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); setShowVoiceText(true); }}
                                     className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center active:scale-[0.92] transition-transform"
                                     style={{ backgroundColor: vbBg ? 'rgba(255,255,255,0.25)' : 'rgba(148,163,184,0.2)' }}
                                 >
@@ -3615,7 +3617,14 @@ const MessageItem = React.memo(({
                                         border: '1px solid rgba(0,0,0,0.04)',
                                     }}
                                 >
-                                    {voiceTagText || displayContent}
+                                    {voiceTagText ? (
+                                        <>
+                                            <div>{voiceTagText}</div>
+                                            {(voiceSubtitleText || displayContent) && (voiceSubtitleText || displayContent) !== voiceTagText && (
+                                                <div style={{ opacity: 0.65 }} className="text-[10px] mt-1 pt-1 border-t border-current/10">{voiceSubtitleText || displayContent}</div>
+                                            )}
+                                        </>
+                                    ) : displayContent}
                                 </div>
                             )}
                         </div>

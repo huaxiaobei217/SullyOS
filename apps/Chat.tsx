@@ -4315,7 +4315,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 );
             })()}
 
-            <StreamingVoiceBar state={streamingVoice.state} onStop={stopStreamingVoice} />
+            {/* 二改：不再弹白色字幕条，点语音条时文字直接在气泡里展开 */}
+            {streamingVoice.state?.status === 'error' && <StreamingVoiceBar state={streamingVoice.state} onStop={stopStreamingVoice} />}
             <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
