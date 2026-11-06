@@ -257,7 +257,7 @@ const chapterText = (chapter: ShelfChapter, last: number, cap = 9000) => {
 };
 
 /** 不带人设的中立调用（写梗概用），走主 API */
-async function neutralCall(api: APIConfig, system: string, user: string, purpose: string, maxTokens = 1200): Promise<string> {
+export async function neutralCall(api: APIConfig, system: string, user: string, purpose: string, maxTokens = 1200): Promise<string> {
   if (!api?.baseUrl || !api.model) throw new Error('先在设置里配好 API');
   const data = await safeFetchJson(`${api.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
@@ -415,16 +415,24 @@ export function pushChartMessage(book: ShelfBook, charId: string, ch: number, ch
 /* ───────── 读书统计 ───────── */
 
 const LS_STATS = 'sully_shelf_stats_v1';
-export interface ShelfStats { days: Record<string, number>; books: Record<string, number>; finished: Record<string, number> }
+export interface ShelfStats {
+  days: Record<string, number>; books: Record<string, number>; finished: Record<string, number>;
+  /** 每天各读了哪本多久（二改新加，旧数据没有） */
+  dayBooks?: Record<string, Record<string, number>>;
+  /** 一天 24 个钟点各读了多久 */
+  hours?: number[];
+}
 export const dayKeyOf = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export const loadStats = (): ShelfStats => {
-  try { const s = JSON.parse(localStorage.getItem(LS_STATS) || 'null'); if (s?.days) return { days: s.days, books: s.books || {}, finished: s.finished || {} }; } catch { /* ignore */ }
-  return { days: {}, books: {}, finished: {} };
+  try { const s = JSON.parse(localStorage.getItem(LS_STATS) || 'null'); if (s?.days) return { days: s.days, books: s.books || {}, finished: s.finished || {}, dayBooks: s.dayBooks || {}, hours: Array.isArray(s.hours) && s.hours.length === 24 ? s.hours : Array(24).fill(0) }; } catch { /* ignore */ }
+  return { days: {}, books: {}, finished: {}, dayBooks: {}, hours: Array(24).fill(0) };
 };
 const saveStats = (s: ShelfStats) => { try { localStorage.setItem(LS_STATS, JSON.stringify(s)); } catch { /* ignore */ } };
 export function addReadingSeconds(bookId: string, sec: number) {
   const s = loadStats(); const k = dayKeyOf(Date.now());
   s.days[k] = (s.days[k] || 0) + sec; s.books[bookId] = (s.books[bookId] || 0) + sec;
+  const db = (s.dayBooks ||= {}); const today = (db[k] ||= {}); today[bookId] = (today[bookId] || 0) + sec;
+  const h = new Date().getHours(); (s.hours ||= Array(24).fill(0))[h] = (s.hours[h] || 0) + sec;
   saveStats(s);
 }
 export function markFinishedIfDone(bookId: string) {

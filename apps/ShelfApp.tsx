@@ -17,6 +17,8 @@ import { useReadAloud, readAloudSupported } from '../hooks/useReadAloud';
 import { curlGeom, poly, FoldStrip, PageSheet, type Pt } from '../components/shelf/pageCurl';
 import StageMode from '../components/shelf/StageMode';
 import ChartCard from '../components/shelf/ChartCard';
+import PeoplePanel from '../components/shelf/PeoplePanel';
+import StatsPage from '../components/shelf/StatsPage';
 import { loadVocab, VOCAB_EVENT, addVocab, removeVocab, hasVocab, tokenize, isLatinText, lookupWord, sentenceOf, type VocabItem } from '../utils/shelfVocab';
 
 const T = {
@@ -141,6 +143,8 @@ const ShelfApp: React.FC = () => {
   const [showVocab, setShowVocab] = useState(false);
   const [showOrig, setShowOrig] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<{ ch: number; para: number } | null>(null);
+  const [tocTab, setTocTab] = useState<'toc' | 'people'>('toc');
+  const [showStats, setShowStats] = useState(false);
   const toggleOrig = (id: string) => setShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const userName = userProfile?.name || '我';
   const lang = char?.callVoiceLang || 'en';
@@ -551,7 +555,8 @@ const ShelfApp: React.FC = () => {
           const max = Math.max(600, ...days.map(x => x.sec));
           if (!total) return null;
           return (
-            <div className="mx-5 mb-4 rounded-2xl p-3.5" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }}>
+            <div className="mx-5 mb-4 rounded-2xl p-3.5 relative cursor-pointer" onClick={() => setShowStats(true)} style={{ background: '#fffdf8', border: `1px solid ${T.line}` }}>
+              <div className="absolute right-3 top-1.5 text-[9.5px]" style={{ color: T.faint }}>更多 ›</div>
               <div className="flex text-center">
                 {[['今天', fmtMinutes(days[13].sec)], ['这周', fmtMinutes(week)], ['一共', fmtMinutes(total)], ['读完', `${Object.keys(st.finished).length} 本`], ['连续', `${readingStreak()} 天`]].map(([k, v]) => (
                   <div key={k} className="flex-1"><div className="text-[12.5px] font-serif" style={{ color: T.ink }}>{v}</div><div className="text-[9.5px]" style={{ color: T.faint }}>{k}</div></div>
@@ -568,6 +573,7 @@ const ShelfApp: React.FC = () => {
             </div>
           );
         })()}
+        {showStats && <StatsPage books={store.books} onClose={() => setShowStats(false)} />}
         <div className="flex-1 overflow-y-auto px-5 pb-10">
           {!store.books.length && (
             <div className="text-center text-xs leading-relaxed mt-16" style={{ color: T.faint }}>
@@ -818,8 +824,11 @@ const ShelfApp: React.FC = () => {
         <div className="absolute inset-0 z-40 flex">
           <div className="flex-1 bg-black/30" onClick={() => setShowToc(false)} />
           <div className="w-72 h-full overflow-y-auto p-4" style={{ background: T.paper, paddingTop: 'calc(var(--chrome-top) + 1rem)' }}>
-            <div className="text-xs mb-3 tracking-widest" style={{ color: T.muted }}>目录</div>
-            {book.chapterTitles.map((t, i) => {
+            <div className="flex gap-4 text-xs mb-3 tracking-widest">
+              {([['toc', '目录'], ['people', '人物']] as const).map(([k, l]) => <button key={k} onClick={() => setTocTab(k)} style={{ color: tocTab === k ? T.ink : T.faint, borderBottom: tocTab === k ? `2px solid ${T.accent}` : '2px solid transparent', paddingBottom: 3 }}>{l}</button>)}
+            </div>
+            {tocTab === 'people' && <PeoplePanel book={book} api={apiConfig} readCh={Math.max(ch, loadShelf().books.find(b => b.id === book.id)?.pos.ch ?? 0)} chapterTitles={book.chapterTitles} onJump={i => { setTocTab('toc'); goChapter(i); }} toast={addToast} />}
+            {tocTab === 'toc' && book.chapterTitles.map((t, i) => {
               const read = (book.readTo[i] ?? -1) >= (book.chapterSizes[i] || 1) - 1;
               const n = store.notes.filter(x => x.bookId === book.id && x.ch === i && x.charId === charId).length;
               return (
