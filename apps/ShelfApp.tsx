@@ -15,6 +15,7 @@ import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import TokenImg from '../components/os/TokenImg';
 import { useReadAloud, readAloudSupported } from '../hooks/useReadAloud';
 import { curlGeom, poly, FoldStrip, PageSheet, type Pt } from '../components/shelf/pageCurl';
+import StageMode from '../components/shelf/StageMode';
 import { loadVocab, VOCAB_EVENT, addVocab, removeVocab, hasVocab, tokenize, isLatinText, lookupWord, sentenceOf, type VocabItem } from '../utils/shelfVocab';
 
 const T = {
@@ -138,6 +139,7 @@ const ShelfApp: React.FC = () => {
   const [lookup, setLookup] = useState<{ word: string; sentence: string; res?: { phonetic?: string; meaning: string; note?: string }; err?: string } | null>(null);
   const [showVocab, setShowVocab] = useState(false);
   const [showOrig, setShowOrig] = useState<Set<string>>(new Set());
+  const [stage, setStage] = useState<{ ch: number; para: number } | null>(null);
   const toggleOrig = (id: string) => setShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const userName = userProfile?.name || '我';
   const lang = char?.callVoiceLang || 'en';
@@ -303,7 +305,7 @@ const ShelfApp: React.FC = () => {
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flip, box.w, box.h, ch, chapters, size, family, store.notes.length]);
+  }, [flip, box.w, box.h, ch, chapters, size, family, store.notes.length, !!stage]);
 
   const savePagePos = (pg: number) => {
     if (!book) return;
@@ -435,6 +437,16 @@ const ShelfApp: React.FC = () => {
     onTouchMove: () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } },
     onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); suppressClick.current = true; openMenu(i); },
   });
+
+  /* ───── 演出模式 ───── */
+  const openStage = () => {
+    if (!book) return;
+    ra.stop(); setBars(false); setMenuAt(null); setTapped(null);
+    let para = 0;
+    if (flip) { for (let i = 0; i < (chapters[ch]?.paras.length || 0); i++) { if (pageOf(i) < page) para = i + 1; else break; } }
+    else { const b = loadShelf().books.find(x => x.id === book.id); para = b && b.pos.ch === ch ? b.pos.para : 0; }
+    setStage({ ch, para: Math.min(para, Math.max(0, (chapters[ch]?.paras.length || 1) - 1)) });
+  };
 
   /* ───── 听书（系统朗读） ───── */
   const ra = useReadAloud(
@@ -577,6 +589,16 @@ const ShelfApp: React.FC = () => {
   ) : null;
   return (
     <div className="h-full w-full flex flex-col relative" style={{ background: T.paper, color: T.ink }}>
+      {stage && (
+        <StageMode book={book} chapters={chapters} startCh={stage.ch} startPara={stage.para}
+          onProgress={(c, p) => { lastActive.current = Date.now(); savePosition(book.id, c, p); }}
+          onChapterDone={c => {
+            savePosition(book.id, c, Math.max(0, (chapters[c]?.paras.length || 1) - 1));
+            markFinishedIfDone(book.id);
+            if (!store.outlines[book.id]?.[c] && (chapters[c]?.paras.join('').length || 0) >= 200) summarizeChapter(apiConfig, book, c).catch(() => {});
+          }}
+          onExit={(c, p) => { savePosition(book.id, c, p); restoreRef.current = 'pos'; setCurl(null); setStage(null); if (c !== ch) setCh(c); if (!flip) setTimeout(() => paraRefs.current[p]?.scrollIntoView({ block: 'start' }), 80); }} />
+      )}
       {!flip && <div className="shrink-0 px-4 pb-2 flex items-center gap-2 border-b" style={{ paddingTop: 'calc(var(--chrome-top) + 0.4rem)', borderColor: T.line }}>
         <button onClick={() => { ra.stop(); setBookId(null); setChapters([]); setShowChat(false); }} className="text-sm shrink-0" style={{ color: T.muted }}>‹</button>
         <button onClick={() => setShowToc(true)} className="flex-1 min-w-0 text-left">
@@ -584,6 +606,7 @@ const ShelfApp: React.FC = () => {
           <div className="text-[13px] font-serif truncate">{chapter?.title || ''}</div>
         </button>
         {readAloudSupported() && <button onClick={toggleListen} className="text-xs px-1" style={{ color: ra.active ? T.accent : T.muted }}>{ra.active ? '■ 停' : '听书'}</button>}
+        <button onClick={openStage} className="text-xs px-1" style={{ color: T.muted }}>演出</button>
         <button onClick={() => { const v = !flip; setFlip(v); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, v ? '1' : '0'); } catch { /* ignore */ } if (!v) setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }} className="text-xs px-1" style={{ color: T.muted }}>{flip ? '翻页' : '滚动'}</button>
         <button onClick={() => { const v = size >= 22 ? 15 : size + 1; setSize(v); try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }} className="text-xs px-1.5" style={{ color: T.muted }}>Aa {size}</button>
         {char && <button onClick={() => setShowChat(true)} className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ background: T.paperDeep }}>
@@ -671,12 +694,13 @@ const ShelfApp: React.FC = () => {
                   <input type="range" min={0} max={Math.max(0, pages - 1)} value={page} onChange={e => { const v = Number(e.target.value); setCurl(null); setPage(v); savePagePos(v); }} className="flex-1" style={{ accentColor: T.accent }} />
                   <button onClick={() => { setBars(false); finishChapter(); goChapter(ch + 1); }} disabled={ch >= chapters.length - 1} className="disabled:opacity-30" style={{ color: T.muted }}>下一章</button>
                 </div>
-                <div className="grid grid-cols-6 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
+                <div className="grid grid-cols-7 mt-3 text-[11px] text-center" style={{ color: T.ink }}>
                   <button onClick={() => { setBars(false); setShowToc(true); }}>☰<div className="mt-0.5" style={{ color: T.muted }}>目录</div></button>
                   <button onClick={() => { const v = Math.max(14, size - 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A-<div className="mt-0.5" style={{ color: T.muted }}>{size}</div></button>
                   <button onClick={() => { const v = Math.min(24, size + 1); setSize(v); restoreRef.current = 'pos'; try { localStorage.setItem(FONT_KEY, String(v)); } catch { /* ignore */ } }}>A+<div className="mt-0.5" style={{ color: T.muted }}>字号</div></button>
                   <button onClick={() => { const v = family === 'serif' ? 'sans' : 'serif'; setFamily(v); restoreRef.current = 'pos'; try { localStorage.setItem(FAMILY_KEY, v); } catch { /* ignore */ } }}><span style={{ fontFamily: FONTS[family === 'serif' ? 'serif' : 'sans'] }}>{family === 'serif' ? '宋' : '黑'}</span><div className="mt-0.5" style={{ color: T.muted }}>字体</div></button>
                   {readAloudSupported() ? <button onClick={() => { setBars(false); toggleListen(); }} style={{ color: ra.active ? T.accent : T.ink }}>{ra.active ? '■' : '♪'}<div className="mt-0.5" style={{ color: T.muted }}>{ra.active ? '停止' : '听书'}</div></button> : <span />}
+                  <button onClick={openStage}><span style={{ fontFamily: FONTS.serif }}>演</span><div className="mt-0.5" style={{ color: T.muted }}>演出</div></button>
                   <button onClick={() => { setBars(false); setFlip(false); restoreRef.current = 'pos'; try { localStorage.setItem(FLIP_KEY, '0'); } catch { /* ignore */ } setTimeout(() => { const b = loadShelf().books.find(x => x.id === bookId); paraRefs.current[b?.pos.para || 0]?.scrollIntoView({ block: 'start' }); }, 60); }}>⇅<div className="mt-0.5" style={{ color: T.muted }}>滚动</div></button>
                 </div>
               </div>
