@@ -16,6 +16,8 @@ export interface DesktopLyricPrefs {
   opacity?: number;
   /** 字号倍数 */
   fontScale?: number;
+  /** 安卓 App：切到别的 App 时在系统最上层显示（需要悬浮窗权限） */
+  system?: boolean;
 }
 export interface NowPlayingSyncPrefs { url: string; token: string; }
 

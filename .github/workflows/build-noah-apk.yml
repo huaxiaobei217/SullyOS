@@ -61,6 +61,7 @@ jobs:
           PKG_DIR="android/app/src/main/java/$(echo "$APP_ID" | tr . /)"
           mkdir -p "$PKG_DIR"
           cp native/noah-apk/MainActivity.java "$PKG_DIR/MainActivity.java"
+          cp native/noah-apk/FloatingLyricPlugin.java "$PKG_DIR/FloatingLyricPlugin.java"
           MANIFEST=android/app/src/main/AndroidManifest.xml
           # 麦克风（通话 / 语音识别）、通知、系统语音识别服务的可见性
           python3 - "$MANIFEST" <<'PY'
@@ -68,7 +69,7 @@ jobs:
           p = sys.argv[1]; s = open(p, encoding='utf-8').read()
           perms = ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS',
                    'android.permission.POST_NOTIFICATIONS', 'android.permission.WAKE_LOCK',
-                   'android.permission.VIBRATE']
+                   'android.permission.VIBRATE', 'android.permission.SYSTEM_ALERT_WINDOW']
           add = ''.join(f'    <uses-permission android:name="{x}" />\n' for x in perms if x not in s)
           queries = '' if 'android.speech.RecognitionService' in s else (
               '    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n    </queries>\n')

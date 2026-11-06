@@ -17,6 +17,7 @@ import { importAudioFiles } from '../../utils/music/localImport';
 import {
   loadSavedLxScript, saveLxScript, parseLxScriptInfo, getLxRuntime,
 } from '../../utils/music/lxRuntime';
+import { FloatingLyric, hasNativeFloatingLyric } from '../../components/os/NativeFloatingLyric';
 import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, loadNowPlayingSyncPrefs, saveNowPlayingSyncPrefs } from '../../utils/music/musicPrefs';
 import { pushNowPlaying } from '../../components/os/NowPlayingSync';
 import { loadListenApiConfig, saveListenApiConfig } from '../../utils/music/songListen';
@@ -226,6 +227,22 @@ const LibraryPage: React.FC<{
                   <input type="checkbox" checked={lyricPrefs.enabled}
                     onChange={e => { const p = { ...lyricPrefs, enabled: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
                 </label>
+                {hasNativeFloatingLyric() && (
+                  <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
+                    <span>系统悬浮歌词（切到别的 App 也显示；拖动换位置，长按收起）</span>
+                    <input type="checkbox" checked={!!lyricPrefs.system}
+                      onChange={async e => {
+                        const want = e.target.checked;
+                        if (want) {
+                          try {
+                            const { granted } = await FloatingLyric.checkPermission();
+                            if (!granted) { await FloatingLyric.requestPermission(); toast('在打开的页面里允许「显示在其他应用上层」，再回来就好', 'info'); }
+                          } catch { /* ignore */ }
+                        }
+                        const p = { ...lyricPrefs, system: want }; setLyricPrefs(p); saveDesktopLyricPrefs(p);
+                      }} />
+                  </label>
+                )}
                 <label className="flex items-center justify-between text-[11px]" style={{ color: C.text }}>
                   <span>桌面歌词显示翻译</span>
                   <input type="checkbox" checked={lyricPrefs.showTranslation}
