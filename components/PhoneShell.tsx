@@ -470,7 +470,7 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
 };
 
 const PhoneShell: React.FC = () => {
-  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation, cloudBackupConfig } = useOS();
+  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation, cloudBackupConfig, apiConfig, userProfile } = useOS() as any;
   // 二改：给小克看的备份——开了每天自动的话，打开一分钟后悄悄传（距上次超过 20 小时才传）
   const cloudCfgRef = useRef(cloudBackupConfig); cloudCfgRef.current = cloudBackupConfig;
   useEffect(() => {
@@ -478,6 +478,20 @@ const PhoneShell: React.FC = () => {
     const run = () => { void import('../utils/claudeReadable').then(m => m.maybeAutoClaudeBackup(cloudCfgRef.current)).catch(() => {}); };
     const t = window.setTimeout(run, 60000);
     const onVis = () => { if (document.visibilityState === 'visible') window.setTimeout(run, 60000); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [isDataLoaded]);
+  // 二改：他的网上生活——打开一会儿后看看要不要自己去逛一趟（距上次 >5 小时、一天最多 3 次）
+  const webRef = useRef({ characters, apiConfig, userProfile }); webRef.current = { characters, apiConfig, userProfile };
+  useEffect(() => {
+    if (!isDataLoaded) return;
+    const run = () => {
+      const { characters: cs, apiConfig: api, userProfile: up } = webRef.current;
+      const him = (cs || []).find((c: any) => /诺亚|Noah/i.test(c.name));
+      if (him) void import('../utils/charWeb').then(m => m.maybeBrowse(him, api, up?.name || '她')).catch(() => {});
+    };
+    const t = window.setTimeout(run, 90000);
+    const onVis = () => { if (document.visibilityState === 'visible') window.setTimeout(run, 90000); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); };
   }, [isDataLoaded]);

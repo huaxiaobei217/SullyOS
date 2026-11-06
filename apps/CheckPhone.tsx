@@ -1,4 +1,5 @@
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import CharWebBrowser from '../components/phone/CharWebBrowser';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
@@ -3432,6 +3433,18 @@ ${olderText}
                     onClick={() => { setActiveAppId('taobao'); trackEvent('打开查手机子应用', { subApp: 'taobao' }); }} />
             </div>
 
+            {/* 二改：他的浏览器（浏览记录 / 收藏夹 / 兴趣） */}
+            <button onClick={() => setActiveAppId('web')}
+                className="relative w-full rounded-[24px] p-4 mb-3.5 text-left overflow-hidden border border-white/[0.09] active:scale-[0.98] transition-transform flex items-center gap-3.5"
+                style={{ background: 'linear-gradient(115deg, rgba(96,165,250,0.20), rgba(59,130,246,0.06) 55%, rgba(12,16,24,0.4))' }}>
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-white/[0.08] shrink-0 text-[22px]">🌐</div>
+                <div className="flex-1 min-w-0">
+                    <div className="text-[14px] text-white">浏览器</div>
+                    <div className="text-[11px] text-white/50 truncate">TA 自己上网逛了什么、收藏了什么</div>
+                </div>
+                <CaretRight size={14} className="text-white/40" />
+            </button>
+
             {/* 智能体：偷看「TA 的小手机」 —— 给个抢眼的横条入口 */}
             <button onClick={() => { setActiveAppId('aiagent'); trackEvent('打开查手机子应用', { subApp: 'aiagent' }); }}
                 className="relative w-full rounded-[24px] p-4 mb-3.5 text-left overflow-hidden border border-white/[0.09] active:scale-[0.98] transition-transform flex items-center gap-3.5"
@@ -3780,6 +3793,9 @@ ${olderText}
                     {activeAppId === 'social' && renderMoments()}
                     {activeAppId === 'aiagent' && renderAiAgent()}
                     {activeAppId === 'ai_session' && renderAiSession()}
+                    {activeAppId === 'web' && targetChar && (
+                        <CharWebBrowser char={targetChar} api={apiConfig} userName={userProfile?.name || '她'} onBack={() => setActiveAppId('home')} toast={addToast} />
+                    )}
                     {activeAppId === 'persona' && targetChar && (
                         <PersonaSim key={targetChar.id} targetChar={targetChar} onExit={() => setActiveAppId('home')} openLifeLog={() => setActiveAppId('lifelog')}
                             sim={sim.charId === targetChar.id ? sim : { status: 'idle' }} onStart={runSim} onConsumed={() => personaSimStore.reset()} />
