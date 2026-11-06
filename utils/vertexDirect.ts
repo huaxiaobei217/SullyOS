@@ -123,7 +123,7 @@ export const getVertexAccessToken = async (transport: typeof fetch = fetch): Pro
 
 /* ───────── 请求改写 ───────── */
 
-const FALLBACK_MODELS = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite'];
+const FALLBACK_MODELS = ['google/gemini-4-argon', 'google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite'];
 const EXTRA_MODELS_KEY = 'sully_vertex_extra_models_v1';
 
 /** 目录里查不到、但用户测试通过的模型（比如预览版），记下来，拉取模型时一起列出 */
@@ -132,11 +132,18 @@ export const rememberVertexModel = (model: string) => {
   if (!m) return;
   try {
     const arr: string[] = JSON.parse(localStorage.getItem(EXTRA_MODELS_KEY) || '[]');
-    if (!arr.includes(m)) localStorage.setItem(EXTRA_MODELS_KEY, JSON.stringify([m, ...arr].slice(0, 30)));
+    // 最近用过的排最前面（面板默认填它）
+    localStorage.setItem(EXTRA_MODELS_KEY, JSON.stringify([m, ...arr.filter(x => x !== m)].slice(0, 30)));
   } catch { /* ignore */ }
 };
-const loadExtraModels = (): string[] => {
+export const loadExtraModels = (): string[] => {
   try { const a = JSON.parse(localStorage.getItem(EXTRA_MODELS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+};
+
+/** 面板里「拉取模型」用：本机换 token 后直连 Google 的模型目录，加上用过的 */
+export const pullVertexModels = async (): Promise<string[]> => {
+  const token = await getVertexAccessToken();
+  return Array.from(new Set([...loadExtraModels(), ...(await listVertexModels(fetch, token))]));
 };
 
 const listVertexModels = async (transport: typeof fetch, token: string): Promise<string[]> => {

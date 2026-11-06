@@ -9,6 +9,8 @@ import { safeFetchJson, extractContent } from './safeApi';
 import { resolveDialogueApi } from './characterApi';
 import type { APIConfig, CharacterProfile } from '../types';
 import { voiceLanguagePromptLabel } from './voiceLanguage';
+import { getElevenLabsModel, getTtsProvider } from './ttsProvider';
+import { isElevenLabsV4Model, isElevenLabsV3Model } from './elevenLabsModels';
 import { getBannedTropes, getTropeMode } from './tropeBan';
 
 export const FOOTNOTE_LS_KEY = 'sully_footnote_v1';
@@ -152,8 +154,24 @@ const KIND_TASK: Record<CardKind, string> = {
  * 一次请求写好几张（省钱：每次请求都要带上整份人设，一张一张要太亏）。
  * 返回这一批新卡，最新的在前。
  */
+/** 墙上等他回的纸条：她贴的还没回、或者她在下面写了一句还没接的（最多 4 张） */
+export function pendingNotesFor(charId: string): FootCard[] {
+  return loadFootnote().cards.filter(c => {
+    if (c.charId !== charId) return false;
+    const th = threadOf(c);
+    if (c.author === 'user') return !th.length || th[th.length - 1].by === 'user';
+    return th.length > 0 && th[th.length - 1].by === 'user';
+  }).slice(0, 4);
+}
+
 export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, count = 4): Promise<FootCard[]> {
   const recent = loadFootnote().cards.filter(c => c.charId === char.id && c.author !== 'user').slice(0, 24).map(c => c.source).filter(Boolean);
+  // 顺手回墙上她留的纸条：同一次请求里写，省一份人设的 token，也更像他路过墙边一张张回
+  const pending = pendingNotesFor(char.id);
+  const pendingText = pending.map((c, i) => {
+    const th = threadOf(c).map(t => `${t.by === 'user' ? '{{user}}' : '你'}：${t.text}`).join(' / ');
+    return `[R${i + 1}] ${c.author === 'user' ? '{{user}} 贴的' : '你贴的'}：${c.quote ? `「${c.quote}」` : ''}${c.note}${th ? `（下面：${th}）` : ''}`;
+  }).join('\n');
   const instructions = `### 【页脚 · 便签墙】
 你在家里到处贴便签。现在一口气写 ${count} 张，种类混着来（至少一张小纸条）：
 - note ${KIND_TASK.note}
@@ -165,7 +183,10 @@ export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, co
 - 写的话是你自己的：照你平时的语气、口味和偏见，可以刻薄、可以跑题、可以想到 {{user}}，每张 30–100 字。
 - 不要重复最近写过的作品：${recent.length ? recent.join('、') : '（还没有）'}
 - 每张再附一个 scene：用英文 danbooru tag 描述这张便签能配的一个画面（截帧就是那一帧的构图、光线、物件；其他的是贴便签的地方或相关的物件场景），不画人脸，逗号分隔，10–25 个 tag。
-只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……","scene":"english, tags, …"}]}`;
+${pending.length ? `
+另外，墙上有 {{user}} 留的纸条在等你回。路过的时候拿笔在每张下面接一句：短、自然、你的语气，一两句，60 字以内；可以接着她的话逗她、心疼她、跟她斗嘴，别客套。
+${pendingText}
+` : ''}只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……","scene":"english, tags, …"}]${pending.length ? ',"replies":[{"ref":"R1","text":"……"}]' : ''}}`;
   const { text } = await call(char, apiConfig, instructions, `写 ${count} 张。`, '便签墙', 6000);
   const j = parseJson(text);
   const list: any[] = Array.isArray(j.cards) ? j.cards : Array.isArray(j) ? j : [j];
@@ -178,7 +199,18 @@ export async function dropCards(char: CharacterProfile, apiConfig: APIConfig, co
     ...(typeof x.scene === 'string' && x.scene.trim() ? { scene: x.scene.trim().slice(0, 500) } : {}),
   }));
   if (!cards.length) throw new Error('这次一张都没写出来，再试一次');
-  updateFootnote(s => ({ ...s, cards: [...cards, ...s.cards] }));
+  const replies = new Map<string, string>();
+  if (pending.length && Array.isArray(j.replies)) {
+    for (const r of j.replies) {
+      const m = String(r?.ref || '').match(/(\d+)/); const card = m ? pending[Number(m[1]) - 1] : undefined;
+      const t = String(r?.text || '').replace(/^["“「]|["”」]$/g, '').trim().slice(0, 200);
+      if (card && t) replies.set(card.id, t);
+    }
+  }
+  updateFootnote(s => ({
+    ...s,
+    cards: [...cards, ...s.cards.map(c => replies.has(c.id) ? { ...c, thread: [...threadOf(c), { by: 'char' as const, text: replies.get(c.id)!, at: now }] } : c)],
+  }));
   return cards;
 }
 
@@ -341,6 +373,21 @@ export const parseRadioSegments = (text: string): { zh: string; voice: string }[
   return out;
 };
 
+/** 电台的语气：用 ElevenLabs v3 / v4 念时，让他在外语那句里加几处英文方括号语气标签（睡前电台的分寸） */
+const radioToneGuide = (): string => {
+  try {
+    if (getTtsProvider() !== 'elevenlabs') return '';
+    const m = getElevenLabsModel();
+    if (!isElevenLabsV4Model(m) && !isElevenLabsV3Model(m)) return '';
+    return `
+
+### 语气（念的时候用）
+念出来的那句里可以加英文方括号的语气标签，让声音有起伏，像真的躺着跟 ta 讲：比如 [softly]、[low, warm voice]、[chuckles]、[soft laugh]、[sighs]、[thoughtful]、[teasing]、[whispers]、[short pause]、[long pause]${isElevenLabsV4Model(m) ? '，也可以写更具体的英文描述（[half-asleep, amused murmur]）' : ''}。
+- 标签只放在 <语音> 里面（字幕里不要），每段 0–2 个，放在情绪真的变化的地方，不要每句开头都塞。
+- 睡前的分寸：笑是轻笑，不要 [laughs loudly]、[shouting]、[excited]。`;
+  } catch { return ''; }
+};
+
 export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = '', topic = '', extra = ''): Promise<RadioPiece> {
   const ch = RADIO_CHANNELS.find(c => c.id === channel)!;
   const recent = loadFootnote().radio.filter(r => r.charId === char.id && r.channel === channel).slice(0, 10).map(r => r.title);
@@ -353,7 +400,7 @@ ${ch.task}${topic.trim() ? `\n{{user}} 今晚点了个题：「${topic.trim().sl
 第一行写一个短标题（10 字以内），空一行后写正文。不要用 Markdown 符号。${voiceLang ? `
 
 ### 双语
-真正念出来的是${voiceLanguagePromptLabel(voiceLang)}。每一段先写中文（给 ta 看的字幕），紧接着换行写 <语音>这一段的${voiceLanguagePromptLabel(voiceLang)}说法</语音>。外语要自然口语，像你本人在说，不要机翻味；中文和外语意思一致。每段只有一个 <语音> 标签。` : ''}`, '开始吧。', `深夜点播·${ch.name}`, voiceLang ? 9000 : 5000);
+真正念出来的是${voiceLanguagePromptLabel(voiceLang)}。每一段先写中文（给 ta 看的字幕），紧接着换行写 <语音>这一段的${voiceLanguagePromptLabel(voiceLang)}说法</语音>。外语要自然口语，像你本人在说，不要机翻味；中文和外语意思一致。每段只有一个 <语音> 标签。` : ''}${radioToneGuide()}`, '开始吧。', `深夜点播·${ch.name}`, voiceLang ? 9000 : 5000);
   const lines = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').trim().split('\n');
   const title = (lines.shift() || ch.name).replace(/^标题[:：]\s*/, '').trim().slice(0, 30);
   const piece: RadioPiece = { id: uid('rd'), charId: char.id, channel, title, text: lines.join('\n').trim(), createdAt: Date.now(), ...(voiceLang ? { voiceLang } : {}) };

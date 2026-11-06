@@ -139,8 +139,10 @@ export const STT_OPENAI_PRESETS = [
   { id: 'openai', label: 'OpenAI gpt-4o-transcribe', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-transcribe' },
 ];
 export const getSttOpenAiConfig = (): SttOpenAiConfig => {
-  try { const v = JSON.parse(localStorage.getItem(STT_OPENAI_LS_KEY) || '{}'); return { baseUrl: v.baseUrl || '', apiKey: v.apiKey || '', model: v.model || '' }; }
-  catch { return { baseUrl: '', apiKey: '', model: '' }; }
+  // 没填过就默认硅基流动 SenseVoice，拉个 Key 填进去就能用
+  const def = { baseUrl: 'https://api.siliconflow.cn/v1', apiKey: '', model: 'FunAudioLLM/SenseVoiceSmall' };
+  try { const v = JSON.parse(localStorage.getItem(STT_OPENAI_LS_KEY) || '{}'); return { baseUrl: v.baseUrl || def.baseUrl, apiKey: v.apiKey || '', model: v.model || def.model }; }
+  catch { return def; }
 };
 export const setSttOpenAiConfig = (cfg: SttOpenAiConfig) => { try { localStorage.setItem(STT_OPENAI_LS_KEY, JSON.stringify(cfg)); } catch { /* ignore */ } };
 

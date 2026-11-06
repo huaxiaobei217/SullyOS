@@ -5,7 +5,7 @@
 import React, { useRef, useState } from 'react';
 import {
   loadVertexStore, saveVertexStore, parseServiceAccount, vertexBaseUrl,
-  getVertexAccessToken, VERTEX_PLACEHOLDER_KEY, rememberVertexModel,
+  getVertexAccessToken, VERTEX_PLACEHOLDER_KEY, rememberVertexModel, loadExtraModels, pullVertexModels,
 } from '../../utils/vertexDirect';
 
 const LOCATIONS = ['global', 'us-central1', 'us-east5', 'europe-west1', 'asia-northeast1', 'asia-southeast1'];
@@ -16,9 +16,16 @@ const VertexDirectPanel: React.FC<{
   const [open, setOpen] = useState(false);
   const [store, setStore] = useState(() => loadVertexStore());
   const [location, setLocation] = useState(store?.location || 'global');
-  const [testModel, setTestModel] = useState('google/gemini-2.5-flash');
+  const [testModel, setTestModel] = useState(() => loadExtraModels()[0] || 'google/gemini-4-argon');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[]>(() => loadExtraModels());
+  const [pulling, setPulling] = useState(false);
+  const pull = async () => {
+    setPulling(true);
+    try { setModels(await pullVertexModels()); } catch (e: any) { setStatus(`拉取失败：${e?.message || e}`); }
+    setPulling(false);
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   const onFile = async (f?: File) => {
@@ -68,7 +75,7 @@ const VertexDirectPanel: React.FC<{
   const apply = () => {
     if (!store) return;
     rememberVertexModel(testModel);
-    onApply({ baseUrl: vertexBaseUrl(store.sa.project_id, location), apiKey: VERTEX_PLACEHOLDER_KEY, model: testModel.trim() || 'google/gemini-2.5-pro' });
+    onApply({ baseUrl: vertexBaseUrl(store.sa.project_id, location), apiKey: VERTEX_PLACEHOLDER_KEY, model: testModel.trim() || 'google/gemini-4-argon' });
     setStatus('已填进当前 API 设置（地址 + 占位密钥 vertex-local + 模型）。可以在那里「拉取模型」换别的，也可以存成预设。');
   };
 
@@ -114,8 +121,19 @@ const VertexDirectPanel: React.FC<{
           <select value={location} onChange={e => changeLocation(e.target.value)} className="w-full mb-2 px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
             {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
-          <label className="block text-[10px] text-slate-500 mb-1">模型</label>
-          <input value={testModel} onChange={e => setTestModel(e.target.value)} className="w-full mb-3 px-2 py-1.5 rounded-lg border border-slate-200 text-xs" />
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] text-slate-500">模型（默认填上次用的）</label>
+            <button disabled={pulling} onClick={pull} className="text-[10px] text-indigo-500 disabled:opacity-50">{pulling ? '拉取中…' : '拉取模型'}</button>
+          </div>
+          <input value={testModel} onChange={e => setTestModel(e.target.value)} className="w-full mb-1.5 px-2 py-1.5 rounded-lg border border-slate-200 text-xs" />
+          {models.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto">
+              {models.map(m => (
+                <button key={m} onClick={() => setTestModel(m)} className={`px-1.5 py-0.5 rounded-md text-[10px] border ${m === testModel ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-500'}`}>{m.replace(/^google\//, '')}</button>
+              ))}
+            </div>
+          )}
+          {models.length === 0 && <div className="mb-3" />}
           <div className="flex gap-2">
             <button disabled={busy} onClick={test} className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 active:scale-95 disabled:opacity-50">{busy ? '测试中…' : '测试连接'}</button>
             <button onClick={apply} className="flex-1 py-2 rounded-xl text-xs font-bold bg-primary text-white active:scale-95">用到当前 API 设置</button>

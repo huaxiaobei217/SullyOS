@@ -9,7 +9,7 @@ import { isNaiReady, generateNaiImage } from '../utils/nai';
 import { shareNote, shareRadio, shareQa, shareCapsule } from '../utils/footnoteShare';
 import { isFootnoteChatOn, setFootnoteChatOn } from '../utils/footnoteChat';
 import { computeHateStats, saveHateTotal, type HateStats } from '../utils/hateCounter';
-import { startNoise, NOISE_NAMES, type NoiseKind, type NoisePlayer } from '../utils/sleepNoise';
+import { startNoise, NOISE_NAMES, NOISE_KINDS, type NoiseKind, type NoisePlayer } from '../utils/sleepNoise';
 import { voiceLanguageLabel } from '../utils/voiceLanguage';
 import { DB } from '../utils/db';
 import {
@@ -227,6 +227,18 @@ const Wall: React.FC<{ char: any; apiConfig: any; cards: FootCard[]; onErr: (e: 
       }
     }).catch(onErr).finally(() => setBusy(false));
   };
+  // 他自己会来贴：墙上他的上一张已经是 20 小时前了，打开页脚时他顺手贴两张新的、顺便回你留的纸条
+  useEffect(() => {
+    try {
+      const key = `sully_footnote_autodrop_${char.id}`;
+      const last = Math.max(Number(localStorage.getItem(key) || 0), ...cards.filter(c => c.author !== 'user').map(c => c.createdAt), 0);
+      if (Date.now() - last < 20 * 3600 * 1000 || busy) return;
+      localStorage.setItem(key, String(Date.now()));
+      setBusy(true);
+      dropCards(char, apiConfig, 2).then(list => setFresh(new Set(list.map(c => c.id)))).catch(() => { /* 静默：没配好 API 就算了 */ }).finally(() => setBusy(false));
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [char.id]);
   const post = () => {
     if (!draft.trim()) return;
     try { localStorage.setItem('sully_footnote_my_font_v1', font); } catch { /* ignore */ }
@@ -552,7 +564,7 @@ const Reveal: React.FC<{ r: any; name: string; small?: boolean }> = ({ r, name, 
 
 /* ───────── 深夜点播：像接通一通深夜电话 ───────── */
 
-const displayText = (s: string) => s.replace(/\[[^\]]{1,24}\]/g, '').replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
+const displayText = (s: string) => s.replace(/\[[^\]]{1,60}\]/g, '').replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim();
 /** 哄睡：念之前把感叹号、大笑之类会突然变响的东西压平 */
 const soften = (s: string) => s.replace(/[！!]+/g, '。').replace(/(哈|呵|嘿){2,}|(ha){2,}/gi, '').replace(/\[(?:laugh|laughs|shout|shouts|excited|yell)[^\]]*\]/gi, '').trim();
 const fmtClock = (sec: number) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -918,7 +930,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
             <div>
               <div className="opacity-60 mb-1.5">背景声（他说话时会自动压低）</div>
               <div className="flex flex-wrap gap-1.5">
-                {(['rain', 'pink', 'brown', 'white'] as NoiseKind[]).map(k => (
+                {NOISE_KINDS.map(k => (
                   <button key={k} onClick={() => setNoiseKind(noiseKind === k ? '' : k)} className="px-2.5 py-1 rounded-full" style={{ background: noiseKind === k ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>{NOISE_NAMES[k]}</button>
                 ))}
               </div>

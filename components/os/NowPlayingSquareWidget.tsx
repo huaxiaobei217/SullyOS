@@ -86,17 +86,17 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
 
         {/* 控件：圆形 AC 按钮 */}
         <div className="flex items-center justify-center gap-3">
-          <button aria-label="Previous" onClick={handlePrev} onMouseDown={stopProp} disabled={!hasSong}
+          <button aria-label="Previous" onClick={handlePrev} onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()} disabled={!hasSong}
             className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition disabled:opacity-30"
             style={{ background: '#fff', border: '2px solid #e0d6c0', color: '#725d42' }}>
             <SkipBack size={12} weight="fill" />
           </button>
-          <button aria-label={playing ? 'Pause' : 'Play'} onClick={handlePlay} onMouseDown={stopProp}
+          <button aria-label={playing ? 'Pause' : 'Play'} onClick={handlePlay} onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()}
             className="w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition"
             style={{ background: '#19c8b9', color: '#fff', boxShadow: '0 3px 0 0 #12a89b' }}>
             {playing ? <Pause size={compact ? 12 : 15} weight="fill" /> : <Play size={compact ? 12 : 15} weight="fill" />}
           </button>
-          <button aria-label="Next" onClick={handleNext} onMouseDown={stopProp} disabled={!hasSong}
+          <button aria-label="Next" onClick={handleNext} onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()} disabled={!hasSong}
             className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition disabled:opacity-30"
             style={{ background: '#fff', border: '2px solid #e0d6c0', color: '#725d42' }}>
             <SkipForward size={12} weight="fill" />
@@ -269,8 +269,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           <button
             aria-label="Previous"
             onClick={handlePrev}
-            onMouseDown={stopProp}
-            className="w-6 h-6 flex items-center justify-center opacity-70 hover:opacity-100 active:scale-90 transition disabled:opacity-30"
+            onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()}
+            className="w-9 h-9 -m-1.5 flex items-center justify-center opacity-70 hover:opacity-100 active:scale-90 transition disabled:opacity-30"
             disabled={!hasSong}
           >
             <SkipBack size={14} weight="fill" />
@@ -278,7 +278,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           <button
             aria-label={playing ? 'Pause' : 'Play'}
             onClick={handlePlay}
-            onMouseDown={stopProp}
+            onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()}
             className={`${compact ? 'w-7 h-7' : 'w-9 h-9'} flex items-center justify-center rounded-full active:scale-95 transition`}
             style={{
               background: palette.playBg,
@@ -291,8 +291,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
           <button
             aria-label="Next"
             onClick={handleNext}
-            onMouseDown={stopProp}
-            className="w-6 h-6 flex items-center justify-center opacity-70 hover:opacity-100 active:scale-90 transition disabled:opacity-30"
+            onMouseDown={stopProp} data-launcher-control onPointerDown={e => e.stopPropagation()}
+            className="w-9 h-9 -m-1.5 flex items-center justify-center opacity-70 hover:opacity-100 active:scale-90 transition disabled:opacity-30"
             disabled={!hasSong}
           >
             <SkipForward size={14} weight="fill" />

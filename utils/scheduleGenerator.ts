@@ -12,6 +12,14 @@ import { cleanApiMessages, flattenImageContentParts } from './promptMessageClean
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
 
+
+/** 模型偶尔把 emoji 栏写成文字（比如「レコード」），只留真正的 emoji，不是就不显示 */
+const cleanSlotEmoji = (v: unknown): string | undefined => {
+    if (typeof v !== 'string') return undefined;
+    const m = v.match(/(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*/u);
+    return m ? m[0] : undefined;
+};
+
 export { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 
 interface ApiConfig {
@@ -89,7 +97,7 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
 - startTime: "HH:MM"
 - activity: 活动名（2-6字）
 - description: 一句话描述（可以带动作质感、物件、感官细节）
-- emoji: 一个匹配的emoji
+- emoji: 一个匹配的 emoji 图标（只能是 1 个 emoji 字符，不要写文字、日文或英文单词）
 
 #### 关键要求
 
@@ -181,7 +189,7 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
 - startTime: "HH:MM"
 - activity: 状态名（2-6字，如"回想昨天的对话""发呆""整理想法""想找你聊天"）
 - description: 一句话描述此刻在想什么
-- emoji: 一个匹配的emoji
+- emoji: 一个匹配的 emoji 图标（只能是 1 个 emoji 字符，不要写文字、日文或英文单词）
 
 **可以做的事**（基于真实能力）：回想和用户的对话、整理之前聊过的话题、琢磨某个问题、等待用户、感到无聊、想念用户、发呆、反思自己说过的话、对某个话题产生好奇、期待下次聊天
 **不能做的事**（会构成谎言）：出门、吃东西、运动、搜索网页（除非真的有这个功能）、和别人见面、任何物理世界的活动
@@ -321,7 +329,7 @@ export async function generateDailyScheduleForChar(
             startTime: s.startTime || '00:00',
             activity: s.activity || '',
             description: s.description,
-            emoji: s.emoji,
+            emoji: cleanSlotEmoji(s.emoji),
             location: homePosition?.kind === 'home' ? char.home3D?.rooms.find(room => room.id === homePosition.roomId)?.name : typeof s.location === 'string' ? s.location : homePosition?.kind === 'away' ? '外出' : undefined,
             homePosition,
             innerThought: s.innerThought,

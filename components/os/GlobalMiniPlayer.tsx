@@ -23,7 +23,7 @@ import TokenImg from './TokenImg';
 const STORAGE_KEY = 'globalMiniPlayer.bubblePos.v1';
 const HIDDEN_KEY = 'globalMiniPlayer.hidden.v1';
 const EXPANDED_BOTTOM_KEY = 'globalMiniPlayer.expandedBottom.v1';
-const DRAG_THRESHOLD = 4; // 像素：超过这个位移算拖动，不触发点击
+const DRAG_THRESHOLD = 10; // 像素（手指一按会抖几像素，太小了点击常被当成拖动）：超过这个位移算拖动，不触发点击
 
 type Pos = { x: number; y: number } | null;
 
@@ -391,27 +391,27 @@ const GlobalMiniPlayer: React.FC = () => {
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); prevSong(); }}
-            className="p-1.5 rounded-full text-white/80 active:scale-95 transition-transform"
+            className="p-2.5 -m-0.5 rounded-full text-white/80 active:scale-95 transition-transform touch-manipulation"
           >
-            <SkipBack size={14} weight="fill" />
+            <SkipBack size={16} weight="fill" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-            className="p-1.5 rounded-full text-white active:scale-95 transition-transform"
+            className="p-2.5 rounded-full text-white active:scale-95 transition-transform touch-manipulation"
             style={{ background: 'rgba(255,255,255,0.15)' }}
           >
-            {playing ? <Pause size={14} weight="fill" /> : <Play size={14} weight="fill" />}
+            {playing ? <Pause size={16} weight="fill" /> : <Play size={16} weight="fill" />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); nextSong(); }}
-            className="p-1.5 rounded-full text-white/80 active:scale-95 transition-transform"
+            className="p-2.5 -m-0.5 rounded-full text-white/80 active:scale-95 transition-transform touch-manipulation"
           >
-            <SkipForward size={14} weight="fill" />
+            <SkipForward size={16} weight="fill" />
           </button>
           {/* 折叠按钮 */}
           <button
             onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
-            className="p-1.5 rounded-full text-white/70 active:scale-95 transition-transform ml-0.5"
+            className="p-2 rounded-full text-white/70 active:scale-95 transition-transform ml-0.5 touch-manipulation"
             aria-label="收起播放器"
             title="收起成小球"
           >
@@ -420,7 +420,7 @@ const GlobalMiniPlayer: React.FC = () => {
           {/* 隐藏按钮 */}
           <button
             onClick={(e) => { e.stopPropagation(); hide(); }}
-            className="p-1.5 rounded-full text-white/70 active:scale-95 transition-transform"
+            className="p-2 rounded-full text-white/70 active:scale-95 transition-transform touch-manipulation"
             aria-label="隐藏播放器（切到下一首时会再出现）"
             title="隐藏（下一首会再出现）"
           >
