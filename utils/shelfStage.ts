@@ -146,13 +146,14 @@ export function harvestNames(texts: string[]): Map<string, number> {
   return count;
 }
 
-function speakerFrom(cue: string, names: Map<string, number>): string | undefined {
+function speakerFrom(cue: string, names: Map<string, number>, text = ''): string | undefined {
   // 提示语里出现的已知名字（读过的正文里至少当过两次说话人），取离说话动词最近、在它前面的那个
   const verb = new RegExp(SPEECH_VERB).exec(cue);
   const verbAt = verb ? verb.index : cue.length;
   let best: string | undefined; let bestAt = -1;
   for (const [n, c] of names) {
-    if (c < 2) continue;
+    // 当过两次以上说话人；或者当过一次、但这章里反复出现（真名字才会这样）
+    if (c < 2 && (c < 1 || text.split(n).length - 1 < 3)) continue;
     let at = cue.lastIndexOf(n, verbAt);
     if (at < 0 && !verb) at = cue.indexOf(n);
     if (at >= 0 && (at > bestAt || (at === bestAt && best && n.length > best.length))) { best = n; bestAt = at; }
@@ -175,6 +176,7 @@ export function compileChapter(title: string, paras: string[], names: Map<string
   const beats: Beat[] = [];
   let atmo: Atmo = { ...startAtmo };
   let posters = 0;
+  const chapterText = paras.join('\n');
   beats.push({ kind: 'title', text: title, para: 0, atmo });
 
   for (let i = 0; i < paras.length; i++) {
@@ -216,7 +218,7 @@ export function compileChapter(title: string, paras: string[], names: Map<string
       }
       const cue = outside.length <= 40 ? outside.replace(/^[，,。：:\s]+|[，,：:\s]+$/g, '') : '';
       const thinking = THINK_WORD.test(outside);
-      const speaker = thinking ? undefined : speakerFrom(outside, names);
+      const speaker = thinking ? undefined : speakerFrom(outside, names, chapterText);
       for (const q of quotes) {
         if (!q.text) continue;
         for (const s of splitSentences(q.text, 6, 80)) {

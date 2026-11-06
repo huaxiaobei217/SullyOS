@@ -353,8 +353,8 @@ const StageMode: React.FC<{
       case 'poster': {
         const halves = beat.text.split(/[，,]/);
         return (
-          <div key={key} className="flex gap-6 justify-center stage-in-slow" style={{ writingMode: 'vertical-rl', fontFamily: BRUSH, fontSize: 46, color: CINNABAR, letterSpacing: '0.25em' }}>
-            {halves.map((hf, k) => <div key={k} style={{ marginTop: k ? '2.2em' : 0 }}>{hf}</div>)}
+          <div key={key} className="flex flex-row-reverse gap-7 justify-center items-start stage-in-slow" style={{ fontFamily: BRUSH, fontSize: 46, color: CINNABAR, letterSpacing: '0.25em' }}>
+            {halves.map((hf, k) => <div key={k} style={{ writingMode: 'vertical-rl', marginTop: k ? '1.6em' : 0 }}>{hf}</div>)}
           </div>
         );
       }
