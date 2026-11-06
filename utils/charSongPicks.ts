@@ -15,7 +15,8 @@ const SAMPLE = 8;
 const IDLE_GAP_MS = 6 * 3600 * 1000;
 
 export interface PoolSong { id: number | string; name: string; artists: string; album?: string; albumPic?: string; duration?: number; fee?: number; [k: string]: any }
-interface PickState { recent: string[]; lastAt?: number; playlistIds?: string[]; off?: boolean }
+export interface PickLog { name: string; artists: string; albumPic?: string; at: number; line?: string; played?: boolean; song?: PoolSong }
+interface PickState { recent: string[]; lastAt?: number; playlistIds?: string[]; off?: boolean; log?: PickLog[] }
 
 const loadAll = (): Record<string, PickState> => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
 const load = (charId: string): PickState => { const v: Partial<PickState> = loadAll()[charId] || {}; return { ...v, recent: v.recent || [] }; };
@@ -93,15 +94,27 @@ export function resolveSongPick(char: CharacterProfile, raw: string): PoolSong |
     || null;
 }
 
-export function markSongPicked(charId: string, s: PoolSong) {
+export function markSongPicked(charId: string, s: PoolSong, line?: string) {
   const st = load(charId);
   st.recent = [songKey(s), ...st.recent.filter(k => k !== songKey(s))].slice(0, RECENT_KEEP);
   st.lastAt = Date.now();
+  // 推歌记录：音乐里「他推给你的歌」用（留最近 60 条）
+  st.log = [{ name: s.name, artists: s.artists, albumPic: s.albumPic, at: Date.now(), line: line?.slice(0, 60) || undefined, song: s }, ...(st.log || [])].slice(0, 60);
   save(charId, st);
+  try { window.dispatchEvent(new Event(PICKS_EVENT)); } catch { /* ignore */ }
+}
+export const PICKS_EVENT = 'sully:char-song-picks-changed';
+export const getPickLog = (charId: string): PickLog[] => load(charId).log || [];
+/** 你点了「一起听」：记一笔「她听了」 */
+export function markInvitePlayed(charId: string, s: { name: string; artists: string }) {
+  const st = load(charId); const k = songKey(s as PoolSong);
+  const hit = (st.log || []).find(l => songKey(l as any) === k && !l.played);
+  if (hit) { hit.played = true; save(charId, st); try { window.dispatchEvent(new Event(PICKS_EVENT)); } catch { /* ignore */ } }
 }
 
 /** 卡片上点「一起听」：MusicContext 监听这个事件去放歌 */
 export const SONG_INVITE_EVENT = 'sully:char-song-invite';
 export const playInvitedSong = (charId: string, song: PoolSong) => {
+  try { markInvitePlayed(charId, song); } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent(SONG_INVITE_EVENT, { detail: { charId, song } }));
 };

@@ -26,6 +26,7 @@ import { isBlobRef } from '../../utils/blobRef';
 import { useLocalDateKey } from '../../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../../utils/timezone';
 import { trackEvent } from '../../utils/analytics';
+import { PickLogList } from './OurMusicCard';
 
 interface Props {
   charId: string;
@@ -639,6 +640,14 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer }) => {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* 二改：他拉你一起听过的歌 */}
+        {char && (
+          <div className="mx-4 mt-4">
+            <SectionTitle>推给你的歌</SectionTitle>
+            <PickLogList charId={char.id} charName={char.name} limit={8} />
           </div>
         )}
 

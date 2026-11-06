@@ -102,6 +102,12 @@ const MusicApp: React.FC = () => {
   const [showLyricSync, setShowLyricSync] = useState(false);
   const [syncDraft, setSyncDraft] = useState<number[]>([]);
   const [visitCharId, setVisitCharId] = useState<string | null>(null);
+  // 二改：音乐首页「我们的歌」里点「去他的主页」
+  useEffect(() => {
+    const h = (e: Event) => { const id = (e as CustomEvent).detail; if (id) { setVisitCharId(id); setView('visit_char'); } };
+    window.addEventListener('sully:music-visit-char', h);
+    return () => window.removeEventListener('sully:music-visit-char', h);
+  }, []);
   useAppShortcut(ShortcutAppID.Music, intent => {
     setVisitCharId(intent.characterId || null);
     setView(intent.entryId === 'visit_char' ? (intent.characterId ? 'visit_char' : 'library') : ((intent.entryId && intent.entryId !== 'profile') ? intent.entryId : 'library') as View);

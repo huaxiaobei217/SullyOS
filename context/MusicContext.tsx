@@ -7,6 +7,7 @@
  *   3. localStorage 持久化 cookie/工作台地址/队列，刷新后可恢复。
  *   4. Media Session API 暴露锁屏控件 (Android/iOS 原生通知栏也能控制)。
  */
+import { tickListening, countPlay } from '../utils/music/musicStats';
 import React, {
   createContext, useCallback, useContext, useEffect,
   useMemo, useRef, useState,
@@ -1041,6 +1042,24 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       recentTrackChange,
     };
   }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, recentTrackChange]);
+
+  // 二改：「我们的歌」统计——放着歌每 10 秒记一次；听满 30 秒算一遍（单曲循环回到开头也算新的一遍）
+  const statRef = useRef<{ id: unknown; listened: number; counted: boolean; lastT: number } | null>(null);
+  useEffect(() => {
+    if (!playing || !current) return;
+    const t = setInterval(() => {
+      const song = current; const a = audioRef.current;
+      const now = a ? a.currentTime : 0;
+      let r = statRef.current;
+      if (!r || r.id !== song.id || now + 20 < r.lastT) r = statRef.current = { id: song.id, listened: 0, counted: false, lastT: now };
+      r.listened += 10; r.lastT = now;
+      try {
+        tickListening({ id: song.id, name: song.name, artists: song.artists, albumPic: song.albumPic }, 10, listeningTogetherRef.current);
+        if (!r.counted && r.listened >= 30) { r.counted = true; countPlay({ id: song.id, name: song.name, artists: song.artists, albumPic: song.albumPic }); }
+      } catch { /* ignore */ }
+    }, 10000);
+    return () => clearInterval(t);
+  }, [playing, current]);
 
   // 二改：聊天里角色发来的「一起听」邀请卡，点了就放这首并亮出一起听
   useEffect(() => {

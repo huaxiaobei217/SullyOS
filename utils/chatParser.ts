@@ -433,7 +433,7 @@ export const ChatParser = {
                     const ch = chars.find(c => c.id === charId);
                     const song = ch ? resolveSongPick(ch, pickMatch[1]) : null;
                     if (song) {
-                        markSongPicked(charId, song);
+                        markSongPicked(charId, song, content.replace(SONG_PICK_GLOBAL_RE, '').replace(/<[^>]+>/g, '').split(/\n/).map(x => x.trim()).filter(Boolean).pop());
                         await replyStep(async () => persist({
                             charId,
                             role: 'assistant',

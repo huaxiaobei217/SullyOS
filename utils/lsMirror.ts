@@ -101,6 +101,7 @@ export const MIRRORED_KEYS: readonly string[] = [
     'sully_voice_gain_v1',
     'sully_shelf_vocab_v1',
     'sully_shelf_people_v1',
+    'sully_music_stats_v1',
     'sully_shelf_stage_v1',
     'sully_body_inject_v1',
     'sully_stt_openai_v1',

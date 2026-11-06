@@ -13,6 +13,7 @@ import { buildEndearmentBlock } from './endearmentGate';
 import { buildBodyBlock } from './bodyLog';
 import { buildTripChatBlock } from './charTrip';
 import { buildSongPickBlock } from './charSongPicks';
+import { buildOurMusicBlock } from './music/musicStats';
 import { getScheduleDateKey } from './scheduleTime';
 import { buildVocabBlock } from './shelfVocab';
 import { buildOldLedgerBlock } from './oldLedger';
@@ -642,6 +643,11 @@ ${groupLogStr}\n`;
             const lastUserText = String([...(currentMsgs || [])].reverse().find(m => m.role === 'user')?.content || '');
             const songPickBlock = buildSongPickBlock(char, userProfile.name, lastUserText, !!userListeningContext?.songName);
             if (songPickBlock) volatileState += `\n${songPickBlock}\n`;
+            // 你最近在循环什么、你们一起听了多久：聊到歌或者他手边有歌时才带上
+            if (songPickBlock || /歌|听|音乐|耳机|循环|music|song/i.test(lastUserText)) {
+                const ourMusic = buildOurMusicBlock(char.id, userProfile.name);
+                if (ourMusic) volatileState += `\n${ourMusic}\n`;
+            }
             const tripBlock = buildTripChatBlock(char, getScheduleDateKey(char), userProfile.name);
             if (tripBlock) volatileState += `\n${tripBlock}\n`;
             const notesBlock = buildRecentNotesBlock(char.id, userProfile.name);
