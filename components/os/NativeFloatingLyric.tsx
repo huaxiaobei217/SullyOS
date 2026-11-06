@@ -5,12 +5,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { useMusic } from '../../context/MusicContext';
-import { loadDesktopLyricPrefs, MUSIC_PREFS_CHANGED_EVENT } from '../../utils/music/musicPrefs';
+import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, MUSIC_PREFS_CHANGED_EVENT } from '../../utils/music/musicPrefs';
+import { useOS } from '../../context/OSContext';
+import { AppID } from '../../types';
 
 interface FloatingLyricApi {
   checkPermission(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<{ granted: boolean }>;
-  setEnabled(o: { enabled: boolean; fontSize?: number }): Promise<void>;
+  setEnabled(o: { enabled: boolean; fontScale?: number; opacity?: number; topPct?: number; locked?: boolean }): Promise<void>;
+  addListener(ev: 'control', cb: (e: { action: string; topPct?: number }) => void): Promise<{ remove: () => void }>;
   setLyrics(o: { lines: { t: number; text: string; tr?: string }[]; title: string }): Promise<void>;
   sync(o: { position: number; playing: boolean }): Promise<void>;
 }
@@ -20,7 +23,10 @@ export const hasNativeFloatingLyric = (): boolean => {
 };
 
 const NativeFloatingLyric: React.FC = () => {
-  const { current, playing, lyric, tlyric, progress } = useMusic();
+  const { current, playing, lyric, tlyric, progress, togglePlay, nextSong, prevSong } = useMusic();
+  const { openApp } = useOS() as any;
+  const ctl = useRef({ togglePlay, nextSong, prevSong, openApp });
+  ctl.current = { togglePlay, nextSong, prevSong, openApp };
   const [prefs, setPrefs] = useState(() => loadDesktopLyricPrefs());
   const ok = hasNativeFloatingLyric();
   const lastSync = useRef({ at: 0, pos: 0 });
@@ -34,8 +40,27 @@ const NativeFloatingLyric: React.FC = () => {
   const on = ok && !!prefs.system;
   useEffect(() => {
     if (!ok) return;
-    void FloatingLyric.setEnabled({ enabled: on, fontSize: 17 * (prefs.fontScale || 1) }).catch(() => {});
-  }, [ok, on, prefs.fontScale]);
+    void FloatingLyric.setEnabled({
+      enabled: on, fontScale: prefs.fontScale || 1,
+      opacity: typeof prefs.opacity === 'number' ? prefs.opacity : 0.42,
+      topPct: prefs.topPct ?? 0.08, locked: !!prefs.locked,
+    }).catch(() => {});
+  }, [ok, on, prefs.fontScale, prefs.opacity, prefs.topPct, prefs.locked]);
+
+  // 悬浮歌词上的按钮 / 拖动
+  useEffect(() => {
+    if (!on) return;
+    let h: { remove: () => void } | null = null;
+    FloatingLyric.addListener('control', e => {
+      const c = ctl.current;
+      if (e.action === 'toggle') c.togglePlay();
+      else if (e.action === 'next') c.nextSong();
+      else if (e.action === 'prev') c.prevSong();
+      else if (e.action === 'open') c.openApp?.(AppID.Music);
+      else if (e.action === 'moved' && typeof e.topPct === 'number') saveDesktopLyricPrefs({ ...loadDesktopLyricPrefs(), topPct: e.topPct });
+    }).then(x => { h = x; }).catch(() => {});
+    return () => { h?.remove(); };
+  }, [on]);
 
   // 换歌 / 歌词到了：整首交过去
   useEffect(() => {

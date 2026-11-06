@@ -2,9 +2,12 @@ package com.kythie.sullyos;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -12,6 +15,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -33,10 +38,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 系统级悬浮歌词（个人二改）：App 切到后台、在别的 App 里也能看到歌词。
- * 网页把整首歌的时间轴一次性给过来（setLyrics），之后只在播放 / 暂停 / 拖进度 / 换歌时同步一下位置（sync），
- * 原生自己按时钟推进到哪一句——网页在后台被限速也不影响。
- * 回到 App 里自动收起（App 里有自己的桌面歌词）。拖动换位置；长按收起到下次打开。
+ * 系统级悬浮歌词（个人二改），长得和 App 里的桌面歌词一样：
+ *  - 左右各留 12dp、居中；深色半透明圆角底；当前句 + 翻译，单行省略
+ *  - 点一下展开：下一句预览 + 上一首 / 播放暂停 / 下一首 / 回到音乐；再点收起
+ *  - 上下拖动换位置（和 App 里的桌面歌词共用同一个位置）；锁定后点击穿透
+ * 网页把整首歌的时间轴一次性给过来，之后只在播放 / 暂停 / 拖进度 / 换歌时同步位置，原生自己按时钟走。
+ * 回到 App 里自动收起（App 里有自己的桌面歌词）。
  */
 @CapacitorPlugin(name = "FloatingLyric")
 public class FloatingLyricPlugin extends Plugin {
@@ -45,25 +52,21 @@ public class FloatingLyricPlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Line> lines = new ArrayList<>();
     private String title = "";
-    private long basePosMs = 0;
-    private long baseClock = 0;
-    private boolean playing = false;
-    private boolean enabled = false;
-    private boolean inBackground = false;
-    private boolean dismissed = false;
-    private float fontSp = 17f;
+    private long basePosMs = 0, baseClock = 0;
+    private boolean playing = false, enabled = false, inBackground = false, expanded = false;
+    private float fontScale = 1f, opacity = 0.42f, topPct = 0.08f;
+    private boolean locked = false;
 
     private WindowManager wm;
-    private LinearLayout box;
-    private TextView mainTv, subTv;
+    private LinearLayout box, controls;
+    private TextView mainTv, subTv, nextTv;
+    private IconView playBtn;
     private WindowManager.LayoutParams lp;
     private int lastIdx = -2;
+    private boolean lastPlaying = false;
 
     private final Runnable tick = new Runnable() {
-        @Override public void run() {
-            render();
-            if (box != null) main.postDelayed(this, 250);
-        }
+        @Override public void run() { render(false); if (box != null) main.postDelayed(this, 250); }
     };
 
     private boolean canDraw() {
@@ -87,10 +90,14 @@ public class FloatingLyricPlugin extends Plugin {
 
     @PluginMethod
     public void setEnabled(PluginCall call) {
+        final String before = fontScale + "|" + opacity + "|" + topPct + "|" + locked;
         enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
-        Double fs = call.getDouble("fontSize");
-        if (fs != null && fs > 8 && fs < 40) fontSp = fs.floatValue();
-        main.post(this::refreshVisibility);
+        Double fs = call.getDouble("fontScale"); if (fs != null && fs > 0.5 && fs < 2.5) fontScale = fs.floatValue();
+        Double op = call.getDouble("opacity"); if (op != null && op >= 0 && op <= 1) opacity = op.floatValue();
+        Double tp = call.getDouble("topPct"); if (tp != null && tp >= 0 && tp <= 1) topPct = tp.floatValue();
+        locked = Boolean.TRUE.equals(call.getBoolean("locked", false));
+        final boolean restyle = !before.equals(fontScale + "|" + opacity + "|" + topPct + "|" + locked);
+        main.post(() -> { if (box != null && restyle) removeBox(); refreshVisibility(); });
         call.resolve();
     }
 
@@ -109,7 +116,7 @@ public class FloatingLyricPlugin extends Plugin {
             }
         } catch (Exception ignored) { }
         final String t = call.getString("title", "");
-        main.post(() -> { lines.clear(); lines.addAll(next); title = t; lastIdx = -2; dismissed = false; render(); });
+        main.post(() -> { lines.clear(); lines.addAll(next); title = t; render(true); refreshVisibility(); });
         call.resolve();
     }
 
@@ -117,104 +124,162 @@ public class FloatingLyricPlugin extends Plugin {
     public void sync(PluginCall call) {
         final double pos = call.getDouble("position", 0.0);
         final boolean p = Boolean.TRUE.equals(call.getBoolean("playing", false));
-        main.post(() -> { basePosMs = (long) (pos * 1000); baseClock = SystemClock.elapsedRealtime(); playing = p; refreshVisibility(); render(); });
+        main.post(() -> { basePosMs = (long) (pos * 1000); baseClock = SystemClock.elapsedRealtime(); playing = p; refreshVisibility(); render(true); });
         call.resolve();
     }
 
-    @Override
-    protected void handleOnPause() { inBackground = true; main.post(this::refreshVisibility); }
-
-    @Override
-    protected void handleOnResume() { inBackground = false; main.post(this::refreshVisibility); }
-
-    @Override
-    protected void handleOnDestroy() { main.post(this::removeBox); }
+    @Override protected void handleOnPause() { inBackground = true; main.post(this::refreshVisibility); }
+    @Override protected void handleOnResume() { inBackground = false; main.post(this::refreshVisibility); }
+    @Override protected void handleOnDestroy() { main.post(this::removeBox); }
 
     private void refreshVisibility() {
-        boolean want = enabled && inBackground && !dismissed && canDraw() && (playing || !lines.isEmpty() || !title.isEmpty());
+        boolean want = enabled && inBackground && canDraw() && (!lines.isEmpty() || !title.isEmpty());
         if (want && box == null) addBox();
         else if (!want && box != null) removeBox();
     }
 
-    private long posNow() {
-        return playing ? basePosMs + (SystemClock.elapsedRealtime() - baseClock) : basePosMs;
-    }
+    private long posNow() { return playing ? basePosMs + (SystemClock.elapsedRealtime() - baseClock) : basePosMs; }
 
-    private void render() {
+    private void render(boolean force) {
         if (box == null) return;
         int idx = -1;
         long p = posNow();
         for (int i = 0; i < lines.size(); i++) { if (lines.get(i).t <= p + 150) idx = i; else break; }
-        if (idx == lastIdx && idx >= 0) return;
-        lastIdx = idx;
-        if (idx >= 0 && !lines.get(idx).text.isEmpty()) {
-            mainTv.setText(lines.get(idx).text);
-            String tr = lines.get(idx).tr;
-            subTv.setText(tr == null ? "" : tr);
-            subTv.setVisibility(tr == null || tr.isEmpty() ? View.GONE : View.VISIBLE);
-        } else {
-            mainTv.setText(title.isEmpty() ? "♪" : title);
-            subTv.setVisibility(View.GONE);
-        }
+        if (!force && idx == lastIdx && playing == lastPlaying) return;
+        lastIdx = idx; lastPlaying = playing;
+        Line cur = idx >= 0 ? lines.get(idx) : null;
+        String mainText, sub;
+        if (playing && cur != null && !cur.text.isEmpty()) { mainText = cur.text; sub = cur.tr == null ? "" : cur.tr; }
+        else { mainText = title.isEmpty() ? "♪" : title; sub = playing ? "" : "已暂停"; }
+        mainTv.setText(mainText);
+        subTv.setText(sub);
+        subTv.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
+        Line nx = idx + 1 < lines.size() ? lines.get(Math.max(0, idx + 1)) : null;
+        String nextText = playing && nx != null ? nx.text : "";
+        nextTv.setText(nextText);
+        nextTv.setVisibility(expanded && !nextText.isEmpty() ? View.VISIBLE : View.GONE);
+        controls.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        playBtn.setKind(playing ? IconView.PAUSE : IconView.PLAY);
     }
 
     private int dp(float v) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getContext().getResources().getDisplayMetrics());
     }
 
+    private int statusBarHeight() {
+        int id = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getContext().getResources().getDimensionPixelSize(id) : dp(24);
+    }
+
+    /** 和 App 里一样：0 = 最上（状态栏下面），1 = 离底部 110dp */
+    private int yForPct(float pct) {
+        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+        int top = statusBarHeight() + dp(4);
+        int span = Math.max(1, dm.heightPixels - top - dp(110));
+        return top + (int) (span * pct);
+    }
+
+    private float pctForY(int y) {
+        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+        int top = statusBarHeight() + dp(4);
+        int span = Math.max(1, dm.heightPixels - top - dp(110));
+        return Math.max(0f, Math.min(1f, (y - top) / (float) span));
+    }
+
+    private TextView text(Context ctx, float sp, int alpha, boolean bold) {
+        TextView tv = new TextView(ctx);
+        tv.setTextColor(Color.argb(alpha, 255, 255, 255));
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        tv.setGravity(Gravity.CENTER);
+        tv.setShadowLayer(3f, 0f, 1f, Color.argb(115, 0, 0, 0));
+        tv.setSingleLine(true);
+        tv.setEllipsize(TextUtils.TruncateAt.END);
+        if (bold) tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return tv;
+    }
+
+    private void emit(String action) {
+        JSObject o = new JSObject(); o.put("action", action);
+        notifyListeners("control", o);
+    }
+
     private void addBox() {
         Context ctx = getContext().getApplicationContext();
         wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+        DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+
         box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
-        box.setPadding(dp(14), dp(6), dp(14), dp(7));
+        box.setPadding(dp(12), dp(6), dp(12), dp(6));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(110, 15, 18, 28));
+        bg.setColor(Color.argb(Math.round(opacity * 255), 15, 23, 42));
         bg.setCornerRadius(dp(16));
         box.setBackground(bg);
 
-        mainTv = new TextView(ctx);
-        mainTv.setTextColor(Color.WHITE);
-        mainTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSp);
-        mainTv.setGravity(Gravity.CENTER);
-        mainTv.setShadowLayer(4f, 0f, 1f, Color.argb(160, 0, 0, 0));
-        mainTv.setMaxLines(2);
-        subTv = new TextView(ctx);
-        subTv.setTextColor(Color.argb(215, 255, 255, 255));
-        subTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSp * 0.72f);
-        subTv.setGravity(Gravity.CENTER);
-        subTv.setShadowLayer(3f, 0f, 1f, Color.argb(140, 0, 0, 0));
-        subTv.setMaxLines(2);
-        box.addView(mainTv);
-        box.addView(subTv);
+        mainTv = text(ctx, 15f * fontScale, 255, true);
+        subTv = text(ctx, 11.5f * fontScale, 205, false);
+        nextTv = text(ctx, 12f, 150, false);
+        nextTv.setPadding(0, dp(2), 0, 0);
+        box.addView(mainTv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        box.addView(subTv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        box.addView(nextTv, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        SharedPreferences sp = ctx.getSharedPreferences("floating_lyric", Context.MODE_PRIVATE);
+        controls = new LinearLayout(ctx);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.CENTER);
+        controls.setPadding(0, dp(6), 0, dp(2));
+        IconView prev = new IconView(ctx, IconView.PREV, false);
+        playBtn = new IconView(ctx, IconView.PLAY, true);
+        IconView nextB = new IconView(ctx, IconView.NEXT, false);
+        IconView open = new IconView(ctx, IconView.NOTE, false);
+        prev.setOnClickListener(v -> emit("prev"));
+        playBtn.setOnClickListener(v -> { playing = !playing; baseClock = SystemClock.elapsedRealtime(); render(true); emit("toggle"); });
+        nextB.setOnClickListener(v -> emit("next"));
+        open.setOnClickListener(v -> {
+            emit("open");
+            Intent i = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            if (i != null) { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT); ctx.startActivity(i); }
+        });
+        int s = dp(34), ps = dp(32), gap = dp(12);
+        LinearLayout.LayoutParams a = new LinearLayout.LayoutParams(s, s); a.setMargins(gap, 0, gap, 0);
+        LinearLayout.LayoutParams b = new LinearLayout.LayoutParams(ps, ps); b.setMargins(gap, 0, gap, 0);
+        LinearLayout.LayoutParams c = new LinearLayout.LayoutParams(s, s); c.setMargins(gap, 0, gap, 0);
+        LinearLayout.LayoutParams d = new LinearLayout.LayoutParams(s, s); d.setMargins(gap, 0, gap, 0);
+        controls.addView(prev, a); controls.addView(playBtn, b); controls.addView(nextB, c); controls.addView(open, d);
+        box.addView(controls, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             : WindowManager.LayoutParams.TYPE_PHONE;
-        lp = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT);
+        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        if (locked) flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        lp = new WindowManager.LayoutParams(dm.widthPixels - dp(24), WindowManager.LayoutParams.WRAP_CONTENT, type, flags, PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        lp.horizontalMargin = 0.04f;
-        lp.y = sp.getInt("y", dp(120));
+        lp.x = 0;
+        lp.y = yForPct(topPct);
 
         box.setOnTouchListener(new View.OnTouchListener() {
-            float downY; int startY; long downAt; boolean moved;
+            float downY; int startY; boolean moved;
             @Override public boolean onTouch(View v, MotionEvent e) {
                 switch (e.getAction()) {
                     case MotionEvent.ACTION_DOWN:
-                        downY = e.getRawY(); startY = lp.y; downAt = SystemClock.elapsedRealtime(); moved = false; return true;
+                        downY = e.getRawY(); startY = lp.y; moved = false; return true;
                     case MotionEvent.ACTION_MOVE:
                         float dy = e.getRawY() - downY;
-                        if (Math.abs(dy) > dp(6)) moved = true;
-                        if (moved) { lp.y = Math.max(0, (int) (startY + dy)); try { wm.updateViewLayout(box, lp); } catch (Exception ignored) { } }
+                        if (!moved && Math.abs(dy) < dp(6)) return true;
+                        moved = true;
+                        lp.y = Math.max(statusBarHeight(), (int) (startY + dy));
+                        try { wm.updateViewLayout(box, lp); } catch (Exception ignored) { }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if (moved) sp.edit().putInt("y", lp.y).apply();
-                        else if (SystemClock.elapsedRealtime() - downAt > 600) { dismissed = true; removeBox(); }
+                        if (moved) {
+                            topPct = pctForY(lp.y);
+                            JSObject o = new JSObject(); o.put("action", "moved"); o.put("topPct", topPct);
+                            notifyListeners("control", o);
+                        } else { expanded = !expanded; render(true); }
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
                         return true;
                 }
                 return false;
@@ -222,8 +287,7 @@ public class FloatingLyricPlugin extends Plugin {
         });
 
         try { wm.addView(box, lp); } catch (Exception e) { box = null; return; }
-        lastIdx = -2;
-        render();
+        render(true);
         main.removeCallbacks(tick);
         main.post(tick);
     }
@@ -231,6 +295,43 @@ public class FloatingLyricPlugin extends Plugin {
     private void removeBox() {
         main.removeCallbacks(tick);
         if (box != null && wm != null) { try { wm.removeView(box); } catch (Exception ignored) { } }
-        box = null;
+        box = null; expanded = false;
+    }
+
+    /** 简单的矢量小图标（不用 emoji，免得各家系统画成彩色的） */
+    static class IconView extends View {
+        static final int PREV = 0, PLAY = 1, PAUSE = 2, NEXT = 3, NOTE = 4;
+        private int kind;
+        private final boolean filledCircle;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        IconView(Context c, int kind, boolean filledCircle) { super(c); this.kind = kind; this.filledCircle = filledCircle; setClickable(true); }
+        void setKind(int k) { if (k != kind) { kind = k; invalidate(); } }
+        @Override protected void onDraw(Canvas cv) {
+            float w = getWidth(), h = getHeight(), cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2;
+            int fg = Color.WHITE;
+            if (filledCircle) { p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(230, 255, 255, 255)); cv.drawCircle(cx, cy, r, p); fg = Color.rgb(15, 23, 42); }
+            p.setColor(fg); p.setStyle(Paint.Style.FILL);
+            float u = r * 0.42f;
+            Path path = new Path();
+            switch (kind) {
+                case PLAY:
+                    path.moveTo(cx - u * 0.6f, cy - u); path.lineTo(cx + u * 0.9f, cy); path.lineTo(cx - u * 0.6f, cy + u); path.close(); cv.drawPath(path, p); break;
+                case PAUSE:
+                    cv.drawRoundRect(cx - u * 0.75f, cy - u, cx - u * 0.2f, cy + u, 2, 2, p);
+                    cv.drawRoundRect(cx + u * 0.2f, cy - u, cx + u * 0.75f, cy + u, 2, 2, p); break;
+                case PREV:
+                    cv.drawRect(cx - u, cy - u, cx - u * 0.72f, cy + u, p);
+                    path.moveTo(cx + u, cy - u); path.lineTo(cx - u * 0.6f, cy); path.lineTo(cx + u, cy + u); path.close(); cv.drawPath(path, p); break;
+                case NEXT:
+                    cv.drawRect(cx + u * 0.72f, cy - u, cx + u, cy + u, p);
+                    path.moveTo(cx - u, cy - u); path.lineTo(cx + u * 0.6f, cy); path.lineTo(cx - u, cy + u); path.close(); cv.drawPath(path, p); break;
+                case NOTE:
+                    p.setAlpha(200);
+                    cv.drawCircle(cx - u * 0.45f, cy + u * 0.6f, u * 0.42f, p);
+                    cv.drawRect(cx - u * 0.12f, cy - u, cx + u * 0.08f, cy + u * 0.6f, p);
+                    path.moveTo(cx - u * 0.12f, cy - u); path.lineTo(cx + u * 0.8f, cy - u * 0.6f); path.lineTo(cx + u * 0.8f, cy - u * 0.25f); path.lineTo(cx - u * 0.12f, cy - u * 0.62f); path.close();
+                    cv.drawPath(path, p); break;
+            }
+        }
     }
 }
