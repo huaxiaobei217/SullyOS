@@ -15,6 +15,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FloatingLyricPlugin.class); // 系统级悬浮歌词
+        registerPlugin(AppShellPlugin.class);      // App 内更新
         super.onCreate(savedInstanceState);
         hideNavigationBar();
     }

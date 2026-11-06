@@ -62,6 +62,22 @@ jobs:
           mkdir -p "$PKG_DIR"
           cp native/noah-apk/MainActivity.java "$PKG_DIR/MainActivity.java"
           cp native/noah-apk/FloatingLyricPlugin.java "$PKG_DIR/FloatingLyricPlugin.java"
+          cp native/noah-apk/AppShellPlugin.java "$PKG_DIR/AppShellPlugin.java"
+          # 打包时间戳：写进 App 资源（App 内检查更新用），发布的文件名用同一个
+          STAMP=$(date -u +%Y%m%d-%H%M)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="noah_build_stamp" translatable="false">%s</string></resources>\n' "$STAMP" > android/app/src/main/res/values/noah_build.xml
+          # FileProvider 能指到 App 自己的下载目录（App 内更新装包用）
+          mkdir -p android/app/src/main/res/xml
+          cat > android/app/src/main/res/xml/file_paths.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <external-path name="my_images" path="." />
+              <external-files-path name="my_files" path="." />
+              <cache-path name="my_cache_images" path="." />
+          </paths>
+          XML
+          sed -i 's/^          //' android/app/src/main/res/xml/file_paths.xml
           MANIFEST=android/app/src/main/AndroidManifest.xml
           # 麦克风（通话 / 语音识别）、通知、系统语音识别服务的可见性
           python3 - "$MANIFEST" <<'PY'
@@ -69,7 +85,7 @@ jobs:
           p = sys.argv[1]; s = open(p, encoding='utf-8').read()
           perms = ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS',
                    'android.permission.POST_NOTIFICATIONS', 'android.permission.WAKE_LOCK',
-                   'android.permission.VIBRATE', 'android.permission.SYSTEM_ALERT_WINDOW']
+                   'android.permission.VIBRATE', 'android.permission.SYSTEM_ALERT_WINDOW', 'android.permission.REQUEST_INSTALL_PACKAGES']
           add = ''.join(f'    <uses-permission android:name="{x}" />\n' for x in perms if x not in s)
           queries = '' if 'android.speech.RecognitionService' in s else (
               '    <queries>\n        <intent>\n            <action android:name="android.speech.RecognitionService" />\n        </intent>\n    </queries>\n')
@@ -135,7 +151,6 @@ jobs:
         run: |
           set -e
           APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
-          STAMP=$(date -u +%Y%m%d-%H%M)
           cp "$APK" "SullyOS-noah-$STAMP.apk"
           NOTES="自动打包 $STAMP（${GITHUB_SHA::7}）。用手机浏览器下载后安装；签名固定，可以直接覆盖旧版。"
           if gh release view android-latest >/dev/null 2>&1; then

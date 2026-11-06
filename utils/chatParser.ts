@@ -128,6 +128,37 @@ const resolveFrozenSongSnapshot = async (
 // 独立实现 extractAssistantTransfers, 合并时其能力（全角括号【】/ 主语「我」/ credits
 // 后缀）已并入 transferFormat, 测试见 utils/chatParser.transfer.test.ts。
 
+/**
+ * 二改：模型明明被要求「语音和文字别复读」，还是常常先打一串字、再发一条语音把同样的话念一遍。
+ * 同一轮回复里，如果某个文字气泡的内容大部分（按字的二元组算 ≥ 60%）已经在语音的字幕 / 语音正文里，
+ * 就把这个文字气泡去掉，只留语音。很短的气泡、带标签的气泡不动。
+ */
+const VOICE_BLOCK_RE = /<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>/;
+const bigrams = (t: string): Set<string> => {
+    const clean = t.replace(/\[[^\]]{0,60}\]/g, '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
+    const out = new Set<string>();
+    for (let i = 0; i < clean.length - 1; i++) out.add(clean.slice(i, i + 2));
+    return out;
+};
+export function dropTextEchoedByVoice(chunks: string[]): string[] {
+    const voiceGrams = new Set<string>();
+    for (const c of chunks) {
+        if (!VOICE_BLOCK_RE.test(c)) continue;
+        const sub = c.match(/<字幕>([\s\S]*?)<\/字幕>/)?.[1] || '';
+        const body = c.match(VOICE_BLOCK_RE)?.[1] || '';
+        for (const g of bigrams(sub + ' ' + body)) voiceGrams.add(g);
+    }
+    if (voiceGrams.size < 8) return chunks;
+    return chunks.filter(c => {
+        if (VOICE_BLOCK_RE.test(c) || /[<\[]/.test(c)) return true;
+        const g = bigrams(c);
+        if (g.size < 5) return true;
+        let hit = 0;
+        for (const x of g) if (voiceGrams.has(x)) hit++;
+        return hit / g.size < 0.6;
+    });
+}
+
 export const ChatParser = {
     // Return cleaned content and perform side effects
     parseAndExecuteActions: async (
@@ -634,8 +665,9 @@ export const ChatParser = {
 
         const ATOM_GLOBAL = new RegExp(`${ATOM}(\\d+)${ATOM}`, 'g');
         const restoreVoice = (s: string) => s.replace(ATOM_GLOBAL, (_m, n) => voiceBlocks[Number(n)] ?? '');
-        return lineChunks
+        const chunks = lineChunks
             .map(restoreVoice)
             .filter(c => c.length > 0);
+        return dropTextEchoedByVoice(chunks);
     }
 }

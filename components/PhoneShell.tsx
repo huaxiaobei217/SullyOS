@@ -131,6 +131,7 @@ import PersonaSimIndicator from './os/PersonaSimIndicator';
 import DreamSimIndicator from './os/DreamSimIndicator';
 import ErrorDialog from './os/ErrorDialog';
 import NativeFloatingLyric from './os/NativeFloatingLyric';
+import AppUpdateBanner from './os/AppUpdateBanner';
 import BootSequence from './os/BootSequence';
 import { setAppPayloadWarmer, shouldUseIdleAppPreload } from './os/appPreload';
 import { isBrowserBackGuardState, makeBrowserBackGuardState } from '../utils/browserBackGuard';
@@ -1105,6 +1106,7 @@ const PhoneShell: React.FC = () => {
           {/* Overlays: Global Mini Player (when music is playing in background) */}
           <DesktopLyric />
           <NativeFloatingLyric />
+          <AppUpdateBanner />
           <NowPlayingSync />
           <ListenTogetherWatcher />
           <NavigationBall />
