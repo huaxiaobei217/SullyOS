@@ -129,9 +129,9 @@ const StatsPage: React.FC<{ books: ShelfBook[]; onClose: () => void }> = ({ book
             {rank.map(([id, sec]) => (
               <div key={id} className="flex items-center gap-2 text-[11.5px]">
                 <div className="w-4 h-5 rounded-sm shrink-0" style={{ background: bookById.get(id)!.cover }} />
-                <span className="w-24 truncate">{bookById.get(id)!.title}</span>
+                <span className="w-20 truncate">{bookById.get(id)!.title}</span>
                 <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: T.deep }}><div className="h-full" style={{ width: `${(sec / rMax) * 100}%`, background: T.accent }} /></div>
-                <span className="w-16 text-right" style={{ color: T.muted }}>{fmtMinutes(sec)}</span>
+                <span className="shrink-0 whitespace-nowrap text-right" style={{ color: T.muted }}>{fmtMinutes(sec)}</span>
               </div>
             ))}
           </div>

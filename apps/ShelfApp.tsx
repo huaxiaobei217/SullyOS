@@ -7,7 +7,7 @@ import { useOS } from '../context/OSContext';
 import type { CharacterProfile } from '../types';
 import {
   loadShelf, SHELF_EVENT, importBook, loadChapters, deleteBook, savePosition, annotateChapter, chatAboutBook, toggleAutoNote,
-  summarizeChapter, addReadingSeconds, askChart, mentionChart, pushChartMessage, markFinishedIfDone, loadStats, readingStreak, fmtMinutes, dayKeyOf, shareShelfNote, shareShelfTalk,
+  summarizeChapter, addReadingSeconds, askChart, mentionChart, pushChartMessage, setNoteStyle, replyToNote, markFinishedIfDone, loadStats, readingStreak, fmtMinutes, dayKeyOf, shareShelfNote, shareShelfTalk,
   type ShelfBook, type ShelfChapter, type ShelfNote, type ShelfChat,
 } from '../utils/shelf';
 import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
@@ -41,6 +41,13 @@ const useShelf = () => {
   return s;
 };
 
+/* 三种划线：荧光（被打动 / 金句）、波浪（吐槽 / 疑问）、直线（伏笔 / 细节） */
+const markStyle = (st?: ShelfNote['style']): React.CSSProperties =>
+  st === 'highlight' ? { background: 'linear-gradient(transparent 52%, rgba(226,190,92,0.5) 52%, rgba(226,190,92,0.5) 92%, transparent 92%)', borderRadius: 2 }
+  : st === 'line' ? { textDecoration: 'underline', textDecorationColor: T.accent, textUnderlineOffset: '5px', textDecorationThickness: '1.5px' }
+  : { textDecoration: 'underline wavy', textDecorationColor: T.pencil, textUnderlineOffset: '4px', textDecorationThickness: '1px' };
+const STYLE_LABEL: Record<NonNullable<ShelfNote['style']>, string> = { highlight: '荧光', wavy: '波浪', line: '直线' };
+
 /* 一段正文：把他画线的那一小段标出来，后面跟编号 */
 const Para: React.FC<{ text: string; notes: { n: number; note: ShelfNote }[]; onNote: (n: ShelfNote) => void; onTap: () => void; size: number }> = ({ text, notes, onNote, onTap, size }) => {
   const parts: React.ReactNode[] = [];
@@ -51,7 +58,7 @@ const Para: React.FC<{ text: string; notes: { n: number; note: ShelfNote }[]; on
     const badge = <sup key={`b${m.note.id}`} onClick={e => { e.stopPropagation(); onNote(m.note); }} className="cursor-pointer select-none ml-0.5" style={{ color: T.pencil, fontSize: '0.8em' }}>{CIRCLED[m.n] || `(${m.n + 1})`}</sup>;
     if (m.at >= cur && m.note.quote) {
       parts.push(text.slice(cur, m.at));
-      parts.push(<span key={m.note.id} onClick={e => { e.stopPropagation(); onNote(m.note); }} style={{ textDecoration: 'underline wavy', textDecorationColor: T.pencil, textUnderlineOffset: '4px', textDecorationThickness: '1px' }}>{m.note.quote}</span>);
+      parts.push(<span key={m.note.id} onClick={e => { e.stopPropagation(); onNote(m.note); }} style={markStyle(m.note.style)}>{m.note.quote}</span>);
       parts.push(badge);
       cur = m.at + m.note.quote.length;
     } else tail.push(badge);
@@ -144,6 +151,8 @@ const ShelfApp: React.FC = () => {
   const [showOrig, setShowOrig] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<{ ch: number; para: number } | null>(null);
   const [tocTab, setTocTab] = useState<'toc' | 'people'>('toc');
+  const [noteSay, setNoteSay] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const toggleOrig = (id: string) => setShowOrig(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const userName = userProfile?.name || '我';
@@ -795,10 +804,22 @@ const ShelfApp: React.FC = () => {
       )}
 
       {/* 批注气泡 */}
-      {openNote && char && (
-        <div className="absolute inset-0 z-40 flex items-end" onClick={() => setOpenNote(null)}>
-          <div className="w-full m-3 rounded-2xl p-4 shadow-xl" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }} onClick={e => e.stopPropagation()}>
-            {openNote.quote && <div className="text-[12px] font-serif mb-2 pl-2" style={{ color: T.muted, borderLeft: `2px solid ${T.pencil}` }}>{openNote.quote}</div>}
+      {openNote && char && (() => { const live = store.notes.find(n => n.id === openNote.id) || openNote; return (
+        <div className="absolute inset-0 z-40 flex items-end" onClick={() => { setOpenNote(null); setNoteSay(''); }}>
+          <div className="w-full m-3 rounded-2xl p-4 shadow-xl max-h-[80%] overflow-y-auto" style={{ background: '#fffdf8', border: `1px solid ${T.line}` }} onClick={e => e.stopPropagation()}>
+            {openNote.quote && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1 text-[10px] font-sans" style={{ color: T.faint }}>
+                  <span>原文</span>
+                  <span className="flex gap-1">
+                    {(['highlight', 'wavy', 'line'] as const).map(k => (
+                      <button key={k} onClick={() => setNoteStyle(live.id, k)} className="px-1.5 py-0.5 rounded" style={{ background: (live.style || 'wavy') === k ? T.paperDeep : 'transparent', color: (live.style || 'wavy') === k ? T.ink : T.faint }}>{STYLE_LABEL[k]}</button>
+                    ))}
+                  </span>
+                </div>
+                <div className="text-[12px] font-serif pl-2" style={{ color: T.muted, borderLeft: `2px solid ${T.pencil}` }}><span style={markStyle(live.style)}>{openNote.quote}</span></div>
+              </div>
+            )}
             <div className="flex items-start gap-2">
               <TokenImg value={char.avatar} className="w-7 h-7 rounded-full object-cover shrink-0" />
               <div className="flex-1">
@@ -815,9 +836,29 @@ const ShelfApp: React.FC = () => {
               {openNote.voice && <button onClick={() => toggleOrig(openNote.id)} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>{showOrig.has(openNote.id) ? '收起原文' : '看原文'}</button>}
               <button onClick={() => share(() => shareShelfNote(openNote, book, char.name, userName))} className="text-[11px] px-3 py-1 rounded-full" style={{ background: T.paperDeep, color: T.muted }}>发到聊天</button>
             </div>
+            {/* 段落讨论：在他的批注下面接着聊 */}
+            {(live.thread?.length || 0) > 0 && (
+              <div className="mt-3 pl-3 space-y-2 font-sans" style={{ borderLeft: `1px solid ${T.line}` }}>
+                {live.thread!.map((t, k) => (
+                  <div key={k} className="text-[12.5px] leading-relaxed" style={{ color: t.role === 'me' ? T.mine : T.pencil, fontFamily: t.role === 'him' ? `'Caveat','Long Cang','Ma Shan Zheng',cursive` : undefined, fontSize: t.role === 'him' ? 14 : undefined }}>
+                    <span className="text-[10px] mr-1" style={{ color: T.faint, fontFamily: 'inherit' }}>{t.role === 'me' ? userName : char.name}</span>{t.text}
+                    {t.role === 'him' && hasVoice && <button onClick={() => play(`${live.id}_${k}`, t.voice || t.text)} className="ml-1.5 text-[10px]" style={{ color: T.accent }}>{playing === `${live.id}_${k}` ? '■' : '▶'}</button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mt-3 font-sans">
+              <input value={noteSay} onChange={e => setNoteSay(e.target.value)} placeholder={`在页边回${char.name}…`} className="flex-1 min-w-0 px-3 py-1.5 rounded-xl text-[12.5px] outline-none" style={{ background: T.paper, border: `1px solid ${T.line}` }}
+                onKeyDown={async e => { if (e.key === 'Enter') (e.currentTarget.nextSibling as HTMLButtonElement)?.click(); }} />
+              <button disabled={!noteSay.trim() || noteBusy} onClick={async () => {
+                const t = noteSay.trim(); if (!t) return; setNoteSay(''); setNoteBusy(true);
+                try { await replyToNote(char, apiConfig, userName, book, live.id, t); } catch (err: any) { addToast?.(`没回上：${err?.message || err}`, 'error'); setNoteSay(t); }
+                setNoteBusy(false);
+              }} className="px-3 rounded-xl text-[12px] text-white disabled:opacity-40" style={{ background: T.accent }}>{noteBusy ? '…' : '回'}</button>
+            </div>
           </div>
         </div>
-      )}
+      ); })()}
 
       {/* 目录 */}
       {showToc && (

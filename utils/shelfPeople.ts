@@ -13,7 +13,7 @@ export interface PersonCard { name: string; aliases: string[]; role: string; des
 interface BookPeople { cards: PersonCard[]; scanned: number[] }
 
 const loadAll = (): Record<string, BookPeople> => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
-export const loadPeople = (bookId: string): BookPeople => ({ cards: [], scanned: [], ...(loadAll()[bookId] || {}) });
+export const loadPeople = (bookId: string): BookPeople => { const v: Partial<BookPeople> = loadAll()[bookId] || {}; return { cards: v.cards || [], scanned: v.scanned || [] }; };
 const save = (bookId: string, v: BookPeople) => {
   try { const all = loadAll(); all[bookId] = v; localStorage.setItem(LS, JSON.stringify(all)); } catch { /* ignore */ }
   try { window.dispatchEvent(new Event(PEOPLE_EVENT)); } catch { /* ignore */ }

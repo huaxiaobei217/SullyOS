@@ -18,7 +18,7 @@ export interface PoolSong { id: number | string; name: string; artists: string; 
 interface PickState { recent: string[]; lastAt?: number; playlistIds?: string[]; off?: boolean }
 
 const loadAll = (): Record<string, PickState> => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
-const load = (charId: string): PickState => ({ recent: [], ...(loadAll()[charId] || {}) });
+const load = (charId: string): PickState => { const v: Partial<PickState> = loadAll()[charId] || {}; return { ...v, recent: v.recent || [] }; };
 const save = (charId: string, s: PickState) => { try { const all = loadAll(); all[charId] = s; localStorage.setItem(LS, JSON.stringify(all)); } catch { /* ignore */ } };
 
 const songKey = (s: PoolSong) => `${String(s.name).trim().toLowerCase()}|${String(s.artists).trim().toLowerCase()}`;
