@@ -392,6 +392,34 @@ export const ChatParser = {
             content = content.replace(MUSIC_TAG_GLOBAL_RE, '').trim();
         }
 
+        // SONG_PICK（二改）— 角色从「手边能放的歌」里挑一首拉你一起听：出一张邀请卡，点了才放
+        {
+            const { SONG_PICK_RE, SONG_PICK_GLOBAL_RE, resolveSongPick, markSongPicked } = await import('./charSongPicks');
+            const pickMatch = content.match(SONG_PICK_RE);
+            if (pickMatch) {
+                try {
+                    const chars = await DB.getAllCharacters();
+                    const ch = chars.find(c => c.id === charId);
+                    const song = ch ? resolveSongPick(ch, pickMatch[1]) : null;
+                    if (song) {
+                        markSongPicked(charId, song);
+                        await replyStep(async () => persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'music_card',
+                            content: '[音乐卡片]',
+                            metadata: {
+                                intent: 'invite',
+                                song: { songId: Number(song.id) || 0, name: song.name, artists: song.artists, album: song.album || '', albumPic: song.albumPic || '', duration: song.duration || 0, fee: song.fee || 0 },
+                                fullSong: song,
+                            },
+                        }));
+                    } else console.warn('[SongPick] 歌池里找不到这首，跳过:', pickMatch[1]);
+                } catch (e) { replyRun?.check(); console.warn('[SongPick] failed', e); }
+                content = content.replace(SONG_PICK_GLOBAL_RE, '').trim();
+            }
+        }
+
         // NEWS_CARD — char 主动把某条热点当作新闻卡片分享（来源 + 标题）
         //   [[NEWS_CARD: 来源|标题]]    （来源可省略 → [[NEWS_CARD: 标题]]）
         const NEWS_CARD_RE = /\[\[NEWS_CARD:\s*([^\]]*?)\s*\]\]/;

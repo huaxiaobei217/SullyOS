@@ -659,6 +659,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     const a = new Audio();
     a.preload = 'metadata';
+    a.dataset.sullyMusic = '1'; // 角色语音放大不碰音乐（缓存的歌也是 blob）
     // 注意: 不要设置 crossOrigin — NetEase CDN 没有 CORS 头，会变成静默加载失败
     audioRef.current = a;
 
@@ -1040,6 +1041,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       recentTrackChange,
     };
   }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, recentTrackChange]);
+
+  // 二改：聊天里角色发来的「一起听」邀请卡，点了就放这首并亮出一起听
+  useEffect(() => {
+    const onInvite = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (!d.song) return;
+      void playSong(d.song as Song).then(() => { if (d.charId) addListeningPartner(d.charId); }).catch(() => {});
+    };
+    window.addEventListener('sully:char-song-invite', onInvite);
+    return () => window.removeEventListener('sully:char-song-invite', onInvite);
+  }, [playSong, addListeningPartner]);
 
   // 把整组 musicHooks 写到模块级 slot — useChatAI 和 activeMsgRuntime 都从这里取.
   // current / addListeningPartner 变化时刷新闭包, 保证读到的是最新 React state.

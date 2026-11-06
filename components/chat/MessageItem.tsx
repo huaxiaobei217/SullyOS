@@ -1755,7 +1755,8 @@ const MessageItem = React.memo(({
     // --- Music Card Rendering (一起听 / 加入歌单) ---
     if (m.type === 'music_card' && m.metadata?.song) {
         const song = m.metadata.song as { songId: number; name: string; artists: string; albumPic: string };
-        const intent = (m.metadata.intent || 'join') as 'join' | 'add' | 'join_and_add' | 'share';
+        const intent = (m.metadata.intent || 'join') as 'join' | 'add' | 'join_and_add' | 'share' | 'invite';
+        const isInvite = intent === 'invite';
         const isTogether = intent === 'join' || intent === 'join_and_add';
         const addedTo = m.metadata.addedToPlaylistTitle as string | undefined;
 
@@ -1870,7 +1871,7 @@ const MessageItem = React.memo(({
                     {!isTogether && (
                         <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full backdrop-blur-sm text-[9px] font-medium"
                             style={{ background: 'rgba(255,255,255,0.85)', color: '#5a49a8' }}>
-                            {intent === 'share' ? '🎧 正在听' : '📌 收入歌单'}
+                            {intent === 'share' ? '🎧 正在听' : isInvite ? '🎧 想和你一起听' : '📌 收入歌单'}
                         </div>
                     )}
                 </div>
@@ -1886,6 +1887,13 @@ const MessageItem = React.memo(({
                         <div className="text-[9px] mt-1.5 italic" style={{ color: '#5a49a8' }}>
                             已加入《{addedTo}》
                         </div>
+                    )}
+                    {isInvite && !isUser && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); import('../../utils/charSongPicks').then(mod => mod.playInvitedSong(m.charId, (m.metadata.fullSong || { ...song, id: song.songId }))); }}
+                            className="mt-2 w-full py-1.5 rounded-xl text-[11px] font-bold text-white active:scale-95 transition-transform"
+                            style={{ background: 'linear-gradient(135deg, #b48be0, #7f9be6)' }}
+                        >▶ 一起听</button>
                     )}
                     <div className="mt-2 pt-1.5 flex items-center gap-1 text-[9px] border-t" style={{ color: '#a89bc5', borderColor: '#e0d9f0' }}>
                         <span style={{ color: '#5a49a8', fontWeight: 600 }}>Shizuku Music</span>

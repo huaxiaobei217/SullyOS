@@ -13,6 +13,7 @@ import { VRScheduler } from './utils/vrWorld/scheduler';
 import { installIOSStandaloneWorkaround } from './utils/iosStandalone';
 import { installIOSStatusBarEdge } from './utils/iosStatusBarEdge';
 import { installAndroidSystemBars } from './utils/androidSystemBars';
+import { installVoiceVolume } from './utils/voiceVolume';
 import { installWakeListener } from './utils/proactivePushConfig';
 import { initAnalytics } from './utils/analytics';
 import { Capacitor } from '@capacitor/core';
@@ -56,6 +57,7 @@ initAnalytics();
 // 浏览器自动翻译 (Chrome/Edge 等) 会改动 React 托管的 DOM，导致 reconcile 时
 // insertBefore/removeChild 抛 NotFoundError 白屏。挂载前先打护栏。详见该 util 注释。
 installTranslateCrashGuard();
+installVoiceVolume();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

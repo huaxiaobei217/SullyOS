@@ -61,6 +61,7 @@ import NewsTastePanel from '../components/settings/NewsTastePanel';
 import NoahBackupPanel from '../components/settings/NoahBackupPanel';
 import SttOpenAiPanel from '../components/settings/SttOpenAiPanel';
 import ClaudeBackupRow from '../components/settings/ClaudeBackupRow';
+import VoiceGainPanel from '../components/settings/VoiceGainPanel';
 import AndroidImmersivePanel from '../components/settings/AndroidImmersivePanel';
 import NaiSettingsPanel from '../components/settings/NaiSettingsPanel';
 import { DB } from '../utils/db';
@@ -3075,6 +3076,8 @@ const Settings: React.FC = () => {
                         })}
                     </div>
                 </div>
+
+                <VoiceGainPanel />
 
                 {/* 通话语音转文字（你开口说话 → 转文字）四选一 —— 可与角色发声平台自由搭配，填了 Key 才能选对应平台 */}
                 <div className="group rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3">

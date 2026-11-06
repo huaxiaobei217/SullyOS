@@ -11,6 +11,7 @@ import { isMoneyOff, setMoneyOff } from '../../utils/moneyOff';
 import EndearmentGateRow from './EndearmentGateRow';
 import OldLedgerRow from './OldLedgerRow';
 import CharTripRow from './CharTripRow';
+import CharSongPickRow from './CharSongPickRow';
 import { MemoryNodeDB } from '../../utils/memoryPalace/db';
 import { updateStoredMemoryNode } from '../../utils/memoryPalace/vectorStore';
 
@@ -143,6 +144,7 @@ const TropeCleanPanel: React.FC = () => {
           {char && <EndearmentGateRow charId={char.id} charName={char.name} />}
           {char && <OldLedgerRow charId={char.id} charName={char.name} userName={userProfile?.name || '她'} />}
           {char && <CharTripRow charId={char.id} charName={char.name} />}
+          {char && <CharSongPickRow char={char} />}
           <div className="flex flex-wrap gap-1.5">
             {list.map(w => (
               <span key={w} className="px-2 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700 border border-amber-200">

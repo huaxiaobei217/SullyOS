@@ -1,4 +1,5 @@
 /** Streaming audio primitives shared by chat, calls and reading. */
+import { getVoiceGain, boostSample } from './voiceVolume';
 export interface VoiceCue { text: string; start: number; end: number; voiceId?: string }
 export const VOICE_SAMPLE_RATE = 24000;
 
@@ -137,7 +138,8 @@ export class PcmVoicePlayer {
     if (!sampleCount) return;
     const samples = new Float32Array(sampleCount);
     const data = new DataView(joined.buffer);
-    for (let i = 0; i < sampleCount; i++) samples[i] = data.getInt16(i * 2, true) / 32768;
+    const g = getVoiceGain();
+    for (let i = 0; i < sampleCount; i++) samples[i] = boostSample(data.getInt16(i * 2, true) / 32768, g);
     const buffer = this.context.createBuffer(1, sampleCount, this.sampleRate);
     buffer.copyToChannel(samples, 0);
     const last = this.schedule[this.schedule.length - 1];

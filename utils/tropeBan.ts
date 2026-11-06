@@ -29,18 +29,37 @@ export const setTropeMode = (m: TropeMode) => { try { localStorage.setItem(MODE_
  * 「别想大象」：反复把禁词摆在他眼前，反而可能让他更惦记。所以默认只在他最近几条回复里又冒出来时才提醒，
  * 措辞也只说「换新鲜的说法」，不强调、不加粗、不罗列例子。
  */
+/**
+ * 二改：同一个比喻的近亲说法。禁了「记账」，他会改说「账本」「记上一笔」「功过相抵」「封口费」绕回去；
+ * 清单里有某个词时，整族一起盯（发现他说了近亲词也算复发），提示里点明是整个比喻。
+ */
+const TROPE_FAMILIES: { triggers: RegExp; family: RegExp; label: string }[] = [
+  {
+    triggers: /记账|连本带利|账本|算账|旧账/,
+    family: /记账|账本|算账|旧账|赖账|烂账|对账|欠账|记[上下]?一笔|记[你在]?账上|功过相抵|将功补过|封口费|连本带利|利息|还债|抵债|清算|结账|报销|罚款/,
+    label: '记账 / 欠债 / 算利息这一整套比喻（账本、记一笔、功过相抵、封口费、清算、利息……）',
+  },
+];
+
 export function buildTropeBanBlock(charId: string, userName = '对方', recentAssistantTexts: string[] = []): string {
   const list = getBannedTropes(charId);
   const mode = getTropeMode();
   if (!list.length || mode === 'off') return '';
+  const joined = recentAssistantTexts.join('\n');
+  const fams = TROPE_FAMILIES.filter(f => list.some(w => f.triggers.test(w)));
   let shown = list;
+  let famShown = fams;
   if (mode === 'relapse') {
-    const joined = recentAssistantTexts.join('\n');
     shown = list.filter(w => joined.includes(w));
-    if (!shown.length) return '';
+    famShown = fams.filter(f => f.family.test(joined));
+    if (!shown.length && !famShown.length) return '';
   }
+  const parts = [
+    ...shown.filter(w => !famShown.some(f => f.triggers.test(w))).map(t => `「${t}」`),
+    ...famShown.map(f => f.label),
+  ];
   return `### 【换点新鲜的说法】
-你最近又用了 ${shown.map(t => `「${t}」`).join('')} ——这是以前用多了的老梗，${userName}已经听过很多遍。接下来说点新鲜的，用别的方式表达同样的情绪，也别换个近义词绕回去。这只是口头习惯的事，不影响你的性格和你们的关系。`;
+你最近又用了 ${parts.join('、')} ——这是以前用多了的老梗，${userName}已经听过很多遍。接下来说点新鲜的，用别的方式表达同样的情绪，也别换个近义词或者同一个比喻的别的说法绕回去。这只是口头习惯的事，不影响你的性格和你们的关系。`;
 }
 
 /** 在一段文字里数某个词出现几次 */
