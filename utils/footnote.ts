@@ -3,6 +3,7 @@
  * 全部走角色自己的对话 API（resolveDialogueApi），带人设和世界书（ContextBuilder.buildCharacterRequest）。
  * 数据存 localStorage（小体积），按角色 id 区分。
  */
+import { buildTodayLifeBlock } from './lifeThread';
 import { ContextBuilder } from './context';
 import { DB } from './db';
 import { safeFetchJson, extractContent } from './safeApi';
@@ -187,7 +188,8 @@ ${pending.length ? `
 另外，墙上有 {{user}} 留的纸条在等你回。路过的时候拿笔在每张下面接一句：短、自然、你的语气，一两句，60 字以内；可以接着她的话逗她、心疼她、跟她斗嘴，别客套。
 ${pendingText}
 ` : ''}只输出一个 JSON：{"cards":[{"kind":"note|excerpt|frame|memo","source":"《作品名》作者或导演 · 年份 / 小纸条写贴在哪儿","quote":"……","note":"……","scene":"english, tags, …"}]${pending.length ? ',"replies":[{"ref":"R1","text":"……"}]' : ''}}`;
-  const { text } = await call(char, apiConfig, instructions, `写 ${count} 张。`, '便签墙', 6000);
+  const life = await buildTodayLifeBlock(char, '{{user}}').catch(() => '');
+  const { text } = await call(char, apiConfig, (life ? `${life}\n\n` : '') + instructions, `写 ${count} 张。`, '便签墙', 6000);
   const j = parseJson(text);
   const list: any[] = Array.isArray(j.cards) ? j.cards : Array.isArray(j) ? j : [j];
   const tints = FOOT_TINTS.map(t => t.id);
@@ -391,8 +393,9 @@ const radioToneGuide = (): string => {
 export async function playRadio(char: CharacterProfile, apiConfig: APIConfig, channel: RadioChannel, voiceLang = '', topic = '', extra = ''): Promise<RadioPiece> {
   const ch = RADIO_CHANNELS.find(c => c.id === channel)!;
   const recent = loadFootnote().radio.filter(r => r.charId === char.id && r.channel === channel).slice(0, 10).map(r => r.title);
+  const life = await buildTodayLifeBlock(char, '{{user}}').catch(() => '');
   const { text } = await call(char, apiConfig,
-    `### 【页脚 · 深夜点播机：${ch.name}】
+    `${life ? `${life}\n（电台里可以聊两句今天怎么过的，但主题还是这个频道。）\n\n` : ''}### 【页脚 · 深夜点播机：${ch.name}】
 现在是睡前，你在给 {{user}} 点播。
 ${ch.task}${topic.trim() ? `\n{{user}} 今晚点了个题：「${topic.trim().slice(0, 100)}」——围绕它讲，怎么理解、从哪讲起由你。` : ''}${extra ? `\n${extra}` : ''}
 这是要念出来的睡前电台：就用你平时说话的声音和语气，自然、放松，像睡前躺着跟 ta 聊天——不用刻意压嗓子、装温柔或发嗲；只是别突然拔高音量、大笑或惊呼，少用感叹号，情绪放在字里；写成很多个短段落，每段一到三句话，像一句一句讲给 ta 听。不要写成报告。

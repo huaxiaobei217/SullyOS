@@ -11,6 +11,7 @@ import { ChatPrompts } from './chatPrompts';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 import { buildTripSchedulePrompt, acceptTripFromSchedule } from './charTrip';
+import { buildYesterdayTraces } from './lifeThread';
 import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
 
 
@@ -292,7 +293,7 @@ export async function generateDailyScheduleForChar(
     const visitPrompt=await scheduleHomeVisitPrompt(char);
     const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户')) + homePrompt + visitPrompt;
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户') + buildYesterdayTraces(char.id)) + homePrompt + visitPrompt;
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
