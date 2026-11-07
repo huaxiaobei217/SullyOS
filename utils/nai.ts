@@ -26,6 +26,11 @@ export interface NaiConfig {
   artist: string;
   /** 每个角色的外貌 tag（提示词里写 self 时换成它） */
   characterTags: Record<string, string>;
+  /** 二改：每个角色自己的负面 tag（只管他自己，不压到同框的人身上） */
+  characterNegatives?: Record<string, string>;
+  /** 你的外貌 tag / 你的负面（写 us 合照时用） */
+  userTags?: string;
+  userNegative?: string;
   negative: string;
   quality: boolean;
   allowPeople: boolean;
@@ -98,15 +103,39 @@ const stripPeople = (tags: string[]) => tags.flatMap(t => {
   return PEOPLE_WORD.test(t) || SELF_WORDS.includes(t.toLowerCase()) ? [] : [t];
 });
 
-export function buildNaiPrompt(scene: string, charId = '', cfg = loadNaiConfig(), allowPeople?: boolean): { prompt: string; negative: string } {
+export interface NaiCharCaption { prompt: string; uc: string; x: number; y: number }
+const US_WORDS = ['us', '{us}', 'couple photo', 'with user', 'together'];
+const USER_WORDS = ['user', '{user}', 'her'];
+
+export function buildNaiPrompt(scene: string, charId = '', cfg = loadNaiConfig(), allowPeople?: boolean): { prompt: string; negative: string; chars: NaiCharCaption[] } {
   const people = allowPeople ?? cfg.allowPeople;
   const style = activeNaiStyle(cfg);
   let parts = splitTags(cleanTags(scene));
   let artist = cleanTags(style.artist);
   let positive = cleanTags(style.positive);
+  const chars: NaiCharCaption[] = [];
   if (people) {
     const self = cleanTags(cfg.characterTags[charId] || '');
-    parts = parts.map(p => SELF_WORDS.includes(p.toLowerCase()) ? self : p);
+    const selfUc = cleanTags(cfg.characterNegatives?.[charId] || '');
+    const me = cleanTags(cfg.userTags || '');
+    const meUc = cleanTags(cfg.userNegative || '');
+    const low = parts.map(p => p.toLowerCase());
+    const wantUs = low.some(p => US_WORDS.includes(p));
+    const wantSelf = wantUs || low.some(p => SELF_WORDS.includes(p));
+    const wantMe = wantUs || low.some(p => USER_WORDS.includes(p));
+    // 二改：V4 / V4.5 / V5 用「每人一段」的角色提示词，外貌和负面各管各的，同框也不串
+    if (isV4(cfg.model) && ((wantSelf && self) || (wantMe && me))) {
+      parts = parts.filter(p => { const l = p.toLowerCase(); return !SELF_WORDS.includes(l) && !US_WORDS.includes(l) && !USER_WORDS.includes(l); });
+      const both = wantSelf && self && wantMe && me;
+      if (wantSelf && self) chars.push({ prompt: self, uc: selfUc, x: both ? 0.3 : 0.5, y: 0.5 });
+      if (wantMe && me) chars.push({ prompt: me, uc: meUc, x: both ? 0.7 : 0.5, y: 0.5 });
+      // 人数写在主提示词里（1boy / 1girl / 合照），外貌留给各自那段
+      const count = chars.map(c => (/\b1girl\b/.test(c.prompt) ? '1girl' : /\b1boy\b/.test(c.prompt) ? '1boy' : '')).filter(Boolean);
+      parts = [...count.filter(c => !parts.includes(c)), ...parts];
+      if (both && !parts.some(p => /couple/i.test(p))) parts.push('couple');
+    } else {
+      parts = parts.map(p => { const l = p.toLowerCase(); return SELF_WORDS.includes(l) ? self : USER_WORDS.includes(l) ? me : US_WORDS.includes(l) ? [self, me].filter(Boolean).join(', ') : p; });
+    }
   } else {
     parts = stripPeople(parts);
     artist = stripPeople(splitTags(artist)).join(', ');
@@ -119,10 +148,10 @@ export function buildNaiPrompt(scene: string, charId = '', cfg = loadNaiConfig()
   if (cfg.quality) prompt += qualitySuffix(cfg.model);
   let negative = cleanTags(style.negative) || (isV4(cfg.model) ? NEG_V4 : NEG_V3);
   if (!people) negative += ', ' + NO_PEOPLE_NEG;
-  return { prompt, negative };
+  return { prompt, negative, chars };
 }
 
-const buildPayload = (cfg: NaiConfig, prompt: string, negative: string, width: number, height: number) => {
+const buildPayload = (cfg: NaiConfig, prompt: string, negative: string, width: number, height: number, chars: NaiCharCaption[] = []) => {
   const seed = Math.floor(Math.random() * 4294967294) + 1;
   if (isV4(cfg.model)) {
     return {
@@ -133,9 +162,10 @@ const buildPayload = (cfg: NaiConfig, prompt: string, negative: string, width: n
         n_samples: 1, seed, extra_noise_seed: seed, noise_schedule: 'karras', cfg_rescale: 0,
         ucPreset: 0, qualityToggle: false, sm: false, sm_dyn: false, dynamic_thresholding: false,
         controlnet_strength: 1, legacy: false, legacy_v3_extend: false, add_original_image: false, uncond_scale: 1,
-        prompt, negative_prompt: negative, characterPrompts: [],
-        v4_prompt: { caption: { base_caption: prompt, char_captions: [] }, use_coords: false, use_order: true },
-        v4_negative_prompt: { caption: { base_caption: negative, char_captions: [] }, use_coords: false, use_order: true, legacy_uc: false },
+        prompt, negative_prompt: negative,
+        characterPrompts: chars.map(c => ({ prompt: c.prompt, uc: c.uc, center: { x: c.x, y: c.y }, enabled: true })),
+        v4_prompt: { caption: { base_caption: prompt, char_captions: chars.map(c => ({ char_caption: c.prompt, centers: [{ x: c.x, y: c.y }] })) }, use_coords: chars.length > 1, use_order: true },
+        v4_negative_prompt: { caption: { base_caption: negative, char_captions: chars.map(c => ({ char_caption: c.uc, centers: [{ x: c.x, y: c.y }] })) }, use_coords: false, use_order: true, legacy_uc: false },
         reference_image_multiple: [], reference_information_extracted_multiple: [], reference_strength_multiple: [],
       },
     };
@@ -259,8 +289,8 @@ export function generateNaiImage(scene: string, opts: { charId?: string; orient?
     const wait = COOLDOWN - (Date.now() - lastCall);
     if (wait > 0) await sleep(wait);
     const [w, h] = opts.orient ? SIZES[opts.orient] : [cfg.width, cfg.height];
-    const { prompt, negative } = buildNaiPrompt(scene, opts.charId, cfg, opts.allowPeople);
-    const payload = buildPayload(cfg, prompt, negative, w, h);
+    const { prompt, negative, chars } = buildNaiPrompt(scene, opts.charId, cfg, opts.allowPeople);
+    const payload = buildPayload(cfg, prompt, negative, w, h, chars);
     let ticket: Ticket | null | false = null;
     if (cfg.queueOn && cfg.queueUrl) {
       ticket = await queueAcquire(cfg, opts.onProgress);

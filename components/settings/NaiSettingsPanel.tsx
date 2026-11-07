@@ -107,8 +107,16 @@ const NaiSettingsPanel: React.FC = () => {
                 </div>
                 <textarea className={input} rows={2} value={cfg.characterTags[c.id] || ''} placeholder="1boy, black hair, …（不画他本人可以不填）"
                   onChange={e => set({ characterTags: { ...cfg.characterTags, [c.id]: e.target.value } })} />
+                <textarea className={`${input} mt-1`} rows={1} value={cfg.characterNegatives?.[c.id] || ''} placeholder="他自己的负面，比如 long hair, blunt bangs（只管他，不压到同框的人）"
+                  onChange={e => set({ characterNegatives: { ...(cfg.characterNegatives || {}), [c.id]: e.target.value } })} />
               </div>
             ))}
+            <div className="p-2 rounded-lg bg-white border border-slate-100">
+              <div className="font-semibold mb-1">你（合照用）</div>
+              <div className="text-[10px] text-slate-400 mb-1">他拍照写 us 时，你们两个分开描述、各带各的负面，同框也不会串（V4 以上的模型）。</div>
+              <textarea className={input} rows={2} value={cfg.userTags || ''} placeholder="1girl, long hair, black hair, …" onChange={e => set({ userTags: e.target.value })} />
+              <textarea className={`${input} mt-1`} rows={1} value={cfg.userNegative || ''} placeholder="你的负面，比如 blunt bangs, hime cut" onChange={e => set({ userNegative: e.target.value })} />
+            </div>
           </div>
 
           <button onClick={test} disabled={!cfg.key || (!!testing && !testing.startsWith('失败'))} className="w-full py-2 rounded-xl text-xs font-bold bg-primary/10 text-primary disabled:opacity-40">
