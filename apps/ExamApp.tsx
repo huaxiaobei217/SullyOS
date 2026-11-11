@@ -16,6 +16,9 @@ import {
   explainPoint, getPointCard, makeQuiz, getQuizzes, answerQuiz, markQuizBad, type QuizSet,
 } from '../utils/examCoach';
 import { SYLLABUS, pointById } from '../utils/examSyllabus';
+import ExamRunner, { type RunSpec } from '../components/exam/ExamRunner';
+import { FIG_KINDS, type FigKind } from '../utils/figureGen';
+import { getBanks, installLogiqa, importPdf, deleteBank, drawFromBank, loadBank, getDone, BANK_EVENT, type BankMeta } from '../utils/examBank';
 
 const C = { bg: '#f4f2ec', card: '#fff', ink: '#22231f', muted: '#83817a', faint: '#bfbcb2', line: '#e7e3d8', accent: '#2f6f5e', soft: '#e6f0ec', warn: '#c2603d', gold: '#b5852b' };
 type Tab = 'today' | 'points' | 'quiz' | 'wrong' | 'shenlun';
@@ -59,7 +62,7 @@ const Tag: React.FC<{ m: ExamModule; children?: React.ReactNode }> = ({ m, child
 );
 
 /* ───────── 技巧卡 ───────── */
-const CardView: React.FC<{ card: ExamCard; onClose: () => void }> = ({ card, onClose }) => {
+const CardView: React.FC<{ card: ExamCard; onClose: () => void; onPractice?: (k: FigKind) => void }> = ({ card, onClose, onPractice }) => {
   const [show, setShow] = useState(false);
   useEffect(() => { markCardSeen(card.id); }, [card.id]);
   return (
@@ -89,6 +92,7 @@ const CardView: React.FC<{ card: ExamCard; onClose: () => void }> = ({ card, onC
         </Box>
         {card.traps && <Box style={{ background: '#fbf3ee', borderColor: '#f0dccf' }}><div className="text-[10.5px] mb-1" style={{ color: C.warn }}>常见坑</div>
           <ul className="space-y-1">{card.traps.map((t, i) => <li key={i} className="text-[12.5px] leading-relaxed">· {t}</li>)}</ul></Box>}
+        {card.gen && onPractice && <button onClick={() => onPractice(card.gen!)} className="w-full py-3 rounded-2xl text-[13px] font-semibold text-white" style={{ background: MODULE_COLORS[card.module] }}>练这类 · 5 道（图由代码按规则画）</button>}
       </div>
     </div>
   );
@@ -130,8 +134,32 @@ const ExamApp: React.FC = () => {
   };
   const quizzes = getQuizzes();
   const [quiz, setQuiz] = useState<QuizSet | null>(null);
+  const [run, setRun] = useState<RunSpec | null>(null);
+  const [banks, setBanks] = useState<BankMeta[]>(() => getBanks());
+  useEffect(() => { const h = () => setBanks(getBanks()); window.addEventListener(BANK_EVENT, h); return () => window.removeEventListener(BANK_EVENT, h); }, []);
+  const [lqTypes, setLqTypes] = useState<Record<string, number>>({});
+  useEffect(() => { if (!banks.some(b => b.id === 'logiqa')) return; void loadBank('logiqa').then(qs => { const t: Record<string, number> = {}; for (const q of qs) t[q.type || '其他'] = (t[q.type || '其他'] || 0) + 1; setLqTypes(t); }); }, [banks]);
+  const figPractice = (k: FigKind) => { setOpenCard(null); setRun({ source: 'fig', figKind: k, n: 5, title: FIG_KINDS.find(x => x.kind === k)?.name || '图推' }); };
+  const bankPractice = async (bankId: string, type?: string) => {
+    const items = await drawFromBank(bankId, 5, type);
+    if (!items.length) return addToast('这本题库里没切出能做的题', 'info');
+    setRun({ source: 'bank', items, title: bankId === 'logiqa' ? `真题 · ${type || '混合'}` : (banks.find(b => b.id === bankId)?.name || '我的题库') });
+  };
+  const pdfRef = useRef<HTMLInputElement>(null);
+  const onPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    try { const m = await importPdf(f, s => setBusy(s)); addToast(`切出 ${m.count} 道题，对上答案 ${m.withAnswer} 道`, 'success'); } catch (err: any) { addToast(err?.message || '导入失败', 'error'); } finally { setBusy(''); }
+  };
   const [qi, setQi] = useState(0);
   const startQuiz = async (target: { pointIds?: string[]; module?: ExamModule }) => {
+    if (target.pointIds?.length) {
+      const pts = target.pointIds.map(pointById).filter(Boolean) as NonNullable<ReturnType<typeof pointById>>[];
+      const figCard = pts.map(p => p.card && cardById(p.card)).find(c => c && c.gen);
+      if (pts.every(p => p.module === 'pd' && /^pd-(move|rot|style|trav|attr|curve|open|face|line|point|stroke|part|cube|section|num|pos)/.test(p.id))) {
+        if (figCard) return figPractice(figCard.gen!);
+        return addToast('这类图推要看真题的图，代码还画不准，先看卡；有真题 PDF 可以导入后刷', 'info');
+      }
+    }
     setBusy('在出题…');
     try { const q = await makeQuiz(api, target); setQuiz(q); setQi(0); setTab('quiz'); } catch (e: any) { addToast(e?.message || '没出成', 'error'); } finally { setBusy(''); }
   };
@@ -321,13 +349,43 @@ const ExamApp: React.FC = () => {
       {tab === 'quiz' && !quiz && (
         <div className="flex-1 overflow-y-auto px-4 pb-10 space-y-3">
           <Box>
-            <div className="text-[13px] font-semibold">来一组（5 道）</div>
+            <div className="text-[13px] font-semibold">模型出一组（5 道）</div>
             <div className="text-[11.5px] mt-0.5" style={{ color: C.muted }}>按真题风格出的原创题，每道做完马上看解法。也可以去「知识点」里点某个考点单刷。</div>
             <div className="grid grid-cols-3 gap-1.5 mt-2">
               <button disabled={!!busy} onClick={() => startQuiz(weakTarget())} className="py-2.5 rounded-xl text-[12px] disabled:opacity-40" style={{ background: C.soft, color: C.accent }}>按薄弱点</button>
               {(['yy', 'sl', 'pd', 'zl', 'cs'] as ExamModule[]).map(m => <button key={m} disabled={!!busy} onClick={() => startQuiz({ module: m })} className="py-2.5 rounded-xl text-[12px] disabled:opacity-40" style={{ background: `${MODULE_COLORS[m]}14`, color: MODULE_COLORS[m] }}>{MODULE_NAMES[m]}</button>)}
             </div>
           </Box>
+          <Box>
+            <div className="text-[13px] font-semibold">图推练习 <span className="text-[11px] font-normal" style={{ color: C.muted }}>· 图由代码按规则画，答案自动复查</span></div>
+            <div className="flex flex-wrap gap-1.5 mt-2">{FIG_KINDS.map(k => <button key={k.kind} onClick={() => figPractice(k.kind)} className="px-3 py-1.5 rounded-full text-[12px]" style={{ background: `${MODULE_COLORS.pd}14`, color: MODULE_COLORS.pd }}>{k.name}</button>)}</div>
+          </Box>
+          <Box>
+            <div className="text-[13px] font-semibold">真题库 <span className="text-[11px] font-normal" style={{ color: C.muted }}>· LogiQA，8678 道国考逻辑 / 定义 / 言语题</span></div>
+            {banks.some(b => b.id === 'logiqa') ? <>
+              <div className="text-[11px] mt-1" style={{ color: C.muted }}>做过 {Object.keys(getDone()).filter(k => k.startsWith('lq')).length} 道。刷题不花 token，点「讲这道」才问模型。</div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <button onClick={() => bankPractice('logiqa')} className="px-3 py-1.5 rounded-full text-[12px]" style={{ background: C.soft, color: C.accent }}>混合</button>
+                {Object.entries(lqTypes).sort((a, b) => b[1] - a[1]).map(([t, n]) => <button key={t} onClick={() => bankPractice('logiqa', t)} className="px-3 py-1.5 rounded-full text-[12px]" style={{ background: '#f1eee6', color: C.ink }}>{t} <span style={{ color: C.faint }}>{n}</span></button>)}
+              </div>
+            </> : <>
+              <div className="text-[11px] mt-1 leading-relaxed" style={{ color: C.muted }}>研究用的公开数据集，题目来自国考，带标准答案。第一次要下载一次（约 5MB，可能要挂梯子），之后存在手机上。</div>
+              <button disabled={!!busy} onClick={async () => { try { setBusy('下载题库…'); const m = await installLogiqa(s => setBusy(s)); addToast(`装好了，${m.count} 道`, 'success'); } catch (e: any) { addToast(e?.message || '没装上', 'error'); } finally { setBusy(''); } }} className="mt-2 w-full py-2.5 rounded-xl text-[12.5px] disabled:opacity-40" style={{ background: C.soft, color: C.accent }}>{busy || '下载真题库'}</button>
+            </>}
+          </Box>
+          <Box>
+            <div className="flex items-center justify-between"><div className="text-[13px] font-semibold">我的题库</div><button disabled={!!busy} onClick={() => pdfRef.current?.click()} className="text-[11.5px] px-3 py-1 rounded-full disabled:opacity-40" style={{ background: C.soft, color: C.accent }}>＋ 导入 PDF</button></div>
+            <div className="text-[11px] mt-1 leading-relaxed" style={{ color: C.muted }}>自己的习题集、真题卷。在手机上直接切题、对答案，不花 token；带图的题做的时候显示原图。扫描版 PDF 切不了。</div>
+            <input ref={pdfRef} type="file" accept="application/pdf,.pdf" hidden onChange={onPdf} />
+            <div className="mt-2 space-y-1.5">{banks.filter(b => b.kind === 'pdf').map(b => (
+              <div key={b.id} className="flex items-center gap-2 p-2.5 rounded-2xl" style={{ background: '#f8f6f0' }}>
+                <div className="flex-1 min-w-0"><div className="text-[12.5px] font-medium truncate">{b.name}</div><div className="text-[10.5px]" style={{ color: C.muted }}>{b.count} 道 · 对上答案 {b.withAnswer} 道</div></div>
+                <button onClick={() => bankPractice(b.id)} className="text-[11.5px] px-3 py-1 rounded-full text-white" style={{ background: C.ink }}>刷 5 道</button>
+                <button onClick={() => { if (window.confirm(`删掉「${b.name}」？`)) void deleteBank(b.id); }} className="text-[10.5px]" style={{ color: C.faint }}>删</button>
+              </div>
+            ))}</div>
+          </Box>
+          {quizzes.length > 0 && <div className="text-[11px] px-1 pt-1" style={{ color: C.muted }}>模型出的题</div>}
           {quizzes.map(q => { const done = q.qs.filter(x => x.picked); const right = done.filter(x => x.picked === x.answer).length; return (
             <button key={q.id} onClick={() => { setQuiz(q); setQi(Math.max(0, q.qs.findIndex(x => !x.picked && !x.bad))); }} className="w-full text-left p-3 rounded-2xl flex items-center gap-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
               <div className="w-11 h-11 rounded-xl flex items-center justify-center text-[13px] font-bold shrink-0" style={{ background: '#efece4', color: C.ink }}>{done.length ? `${right}/${done.length}` : '—'}</div>
@@ -494,7 +552,8 @@ const ExamApp: React.FC = () => {
         </div>
       ); })()}
 
-      {openCard && <CardView card={openCard} onClose={() => setOpenCard(null)} />}
+      {run && <ExamRunner spec={run} api={api} onClose={() => setRun(null)} onOpenPoint={id => void openPoint(id)} toast={(m, t) => addToast(m, (t as any) || 'info')} />}
+      {openCard && <CardView card={openCard} onClose={() => setOpenCard(null)} onPractice={figPractice} />}
       {busy && !adding && tab !== 'shenlun' && <div className="absolute left-1/2 -translate-x-1/2 bottom-8 z-50 px-4 py-2 rounded-full text-[12px] text-white" style={{ background: 'rgba(34,35,31,0.85)' }}>{busy}</div>}
     </div>
   );

@@ -20,7 +20,12 @@ export const SYLLABUS: Record<ExamModule, SyllabusTopic[]> = {
     { name: '常考题型', points: [P('sl-work2', '工程问题', 'sl-work'), P('sl-travel2', '行程问题', 'sl-travel'), P('sl-profit2', '经济利润', 'sl-profit'), P('sl-perm2', '排列组合', 'sl-perm'), P('sl-prob2', '概率问题', 'sl-prob'), P('sl-venn', '容斥原理'), P('sl-ext2', '最值问题', 'sl-extreme'), P('sl-geo', '几何问题'), P('sl-age', '年龄问题'), P('sl-cycle', '周期问题'), P('sl-ratio', '和差倍比'), P('sl-cow', '牛吃草问题')] },
   ],
   pd: [
-    { name: '图形推理', points: [P('pd-pos', '位置规律', 'pd-position'), P('pd-style', '样式规律（叠加、黑白运算）'), P('pd-attr', '属性规律（对称、曲直、开闭）'), P('pd-num', '数量规律', 'pd-count'), P('pd-cube', '空间重构（六面体）')] },
+    { name: '图形推理 · 怎么下手', points: [P('pd-num', '先看什么：拿到图推的判断顺序', 'pd-count'), P('pd-pos', '位置规律总览', 'pd-position')] },
+    { name: '图形推理 · 位置', points: [P('pd-move2', '平移', 'pd-move'), P('pd-rot2', '旋转与翻转', 'pd-rot')] },
+    { name: '图形推理 · 样式', points: [P('pd-style', '叠加与黑白运算', 'pd-xor'), P('pd-trav2', '遍历', 'pd-trav')] },
+    { name: '图形推理 · 属性', points: [P('pd-attr', '对称', 'pd-sym'), P('pd-curve2', '曲直', 'pd-curve'), P('pd-open2', '开闭', 'pd-open')] },
+    { name: '图形推理 · 数量', points: [P('pd-face2', '面', 'pd-face'), P('pd-line2', '线', 'pd-line'), P('pd-point2', '点（交点）', 'pd-point'), P('pd-stroke2', '一笔画与笔画数', 'pd-stroke'), P('pd-part2', '部分数', 'pd-part')] },
+    { name: '图形推理 · 空间', points: [P('pd-cube', '六面体展开图', 'pd-cube'), P('pd-section2', '截面与三视图', 'pd-section')] },
     { name: '定义判断', points: [P('pd-def', '单定义 / 多定义', 'pd-define')] },
     { name: '类比推理', points: [P('pd-ana', '逻辑关系（种属、组成、交叉、对立）', 'pd-analogy'), P('pd-sem', '语义关系（近义、反义、比喻）'), P('pd-gram', '语法关系（主谓、动宾）')] },
     { name: '逻辑判断', points: [P('pd-trans', '翻译推理', 'pd-translate'), P('pd-truth', '真假推理'), P('pd-anal', '分析推理（排列、对应）'), P('pd-weak', '削弱论证', 'pd-argue'), P('pd-strong', '加强论证'), P('pd-premise', '前提假设'), P('pd-explain', '原因解释'), P('pd-induct', '归纳推理')] },

@@ -16,6 +16,8 @@ export interface ExamCard {
   example: { q: string; work: string[]; a: string };
   traps?: string[];
   figure?: 'cross' | 'travel' | 'stroke';
+  /** 能用代码出练习题的题型（utils/figureGen.ts） */
+  gen?: import('./figureGen').FigKind;
 }
 
 export const EXAM_CARDS: ExamCard[] = [
@@ -241,6 +243,8 @@ export const EXAM_CARDS: ExamCard[] = [
   },
 ];
 
+import { PD_CARDS } from './examCardsPd';
+EXAM_CARDS.push(...PD_CARDS);
 export const cardById = (id?: string) => EXAM_CARDS.find(c => c.id === id);
 /** 给模型看的卡片清单（错题拆解时让它挂一张） */
 export const cardIndex = () => EXAM_CARDS.map(c => `${c.id}：${MODULE_NAMES[c.module]} · ${c.title}`).join('\n');

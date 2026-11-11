@@ -232,3 +232,11 @@ export function markQuizBad(setId: string, idx: number) {
   const sets = getQuizzes(); const s = sets.find(x => x.id === setId); if (!s || !s.qs[idx]) return;
   s.qs[idx].bad = true; saveQuizzes(sets);
 }
+
+/* ───────── 题库题「讲这道」：只在点的时候问一次模型 ───────── */
+export async function explainBankQ(api: APIConfig, q: { stem: string; options: string[]; answer?: string }, picked?: string): Promise<{ type: string; steps: string[]; takeaway: string; why?: string }> {
+  const sys = `你是考公老师，给学生讲一道题。直接讲做法：题型、考场上最快的做法 2～4 步（带关键依据，逻辑题写出推理链，言语题指出关键句和关联词）、一句话方法（20 字内）${picked && q.answer && picked !== q.answer ? '、她为什么会选错（一句，具体到这道题）' : ''}。不寒暄不鼓励。
+只输出 JSON：{"type":"题型","steps":["…"],"takeaway":"…"${picked && q.answer && picked !== q.answer ? ',"why":"…"' : ''}}`;
+  const j = json(await call(api, [{ role: 'system', content: sys }, { role: 'user', content: `${q.stem}\n${q.options.join('\n')}\n正确答案：${q.answer || '（题库没给，请你判断）'}${picked ? `；她选了 ${picked}` : ''}` }], '讲这道', 1200, 0.2));
+  return { type: String(j.type || ''), steps: Array.isArray(j.steps) ? j.steps.map(String) : [], takeaway: String(j.takeaway || ''), why: j.why ? String(j.why) : undefined };
+}
