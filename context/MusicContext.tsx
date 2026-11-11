@@ -1072,6 +1072,63 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => window.removeEventListener('sully:char-song-invite', onInvite);
   }, [playSong, addListeningPartner]);
 
+  // 二改：角色在聊天 / 电话里直接动播放器（放 / 暂停 / 继续 / 下一首），做完把现在放的那首回传
+  const ctrlStateRef = useRef<{ current: Song | null; cfg: MusicCfg }>({ current: null, cfg });
+  ctrlStateRef.current = { current, cfg };
+  useEffect(() => {
+    const onCtrl = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      const done = typeof d.resolve === 'function' ? d.resolve : () => {};
+      const who = d.charName || '他';
+      const a = audioRef.current;
+      void (async () => {
+        try {
+          if (d.action === 'pause') {
+            if (a && !a.paused) a.pause();
+            toast(`${who}帮你暂停了音乐`, 'info');
+            return done({ ok: true, action: 'pause', song: ctrlStateRef.current.current });
+          }
+          if (d.action === 'resume') {
+            if (a && a.src && a.paused) await a.play().catch(() => {});
+            else if (a && !a.src) togglePlay();
+            toast(`${who}帮你接着放了`, 'info');
+            return done({ ok: true, action: 'resume', song: ctrlStateRef.current.current });
+          }
+          if (d.action === 'next') {
+            if (!queueRef.current.length) return done({ ok: false, action: 'next', reason: 'empty' });
+            nextSong();
+            await new Promise(r => setTimeout(r, 900));
+            const s = ctrlStateRef.current.current;
+            toast(`${who}切了一首${s ? `：《${s.name}》` : ''}`, 'info');
+            return done({ ok: true, action: 'next', song: s });
+          }
+          // play
+          let song: Song | null = d.song ? { ...(d.song as Song) } : null;
+          if (!song && d.query) {
+            const r = await musicApi.search(ctrlStateRef.current.cfg, d.query).catch(() => null);
+            const x = r?.result?.songs?.[0];
+            if (x) song = {
+              id: x.id, name: x.name,
+              artists: (x.ar || x.artists || []).map((t: any) => t.name).join(' / '),
+              album: x.al?.name || x.album?.name || '',
+              albumPic: toHttps(x.al?.picUrl || x.album?.picUrl || ''),
+              duration: (x.dt || x.duration || 0) / 1000, fee: x.fee ?? 0,
+            } as Song;
+          }
+          if (!song) return done({ ok: false, action: 'play', reason: 'notfound' });
+          await playSong(song);
+          if (d.charId) addListeningPartner(d.charId);
+          toast(`${who}放了《${song.name}》`, 'info');
+          return done({ ok: true, action: 'play', song });
+        } catch (err: any) {
+          done({ ok: false, action: d.action, reason: err?.message || 'error' });
+        }
+      })();
+    };
+    window.addEventListener('sully:char-music-control', onCtrl);
+    return () => window.removeEventListener('sully:char-music-control', onCtrl);
+  }, [playSong, nextSong, togglePlay, addListeningPartner, toast]);
+
   // 把整组 musicHooks 写到模块级 slot — useChatAI 和 activeMsgRuntime 都从这里取.
   // current / addListeningPartner 变化时刷新闭包, 保证读到的是最新 React state.
   // addSongToCharPlaylist 直接落 DB, 落完广播 'char-music-profile-updated' 让 OSContext

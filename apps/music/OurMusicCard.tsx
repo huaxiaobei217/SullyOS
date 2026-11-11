@@ -9,6 +9,7 @@ import { C } from './MusicUI';
 import TokenImg from '../../components/os/TokenImg';
 import { summarize, fmtDur, MUSIC_STATS_EVENT } from '../../utils/music/musicStats';
 import { getPickLog, playInvitedSong, PICKS_EVENT } from '../../utils/charSongPicks';
+import { getCtrlLog, ctrlVerb, MUSIC_CTRL_LOG_EVENT } from '../../utils/charMusicControl';
 
 const ago = (t: number) => { const d = Math.floor((Date.now() - t) / 86400000); return d <= 0 ? '今天' : d === 1 ? '昨天' : d < 7 ? `${d} 天前` : `${Math.floor(d / 7)} 周前`; };
 
@@ -46,19 +47,44 @@ const OurMusicCard: React.FC = () => {
   const him = characters.find((c: any) => /诺亚|Noah/i.test(c.name)) || characters.find((c: any) => getPickLog(c.id).length) || characters[0];
   const [sm, setSm] = useState(() => summarize(him?.id));
   const [open, setOpen] = useState(false);
-  useEffect(() => { const h = () => setSm(summarize(him?.id)); window.addEventListener(MUSIC_STATS_EVENT, h); window.addEventListener(PICKS_EVENT, h); return () => { window.removeEventListener(MUSIC_STATS_EVENT, h); window.removeEventListener(PICKS_EVENT, h); }; }, [him?.id]);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const h = () => { setSm(summarize(him?.id)); setTick(t => t + 1); };
+    for (const ev of [MUSIC_STATS_EVENT, PICKS_EVENT, MUSIC_CTRL_LOG_EVENT]) window.addEventListener(ev, h);
+    return () => { for (const ev of [MUSIC_STATS_EVENT, PICKS_EVENT, MUSIC_CTRL_LOG_EVENT]) window.removeEventListener(ev, h); };
+  }, [him?.id]);
   if (!him) return null;
+  const short = him.name.split(/[·・\s]/)[0];
   const picks = getPickLog(him.id);
-  if (sm.totalSec < 60 && !picks.length) return null;
+  const lastCtrl = getCtrlLog(him.id)[0];
+  const lastPick = picks[0];
+  const latest = lastCtrl && (!lastPick || lastCtrl.at > lastPick.at)
+    ? { text: `${ctrlVerb(lastCtrl.action)}${lastCtrl.name ? `《${lastCtrl.name}》` : ''}`, at: lastCtrl.at, song: lastCtrl.song }
+    : lastPick ? { text: `推给你《${lastPick.name}》`, at: lastPick.at, song: lastPick.song } : null;
+  const cl = him.musicProfile?.currentListening;
   const maxTop = Math.max(1, ...sm.top.map(x => x.plays));
+  const goVisit = () => window.dispatchEvent(new CustomEvent('sully:music-visit-char', { detail: him.id }));
   return (
     <div className="rounded-2xl p-3.5 shizuku-glass">
-      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center justify-between">
-        <div className="text-[10px] tracking-wider" style={{ color: C.muted }}>我们的歌</div>
-        <div className="text-[10px]" style={{ color: C.primary }}>{open ? '收起' : '展开'}</div>
+      {/* 他：头像、此刻在听、刚才做了什么 */}
+      <button onClick={goVisit} className="w-full flex items-center gap-3 text-left">
+        <TokenImg value={him.avatar} className="w-11 h-11 rounded-full object-cover shrink-0" style={{ border: '2px solid white' }} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-semibold" style={{ color: C.text }}>{short}</div>
+          <div className="text-[10.5px] truncate" style={{ color: C.muted }}>{cl ? `♪ 在听《${cl.songName}》— ${cl.artists}` : '这会儿没在听歌'}</div>
+          {latest && <div className="text-[10px] truncate" style={{ color: C.primary }}>{ago(latest.at)}{latest.text}</div>}
+        </div>
+        <span className="text-[10.5px] shrink-0" style={{ color: C.primary }}>他的歌单 ›</span>
       </button>
+      {latest?.song && <button onClick={() => playInvitedSong(him.id, latest.song as any)} className="mt-2 w-full text-[10.5px] py-1.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.5)', color: C.primary }}>▶ 放他刚才那首</button>}
+      {(sm.totalSec >= 60 || picks.length > 0) && (
+      <>
+      <div className="mt-3 pt-2.5 border-t flex items-center justify-between" style={{ borderColor: 'rgba(255,255,255,0.6)' }}>
+        <div className="text-[10px] tracking-wider" style={{ color: C.muted }}>我们的歌</div>
+        <button onClick={() => setOpen(v => !v)} className="text-[10px]" style={{ color: C.primary }}>{open ? '收起' : '展开'}</button>
+      </div>
       <div className="flex mt-2 text-center">
-        {[['这周', fmtDur(sm.weekSec)], ['这个月', fmtDur(sm.monthSec)], [`和${him.name.split(/[·・\s]/)[0]}`, fmtDur(sm.togetherSec)]].map(([k, v]) => (
+        {[['这周', fmtDur(sm.weekSec)], ['这个月', fmtDur(sm.monthSec)], [`和${short}`, fmtDur(sm.togetherSec)]].map(([k, v]) => (
           <div key={k} className="flex-1"><div className="text-[13px] font-semibold" style={{ color: C.text }}>{v}</div><div className="text-[9.5px]" style={{ color: C.faint }}>{k}</div></div>
         ))}
       </div>
@@ -105,6 +131,8 @@ const OurMusicCard: React.FC = () => {
           </div>
           <div className="text-[9px]" style={{ color: C.faint }}>只算在这里放的歌（听满 30 秒算一遍）。{him.name}知道你最近在循环什么，偶尔会提一句。</div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

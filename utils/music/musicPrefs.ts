@@ -10,6 +10,8 @@ export interface DesktopLyricPrefs {
   top: number | null;
   /** 上下位置：0 = 最上，1 = 最下 */
   topPct?: number | null;
+  /** 系统悬浮歌词（安卓壳）自己的位置，0 = 紧贴状态栏下面；和 App 里那条分开存 */
+  nativeTopPct?: number | null;
   /** 锁定：不能拖、点了穿透到下面（解锁回音乐设置） */
   locked?: boolean;
   /** 底色不透明度 0–1 */

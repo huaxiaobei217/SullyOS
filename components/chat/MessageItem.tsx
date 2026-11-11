@@ -1755,6 +1755,26 @@ const MessageItem = React.memo(({
     // --- Music Card Rendering (一起听 / 加入歌单) ---
     if (m.type === 'music_card' && m.metadata?.song) {
         const song = m.metadata.song as { songId: number; name: string; artists: string; albumPic: string };
+        // 二改：他直接动了你的播放器 —— 一条小条，不占大卡
+        if (m.metadata.intent === 'ctrl') {
+            const act = m.metadata.ctrlAction as string;
+            const verb = act === 'play' ? '放了' : act === 'pause' ? '暂停了' : act === 'resume' ? '接着放' : '切到了';
+            const icon = act === 'pause' ? '⏸' : act === 'next' ? '⏭' : '▶';
+            return commonLayout(
+                <div className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border max-w-[16rem]"
+                    style={{ borderColor: '#e6dcf5', background: 'linear-gradient(135deg, #fbf7ff, #f1f5ff)' }}>
+                    <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-white text-[11px]"
+                        style={{ background: 'linear-gradient(135deg, #b48be0, #7f9be6)' }}>
+                        {song.albumPic ? <TokenImg value={song.albumPic} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : icon}
+                    </div>
+                    <div className="min-w-0 text-[11px] leading-tight" style={{ color: '#4b3d7a' }}>
+                        <span className="opacity-70">{icon} {charName}{verb}</span>
+                        {song.name && <span className="font-medium">《{song.name}》</span>}
+                        {song.artists && <div className="text-[9.5px] truncate opacity-60">{song.artists}</div>}
+                    </div>
+                </div>
+            );
+        }
         const intent = (m.metadata.intent || 'join') as 'join' | 'add' | 'join_and_add' | 'share' | 'invite';
         const isInvite = intent === 'invite';
         const isTogether = intent === 'join' || intent === 'join_and_add';

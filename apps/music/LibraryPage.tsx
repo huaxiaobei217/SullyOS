@@ -255,7 +255,9 @@ const LibraryPage: React.FC<{
                     onChange={e => { const p = { ...lyricPrefs, locked: e.target.checked }; setLyricPrefs(p); saveDesktopLyricPrefs(p); }} />
                 </label>
                 {([
-                  ['位置（上 ↔ 下）', 'topPct', 0, 1, 0.01, lyricPrefs.topPct ?? 0.08],
+                  lyricPrefs.system
+                    ? ['位置（上 ↔ 下）', 'nativeTopPct', 0, 1, 0.01, lyricPrefs.nativeTopPct ?? 0]
+                    : ['位置（上 ↔ 下）', 'topPct', 0, 1, 0.01, lyricPrefs.topPct ?? 0.08],
                   ['底色浓淡', 'opacity', 0, 0.9, 0.02, lyricPrefs.opacity ?? 0.42],
                   ['字号', 'fontScale', 0.8, 1.6, 0.05, lyricPrefs.fontScale ?? 1],
                 ] as const).map(([label, key, min, max, step, val]) => (

@@ -171,18 +171,30 @@ public class FloatingLyricPlugin extends Plugin {
         return id > 0 ? getContext().getResources().getDimensionPixelSize(id) : dp(24);
     }
 
-    /** 和 App 里一样：0 = 最上（状态栏下面），1 = 离底部 110dp */
+    /** 整块屏幕的真实大小（含状态栏、导航栏），不是 App 窗口那块 */
+    private int[] screenSize() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wm != null) {
+                android.graphics.Rect b = wm.getCurrentWindowMetrics().getBounds();
+                return new int[] { b.width(), b.height() };
+            }
+        } catch (Exception ignored) { }
+        DisplayMetrics dm = new DisplayMetrics();
+        try { if (wm != null) { wm.getDefaultDisplay().getRealMetrics(dm); return new int[] { dm.widthPixels, dm.heightPixels }; } } catch (Exception ignored) { }
+        dm = getContext().getResources().getDisplayMetrics();
+        return new int[] { dm.widthPixels, dm.heightPixels };
+    }
+
+    /** 0 = 紧贴状态栏下面，1 = 离屏幕底部 120dp。窗口不吃系统栏的边距，y 就是从屏幕最顶上量 */
     private int yForPct(float pct) {
-        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
-        int top = statusBarHeight() + dp(4);
-        int span = Math.max(1, dm.heightPixels - top - dp(110));
+        int top = statusBarHeight() + dp(2);
+        int span = Math.max(1, screenSize()[1] - top - dp(120));
         return top + (int) (span * pct);
     }
 
     private float pctForY(int y) {
-        DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
-        int top = statusBarHeight() + dp(4);
-        int span = Math.max(1, dm.heightPixels - top - dp(110));
+        int top = statusBarHeight() + dp(2);
+        int span = Math.max(1, screenSize()[1] - top - dp(120));
         return Math.max(0f, Math.min(1f, (y - top) / (float) span));
     }
 
@@ -252,9 +264,12 @@ public class FloatingLyricPlugin extends Plugin {
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             : WindowManager.LayoutParams.TYPE_PHONE;
-        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
         if (locked) flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        lp = new WindowManager.LayoutParams(dm.widthPixels - dp(24), WindowManager.LayoutParams.WRAP_CONTENT, type, flags, PixelFormat.TRANSLUCENT);
+        lp = new WindowManager.LayoutParams(screenSize()[0] - dp(16), WindowManager.LayoutParams.WRAP_CONTENT, type, flags, PixelFormat.TRANSLUCENT);
+        // 安卓 11+ 悬浮窗默认会让开状态栏 / 刘海，再加上我们自己算的状态栏高度，就被挤到中上部了：这里关掉让位，自己算
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { lp.setFitInsetsTypes(0); lp.setFitInsetsSides(0); }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.x = 0;
         lp.y = yForPct(topPct);
@@ -269,7 +284,7 @@ public class FloatingLyricPlugin extends Plugin {
                         float dy = e.getRawY() - downY;
                         if (!moved && Math.abs(dy) < dp(6)) return true;
                         moved = true;
-                        lp.y = Math.max(statusBarHeight(), (int) (startY + dy));
+                        lp.y = Math.max(statusBarHeight(), Math.min(screenSize()[1] - dp(60), (int) (startY + dy)));
                         try { wm.updateViewLayout(box, lp); } catch (Exception ignored) { }
                         return true;
                     case MotionEvent.ACTION_UP:

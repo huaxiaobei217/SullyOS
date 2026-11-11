@@ -49,6 +49,9 @@ import { getLive2DAIActions, prewarmLive2DModelSource, saveLive2DModelFromFiles,
 import { preloadLive2DRuntime } from '../utils/live2dCore';
 import { buildThinkingChainPrompt } from '../utils/thinkingChainPrompt';
 import { parseCallAssistantMessage, stripCallTextFormatting, type ParsedCallReply } from '../utils/callReplyFormat';
+import { useEarshotCall, handsFreeRules, takeCallControls, mayBeWait, isWaitReply, idleSound, idleNote, byeNote, type IdleStep } from '../hooks/useEarshotCall';
+import { buildMusicControlBlock, parseMusicCtrl, stripMusicCtrl, requestMusicControl, MUSIC_CTRL_GLOBAL_RE, type MusicCtrlAction } from '../utils/charMusicControl';
+import { loadMusicPlaybackSnapshot } from '../context/MusicContext';
 import { runCallMemoryPalacePostFlow } from '../utils/memoryPalace/callPostFlow';
 import {
   buildAvatarPerformancePrompt,
@@ -597,6 +600,12 @@ const CallApp: React.FC = () => {
   const [draftInput, setDraftInput] = useState('');
   // 二改 · 免提模式（像 ChatGPT 语音）：自动开麦、说完自动发、他念完自动接着听、开口能打断
   const [handsFree, setHandsFree] = useState(() => { try { return localStorage.getItem('sully_call_handsfree_v1') === '1'; } catch { return false; } });
+  // 二改：免提照 Earshot 重写（见 hooks/useEarshotCall.ts）
+  const [bargeIn, setBargeIn] = useState(() => { try { return localStorage.getItem('sully_call_barge_v1') !== '0'; } catch { return true; } });
+  const earshotOnRef = useRef(false);
+  const allowWaitRef = useRef(true);
+  const hangupPendingRef = useRef(false);
+  const lastIdleSoundRef = useRef('');
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const sttSessionRef = useRef<SttSession | null>(null);
@@ -2066,10 +2075,14 @@ ${sentencePlan}`;
       })) : null;
       const baseCallPrompt = characterContext?.coreContext
         ?? buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
+      const musicSnap = loadMusicPlaybackSnapshot();
+      const musicCtrlPrompt = selectedChar ? buildMusicControlBlock(selectedChar, userName, input, { playing: !!musicSnap?.playing, song: musicSnap?.current ? { name: musicSnap.current.name, artists: musicSnap.current.artists } : null }) : '';
       const baseSystemPrompt = [
         baseCallPrompt,
         callMode === 'video' && !highQualityPerformance ? buildAvatarPerformancePrompt(allowedModelActions) : '',
         userCameraEmotionContext,
+        earshotOnRef.current ? handsFreeRules(userName, allowWaitRef.current) : '',
+        musicCtrlPrompt,
         thinkingPrompt,
       ].filter(Boolean).join('\n\n');
       const systemPrompt = [baseSystemPrompt, userCameraSnapshot ? USER_CAMERA_SNAPSHOT_SYSTEM_NOTE : '']
@@ -2106,7 +2119,10 @@ ${sentencePlan}`;
           receivedTextDelta = true;
           if (textAbort.signal.aborted || speechError) return;
           try {
-            sentenceStream.update(fullText);
+            // 控制标记（[[wait]] / [[hangup]] / 放歌指令）不念；整条可能是 [[wait]] 时先别出声
+            const speakable = fullText.replace(/\[\[\s*(?:hangup|stay)\s*\]\]/gi, '').replace(MUSIC_CTRL_GLOBAL_RE, '');
+            if (mayBeWait(speakable)) return;
+            sentenceStream.update(speakable);
             const partial = parseCallAssistantMessage({ content: fullText }, false);
             const direction = partial.performanceCues?.at(-1)?.direction || partial.performance;
             const signature = direction ? JSON.stringify(direction) : '';
@@ -2142,6 +2158,15 @@ ${sentencePlan}`;
       if (textAbort.signal.aborted) throw new DOMException('通话已停止', 'AbortError');
       if (liveSpeech && !receivedTextDelta) addToast('文字接口未返回流式内容，本轮在台词写完后开始播放', 'info');
       if (!parsed.text.trim()) throw new Error('文本接口返回为空，或只返回了思考内容');
+      // 二改：拿走控制标记。整条是 [[wait]]：不念、不记，交回去接着听
+      const ctl = takeCallControls(parsed.text);
+      const musicCtl = parseMusicCtrl(ctl.text);
+      if (ctl.wait || isWaitReply(parsed.text)) {
+        if (liveSpeech) streamingVoice.stop();
+        return { ...parsed, text: '', callCtl: { ...ctl, wait: true, music: null } } as ParsedCallReply;
+      }
+      parsed.text = stripMusicCtrl(ctl.text);
+      (parsed as any).callCtl = { ...ctl, music: musicCtl };
       const preparedForAudio = prepareCallAssistantReply(parsed);
       if (liveSpeech && sentenceStream) {
         try { if (speechError) throw speechError; sentenceStream.finish(parsed.text); liveSpeech.finish(); }
@@ -2736,9 +2761,13 @@ ${sentencePlan}`;
     avatarTouchEffectTimersRef.current.forEach(timer => window.clearTimeout(timer));
     avatarTouchEffectTimersRef.current = [];
   }, []);
-  const handleTurn = async () => {
+  const handleTurn = async (said?: string) => {
     if (isListening) { sttSessionRef.current?.stop(); setIsListening(false); }
-    const typedInput = draftInput.trim();
+    const fromVoice = typeof said === 'string';
+    // 免提里「他说等等、你 4 秒没再出声」会传空串：按上一句回答，这次不许再等
+    if (fromVoice && !said.trim()) allowWaitRef.current = false;
+    else if (fromVoice) allowWaitRef.current = true;
+    const typedInput = fromVoice ? said.trim() : draftInput.trim();
     const retryInput = getPendingReplyText(bubbles);
     const input = typedInput || retryInput;
     if (!input) return addToast('说点什么吧', 'info');
@@ -2849,8 +2878,19 @@ ${sentencePlan}`;
     let turnPerformanceCues: AvatarPerformanceCue[] = [];
     try {
       setCallState('thinking');
+      const rawReply = await requestAssistantReply(input, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn);
+      const callCtl = (rawReply as any).callCtl as { wait: boolean; hangup: boolean; stay: boolean; music: { action: MusicCtrlAction; arg: string } | null } | undefined;
+      if (callCtl?.wait) {
+        // 他觉得你没说完：什么都不说，接着听（停顿放宽）
+        earshot.setPatient(true);
+        setCallState('listening');
+        return;
+      }
+      if (callCtl?.hangup) hangupPendingRef.current = true;
+      if (callCtl?.stay) earshot.noteStay();
+      if (callCtl?.music && selectedChar) void requestMusicControl(selectedChar, callCtl.music.action, callCtl.music.arg);
       const reply = prepareCallAssistantReply(
-        await requestAssistantReply(input, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn),
+        rawReply,
         callMode === 'video' && selectedChar?.videoCallPerformanceQuality !== 'high',
       );
       if (pendingTouchesForTurn.length) {
@@ -2949,8 +2989,56 @@ ${sentencePlan}`;
   useEffect(() => {
     loadCallRecords(selectedCharId);
   }, [selectedCharId]);
+  const sttProviderNow = resolveSttProvider(apiConfig);
+  const earshotProvider = sttProviderNow === 'browser' ? null : sttProviderNow;
+  const earshotOn = handsFree && viewMode === 'in-call' && !!earshotProvider;
+  earshotOnRef.current = earshotOn;
+  const playIdleSound = async (step: IdleStep) => {
+    if (activeTtsProvider !== 'elevenlabs' || !canSpeakVoice() || !callPreferences.voiceAutoPlay) return;
+    const line = idleSound(step.night, step.level || 1, lastIdleSoundRef.current);
+    lastIdleSoundRef.current = line;
+    try {
+      const { url } = await synthesizeCallAudioUrl(line, undefined, false);
+      if (url && callState === 'listening' && !isAudioPlaying) { trackBlobUrl(url); playAudio(url, undefined, 1500); }
+    } catch { /* 小动静出不来就算了 */ }
+  };
+  const earshot = useEarshotCall({
+    enabled: earshotOn,
+    callState, isAudioPlaying,
+    provider: earshotProvider,
+    lang: voiceLang === 'yue' ? 'yue' : 'zh-CN',
+    apiConfig,
+    bargeIn,
+    onSaid: text => { void handleTurn(text); },
+    onContinue: () => {
+      if (isAudioPlaying || !callTextAbortRef.current) return false;
+      callTextAbortRef.current.abort();
+      streamingVoice.stop();
+      setCallState('listening');
+      return true;
+    },
+    onInterrupt: () => { hangupPendingRef.current = false; pauseAudio(); },
+    onIdle: step => {
+      if (callState !== 'listening' || isAudioPlaying || idleNudgeBusyRef.current) return;
+      if (step.kind === 'sound') void playIdleSound(step);
+      else if (step.kind === 'think') void fireIdleNudge(idleNote(step.minute || 1, step.night), true);
+      else void fireIdleNudge(byeNote(step.night), true);
+    },
+    onError: m => addToast(m, 'info'),
+  });
+  // 他说了要挂（[[hangup]]）：等他说完，再给你 3 秒说「等等别挂」
+  useEffect(() => {
+    if (!hangupPendingRef.current || isAudioPlaying || callState !== 'listening' || viewMode !== 'in-call') return;
+    const t = window.setTimeout(() => {
+      if (!hangupPendingRef.current) return;
+      if (earshot.heardRecently()) { hangupPendingRef.current = false; return; }
+      hangupPendingRef.current = false;
+      void finishCall();
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [isAudioPlaying, callState, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const handsFreeStatus = useHandsFreeCall({
-    enabled: handsFree,
+    enabled: handsFree && !earshotProvider,
     inCall: viewMode === 'in-call',
     callState, isListening, isTranscribing, isAudioPlaying, draftInput,
     startListening: () => { void toggleStt(); },
@@ -2965,7 +3053,7 @@ ${sentencePlan}`;
     try { localStorage.setItem('sully_call_handsfree_v1', next ? '1' : '0'); } catch { /* ignore */ }
     if (next) primeCallAudioFromGesture();
     else if (isListening) sttSessionRef.current?.stop();
-    addToast(next ? '免提：直接说话，停顿一下就发；他说话时开口可以打断' : '已切回点按说话', 'info');
+    addToast(next ? (earshotProvider ? '免提：直接说，停一下就发；没说完他会等你；他说话时开口能打断；安静久了他会自己找话说' : '免提：直接说话，停顿一下就发；他说话时开口可以打断（换成在线语音识别体验更好）') : '已切回点按说话', 'info');
   };
   const handsFreeBar = (
     <div className={`shrink-0 flex items-center justify-center gap-2 ${callMode === 'video' ? 'px-3 pb-1' : 'px-4 pb-1.5'}`}>
@@ -2973,7 +3061,24 @@ ${sentencePlan}`;
         style={handsFree ? { background: 'rgba(240,86,159,0.25)', borderColor: 'rgba(240,86,159,0.6)', color: '#fff' } : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}>
         {handsFree ? '免提 · 开' : '点按说话'}
       </button>
-      {handsFree && (
+      {handsFree && earshotProvider && (
+        <>
+          <span className="text-[10.5px] text-white/55 flex items-center gap-1.5">
+            {earshot.status === 'listen' && <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: earshot.level > 3 ? '#f0569f' : 'rgba(255,255,255,0.4)', transform: `scale(${1 + Math.min(1.5, earshot.level / 8)})`, transition: 'transform 80ms' }} />}
+            {earshot.status === 'listen' ? '在听，直接说'
+              : earshot.status === 'hearing' ? '在听你说…'
+              : earshot.status === 'recognize' ? '在转文字…'
+              : earshot.status === 'think' ? `${selectedChar?.name?.split(/[·・\s]/)[0] || '对方'}在想 · 接着说也行`
+              : earshot.status === 'speak' ? (bargeIn ? '他在说 · 开口能打断' : '他在说')
+              : earshot.status === 'error' ? '麦克风没拿到' : ''}
+          </span>
+          <button onClick={() => { const n = !bargeIn; setBargeIn(n); try { localStorage.setItem('sully_call_barge_v1', n ? '1' : '0'); } catch { /* ignore */ } addToast(n ? '他说话时你开口会打断他（戴耳机最稳，外放可能被他自己的声音触发）' : '关了打断：他说完你再说', 'info'); }}
+            className="text-[10px] px-2 py-0.5 rounded-full border" style={{ borderColor: 'rgba(255,255,255,0.18)', color: bargeIn ? '#fff' : 'rgba(255,255,255,0.5)', background: bargeIn ? 'rgba(240,86,159,0.18)' : 'transparent' }}>
+            {bargeIn ? '可打断' : '不打断'}
+          </button>
+        </>
+      )}
+      {handsFree && !earshotProvider && (
         <span className="text-[10.5px] text-white/55">
           {handsFreeStatus === 'listening' ? (isListening ? '在听你说…' : '马上开始听…')
             : handsFreeStatus === 'waiting' ? '等你开口'
@@ -3108,16 +3213,21 @@ ${sentencePlan}`;
   // 一段已经开始的通话安静太久时，角色可以自然接话两次。它是独立的显式偏好，
   // 默认关闭；“谁先开口”只决定刚接通时的第一句话。
   const idleNudgeBusyRef = useRef(false);
-  const fireIdleNudge = async () => {
-    if (!callPreferences.idleNudgeEnabled || idleNudgeBusyRef.current || !selectedChar?.id) return;
+  const fireIdleNudge = async (note?: string, force = false) => {
+    if ((!callPreferences.idleNudgeEnabled && !force) || idleNudgeBusyRef.current || !selectedChar?.id) return;
     if (document.visibilityState === 'hidden') return;
     idleNudgeBusyRef.current = true;
     try {
       setCallState('thinking');
+      const rawNudge = await requestAssistantReply(
+        note || '（电话里安静了好一会儿，对方一直没说话。你不是客服，不用干等——像真实通话里那样自然地开口：可以随口说说你这边正在做的事、把刚才的话题往下接一点，或者问问ta是不是在忙。一两句就好，别重复上一句。）',
+      );
+      const nudgeCtl = (rawNudge as any).callCtl as { wait?: boolean; hangup?: boolean; stay?: boolean } | undefined;
+      if (nudgeCtl?.wait || !rawNudge.text.trim()) { setCallState('listening'); return; }
+      if (nudgeCtl?.hangup) hangupPendingRef.current = true;
+      if (nudgeCtl?.stay) earshot.noteStay();
       const reply = prepareCallAssistantReply(
-        await requestAssistantReply(
-          '（电话里安静了好一会儿，对方一直没说话。你不是客服，不用干等——像真实通话里那样自然地开口：可以随口说说你这边正在做的事、把刚才的话题往下接一点，或者问问ta是不是在忙。一两句就好，别重复上一句。）',
-        ),
+        rawNudge,
         callMode === 'video' && selectedChar?.videoCallPerformanceQuality !== 'high',
       );
       const nudgeTs = Date.now();
@@ -3185,7 +3295,7 @@ ${sentencePlan}`;
     }
   };
   useEffect(() => {
-    if (!callPreferences.idleNudgeEnabled) return;
+    if (!callPreferences.idleNudgeEnabled || earshotOnRef.current) return;
     if (viewMode !== 'in-call' || callState !== 'listening' || isAudioPlaying) return;
     if (!bubbles.length || idleNudgeCountRef.current >= 2 || idleNudgeBusyRef.current) return;
     const silenceMs = 50_000 + Math.random() * 30_000 + idleNudgeCountRef.current * 40_000;
@@ -4218,7 +4328,7 @@ ${sentencePlan}`;
               className="flex-1 min-w-0 bg-transparent px-2 text-sm outline-none placeholder:text-white/35"
               placeholder={isTranscribing ? `正在转写语音（${getSttProviderLabel(activeSttProvider)}）……` : isListening ? '在听你说，说完再点一下麦克风……' : sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : pendingCallRetryText ? '上次回复中断，可直接重试' : `想对${selectedChar?.name || '对方'}说什么？`}
             />
-            <button onClick={handleTurn} disabled={sendingBusy || isTranscribing} className="keep-white shrink-0 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '发送'}</button>
+            <button onClick={() => { void handleTurn(); }} disabled={sendingBusy || isTranscribing} className="keep-white shrink-0 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '发送'}</button>
           </div>
           {!sendingBusy && pendingCallRetryText && !draftInput.trim() && <div className="text-[10px] text-amber-200/70 mt-1 px-1">上一句话还没得到回复，点击重试即可继续</div>}
           {isListening && (

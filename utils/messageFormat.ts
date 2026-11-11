@@ -214,6 +214,11 @@ export function normalizeMessageContent(
         if (song?.name) {
             const songDesc = song.artists ? `《${song.name}》— ${song.artists}` : `《${song.name}》`;
             if (intent === 'share') return `[音乐卡片] ${userName}把正在听的歌分享给了${charName}：${songDesc}`;
+            if ((intent as string) === 'ctrl') {
+                const a = msg.metadata?.ctrlAction as string;
+                return `[音乐卡片] ${charName}直接动了${userName}的播放器：${a === 'pause' ? '暂停了' : a === 'resume' ? '接着放' : a === 'next' ? '切到了' : '放了'}${songDesc}`;
+            }
+            if ((intent as string) === 'invite') return `[音乐卡片] ${charName}想拉${userName}一起听：${songDesc}`;
             const action =
                 intent === 'join' ? `决定和${userName}一起听这首`
                 : intent === 'add' ? `把这首收进了自己的歌单${addedTo ? `《${addedTo}》` : ''}`

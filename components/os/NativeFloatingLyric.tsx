@@ -43,9 +43,9 @@ const NativeFloatingLyric: React.FC = () => {
     void FloatingLyric.setEnabled({
       enabled: on, fontScale: prefs.fontScale || 1,
       opacity: typeof prefs.opacity === 'number' ? prefs.opacity : 0.42,
-      topPct: prefs.topPct ?? 0.08, locked: !!prefs.locked,
+      topPct: prefs.nativeTopPct ?? 0, locked: !!prefs.locked,
     }).catch(() => {});
-  }, [ok, on, prefs.fontScale, prefs.opacity, prefs.topPct, prefs.locked]);
+  }, [ok, on, prefs.fontScale, prefs.opacity, prefs.nativeTopPct, prefs.locked]);
 
   // 悬浮歌词上的按钮 / 拖动
   useEffect(() => {
@@ -57,7 +57,7 @@ const NativeFloatingLyric: React.FC = () => {
       else if (e.action === 'next') c.nextSong();
       else if (e.action === 'prev') c.prevSong();
       else if (e.action === 'open') c.openApp?.(AppID.Music);
-      else if (e.action === 'moved' && typeof e.topPct === 'number') saveDesktopLyricPrefs({ ...loadDesktopLyricPrefs(), topPct: e.topPct });
+      else if (e.action === 'moved' && typeof e.topPct === 'number') saveDesktopLyricPrefs({ ...loadDesktopLyricPrefs(), nativeTopPct: e.topPct });
     }).then(x => { h = x; }).catch(() => {});
     return () => { h?.remove(); };
   }, [on]);

@@ -451,6 +451,34 @@ export const ChatParser = {
             }
         }
 
+        // MUSIC_CTRL（二改）— 角色直接动她的播放器：放 / 暂停 / 继续 / 下一首。做成了出一条小卡「他放了…」
+        {
+            const { parseMusicCtrl, stripMusicCtrl, requestMusicControl } = await import('./charMusicControl');
+            const ctl = parseMusicCtrl(content);
+            if (ctl) {
+                content = stripMusicCtrl(content);
+                try {
+                    const chars = await DB.getAllCharacters();
+                    const ch = chars.find(c => c.id === charId);
+                    const r = ch ? await requestMusicControl(ch, ctl.action, ctl.arg) : null;
+                    if (r?.ok) {
+                        const s = r.song;
+                        await replyStep(async () => persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'music_card',
+                            content: '[音乐卡片]',
+                            metadata: {
+                                intent: 'ctrl',
+                                ctrlAction: r.action,
+                                song: { songId: Number(s?.id) || 0, name: s?.name || '', artists: s?.artists || '', album: s?.album || '', albumPic: s?.albumPic || '', duration: s?.duration || 0, fee: s?.fee || 0 },
+                            },
+                        }));
+                    } else console.warn('[MusicCtrl] 没做成:', ctl, r?.reason);
+                } catch (e) { replyRun?.check(); console.warn('[MusicCtrl] failed', e); }
+            }
+        }
+
         // NEWS_CARD — char 主动把某条热点当作新闻卡片分享（来源 + 标题）
         //   [[NEWS_CARD: 来源|标题]]    （来源可省略 → [[NEWS_CARD: 标题]]）
         const NEWS_CARD_RE = /\[\[NEWS_CARD:\s*([^\]]*?)\s*\]\]/;

@@ -41,7 +41,8 @@ import { normalizeMessageContent, stickerNameFromUrl, theaterWhenPhrase } from '
 import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
-import { MusicCfg, loadMusicCfgStandalone } from '../context/MusicContext';
+import { MusicCfg, loadMusicCfgStandalone, loadMusicPlaybackSnapshot } from '../context/MusicContext';
+import { buildMusicControlBlock } from './charMusicControl';
 import { RealtimeContextManager, NotionManager, FeishuManager, defaultRealtimeConfig } from './realtimeContext';
 import { getBackgroundUserLocationContext, getUserLocationContext } from './userLocation';
 import { isScheduleFeatureOn } from './scheduleFeature';
@@ -653,6 +654,11 @@ ${groupLogStr}\n`;
             const lastUserText = String([...(currentMsgs || [])].reverse().find(m => m.role === 'user')?.content || '');
             const songPickBlock = buildSongPickBlock(char, userProfile.name, lastUserText, !!userListeningContext?.songName);
             if (songPickBlock) volatileState += `\n${songPickBlock}\n`;
+            if (!forFirePack) {
+                const snap = loadMusicPlaybackSnapshot();
+                const ctrlBlock = buildMusicControlBlock(char, userProfile.name, lastUserText, { playing: !!snap?.playing, song: snap?.current ? { name: snap.current.name, artists: snap.current.artists } : null });
+                if (ctrlBlock) volatileState += `\n${ctrlBlock}\n`;
+            }
             // 你最近在循环什么、你们一起听了多久：聊到歌或者他手边有歌时才带上
             if (songPickBlock || /歌|听|音乐|耳机|循环|music|song/i.test(lastUserText)) {
                 const ourMusic = buildOurMusicBlock(char.id, userProfile.name);

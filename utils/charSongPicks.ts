@@ -26,6 +26,9 @@ const songKey = (s: PoolSong) => `${String(s.name).trim().toLowerCase()}|${Strin
 
 export interface UserPlaylistLite { id: string; name: string; count: number }
 const loadUserPlaylists = (): any[] => { try { const a = JSON.parse(localStorage.getItem(USER_PLAYLISTS_LS) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+/** 她的歌单（整份，含歌）：他的主页拿「给他攒的」那几个出来展示 */
+export const getUserPlaylistsFull = (): { id: string; name: string; songs: PoolSong[] }[] =>
+  loadUserPlaylists().map(p => ({ id: String(p.id), name: String(p.name || ''), songs: Array.isArray(p.songs) ? p.songs.filter((x: any) => x?.name) : [] }));
 export const listUserPlaylists = (): UserPlaylistLite[] => loadUserPlaylists().map(p => ({ id: String(p.id), name: String(p.name || ''), count: Array.isArray(p.songs) ? p.songs.length : 0 }));
 
 /** 默认用哪些歌单：名字带 N.C / 他名字 / 首字母的 */
