@@ -1,3 +1,4 @@
+import { tonePaletteFor } from './voiceTonePalette';
 import {weatherForCharacter} from './characterWeather';
 import { buildRecentNotesBlock } from './footnoteNotes';
 import { buildTropeBanBlock } from './tropeBan';
@@ -69,9 +70,11 @@ const voiceActingGuide = (): string => {
   const provider = getTtsProvider();
   const custom = getVoicePromptOverride(provider);
   if (custom) return custom;
-  if (provider === 'fishaudio') return FISH_VOICE_ACTING_GUIDE;
-  if (provider === 'elevenlabs') return getElevenLabsVoiceActingGuide(getElevenLabsModel());
-  return VOICE_ACTING_GUIDE;
+  const base = provider === 'fishaudio' ? FISH_VOICE_ACTING_GUIDE
+    : provider === 'elevenlabs' ? getElevenLabsVoiceActingGuide(getElevenLabsModel())
+    : VOICE_ACTING_GUIDE;
+  // 二改：接上语气小抄的词表（自定义过指南的不加）
+  return `${base}\n\n${tonePaletteFor(provider, getElevenLabsModel())}`;
 };
 
 /**

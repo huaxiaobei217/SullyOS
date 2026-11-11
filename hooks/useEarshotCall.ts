@@ -70,6 +70,8 @@ interface Opts {
   onInterrupt: () => void;
   onIdle: (step: IdleStep) => void;
   onError: (msg: string) => void;
+  /** 电话里正在放「嗯……」这类小声：别把它当成你在接着说 */
+  isFillerPlaying?: () => boolean;
 }
 
 export function useEarshotCall(o: Opts): { status: EarshotStatus; level: number; setPatient: (on: boolean) => void; noteStay: () => void; heardRecently: () => boolean } {
@@ -182,6 +184,7 @@ export function useEarshotCall(o: Opts): { status: EarshotStatus; level: number;
       }
       if (ph === 'think' && !seg) {
         idleFrom = now; idleIdx = 0;
+        if (L.current.isFillerPlaying?.()) { loudSince = 0; setStatus('think'); return; }
         if (loud) {
           loudSince ||= now;
           if (now - loudSince > 250) { loudSince = 0; if (L.current.onContinue()) { startSeg(now); setStatus('hearing'); } }

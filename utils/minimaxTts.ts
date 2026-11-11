@@ -48,7 +48,7 @@ export const normalizeMiniMaxLanguageBoost = (languageBoost?: string): string | 
 export const VALID_INTERJECTION_TAGS = new Set([
   'chuckle', 'laughs', 'sighs', 'coughs', 'clear-throat', 'groans',
   'breath', 'pant', 'inhale', 'exhale', 'gasps', 'sniffs', 'snorts',
-  'lip-smacking', 'humming', 'hissing', 'emm',
+  'lip-smacking', 'humming', 'hissing', 'emm', 'sneezes', 'burps',
 ]);
 
 // MiniMax voice_setting.emotion 合法取值（整条一个值）。其余/未知一律丢弃不传。

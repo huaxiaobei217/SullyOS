@@ -1,3 +1,4 @@
+import { tonePaletteFor } from '../utils/voiceTonePalette';
 import { resolveDialogueApi } from '../utils/characterApi';
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import { canAnalyzeVoiceSource, isVoiceAudioPriming, primeVoiceAudio, voicePlaybackErrorMessage } from '../utils/voicePlayback';
@@ -386,13 +387,23 @@ const SoundWaveGlyph = () => (
     ))}
   </span>
 );
+// 二改：电话里他想得久时先出一声（Earshot fillers）：每个声音只合成一次，整个页面会话里复用
+const FILLER_LINES = {
+  tagEn: ['[thoughtful] Hmm...', '[chuckles softly] Mm.', 'Mm-hm.', '[inhales] Okay...', '[softly] Hm.'],
+  tagZh: ['[thoughtful] 嗯……', '[chuckles softly] 嗯。', '嗯嗯。', '[inhales] 好……', '[softly] 唔。'],
+  plainEn: ['Hmm...', 'Mm-hm.', 'Okay...'],
+  plainZh: ['嗯……', '嗯嗯。', '唔。'],
+};
+const fillerCache = new Map<string, string[]>();
 const currentVoiceActingGuide = (): string => {
   const provider = getTtsProvider();
   const custom = getVoicePromptOverride(provider);
   if (custom) return custom;
-  if (provider === 'fishaudio') return FISH_VOICE_ACTING_GUIDE;
-  if (provider === 'elevenlabs') return getElevenLabsVoiceActingGuide(getElevenLabsModel());
-  return VOICE_ACTING_GUIDE;
+  const base = provider === 'fishaudio' ? FISH_VOICE_ACTING_GUIDE
+    : provider === 'elevenlabs' ? getElevenLabsVoiceActingGuide(getElevenLabsModel())
+    : VOICE_ACTING_GUIDE;
+  // 二改：接上语气小抄的词表（自定义过指南的不加）
+  return `${base}\n\n${tonePaletteFor(provider, getElevenLabsModel())}`;
 };
 
 const cleanCurrentVoiceMarkupForDisplay = (text?: string | null): string => {
@@ -606,6 +617,9 @@ const CallApp: React.FC = () => {
   const allowWaitRef = useRef(true);
   const hangupPendingRef = useRef(false);
   const lastIdleSoundRef = useRef('');
+  const fillerPlayingRef = useRef(false);
+  const fillerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastFillerAtRef = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const sttSessionRef = useRef<SttSession | null>(null);
@@ -3025,7 +3039,40 @@ ${sentencePlan}`;
       else void fireIdleNudge(byeNote(step.night), true);
     },
     onError: m => addToast(m, 'info'),
+    isFillerPlaying: () => fillerPlayingRef.current,
   });
+  // 想得久时的小声「嗯……」：只在免提里，他还没出声、等了 1.5 秒以上才放，两次之间至少 6 秒
+  const fillerKey = `${activeTtsProvider}|${selectedChar?.id || ''}|${voiceLang || ''}|${getElevenLabsModel()}`;
+  useEffect(() => {
+    if (!earshotOn || !selectedChar || !canSpeakVoice() || fillerCache.has(fillerKey)) return;
+    const tags = activeTtsProvider === 'elevenlabs' && /v3|v4/i.test(String(getElevenLabsModel()));
+    const en = (voiceLang || '').startsWith('en');
+    const lines = tags ? (en ? FILLER_LINES.tagEn : FILLER_LINES.tagZh) : (en ? FILLER_LINES.plainEn : FILLER_LINES.plainZh);
+    fillerCache.set(fillerKey, []);
+    void (async () => {
+      for (const line of lines) {
+        try { const { url } = await synthesizeCallAudioUrl(line, undefined, false); if (url) fillerCache.get(fillerKey)?.push(url); } catch { /* 这个声音合不出来就少一个 */ }
+      }
+    })();
+  }, [earshotOn, fillerKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!earshotOn || callState !== 'thinking' || isAudioPlaying) return;
+    const t = window.setTimeout(() => {
+      const pool = fillerCache.get(fillerKey) || [];
+      if (!pool.length || fillerPlayingRef.current || Date.now() - lastFillerAtRef.current < 6000) return;
+      const url = pool[Math.floor(Math.random() * pool.length)];
+      const a = new Audio(url);
+      fillerAudioRef.current = a; fillerPlayingRef.current = true; lastFillerAtRef.current = Date.now();
+      const done = () => { fillerPlayingRef.current = false; if (fillerAudioRef.current === a) fillerAudioRef.current = null; };
+      a.onended = done; a.onerror = done;
+      a.play().catch(done);
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [earshotOn, callState, isAudioPlaying, fillerKey]);
+  useEffect(() => {
+    // 他真开口了：那声「嗯」立刻收掉
+    if ((isAudioPlaying || callState !== 'thinking') && fillerAudioRef.current) { try { fillerAudioRef.current.pause(); } catch { /* ignore */ } fillerAudioRef.current = null; fillerPlayingRef.current = false; }
+  }, [isAudioPlaying, callState]);
   // 他说了要挂（[[hangup]]）：等他说完，再给你 3 秒说「等等别挂」
   useEffect(() => {
     if (!hangupPendingRef.current || isAudioPlaying || callState !== 'listening' || viewMode !== 'in-call') return;
