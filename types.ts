@@ -36,6 +36,7 @@ export enum AppID {
   Handbook = 'handbook', // 手账 — 跨角色聚合的生活留痕本（LLM 代笔 + 角色生活流陪伴）
   QQBridge = 'qq_bridge', // QQ 桥接 — 通过 NapCat 把 QQ 私聊接入当前角色，共享 IndexedDB 上下文
   Shelf = 'shelf',
+  Draw = 'draw', // 绘图 — NovelAI 工作台 + 参考图 + 小助手 + 相册（个人二改，搬 ST-iPhonie）
   Ledger = 'ledger', // 账本 — 只记账：月概览/预算/明细/分析，他代记的也在，他能帮你看看（个人二改）
   Body = 'body', // 身体 — 手环数据（截图识别 / 手动记），他心里有数（个人二改） // 书影架 — 一起看书：导入 TXT/EPUB，他批注你读过的地方，伴读吐槽（个人二改）
   Footnote = 'footnote', // 页脚 — 书影批注墙 / 快问快答转盘 / 深夜点播机（个人二改）

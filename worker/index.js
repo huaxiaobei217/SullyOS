@@ -4434,6 +4434,43 @@ export default {
       }
     }
 
+    // ========== NovelAI 其余接口（绘图 App 用，个人二改） ==========
+    // /nai/x/<path>：图生图 / 局部重绘 / Vibe / 角色参考都走 generate-image（带图，所以放宽到 40MB），
+    // 导演工具 augment-image、Vibe 编码 encode-vibe、放大 upscale、订阅 subscription、联想 suggest-tags。
+    // 只放行这几条路径；Key 照旧放 Authorization 透传，不记录、不存储。
+    if (url.pathname.startsWith('/nai/x/')) {
+      const path = url.pathname.slice('/nai/x'.length);
+      const ROUTES = {
+        '/ai/generate-image': ['https://image.novelai.net', 'POST'],
+        '/ai/generate-image-stream': ['https://image.novelai.net', 'POST'],
+        '/ai/augment-image': ['https://image.novelai.net', 'POST'],
+        '/ai/encode-vibe': ['https://image.novelai.net', 'POST'],
+        '/ai/generate-image/suggest-tags': ['https://image.novelai.net', 'GET'],
+        '/ai/upscale': ['https://api.novelai.net', 'POST'],
+        '/user/subscription': ['https://api.novelai.net', 'GET'],
+      };
+      const route = ROUTES[path];
+      if (!route || request.method !== route[1]) return jsonResponse({ error: 'path not allowed' }, { status: 404, origin });
+      const auth = request.headers.get('Authorization') || '';
+      if (!/^Bearer\s+\S+/.test(auth)) return jsonResponse({ error: 'missing NovelAI key' }, { status: 400, origin });
+      const body = route[1] === 'POST' ? await request.text() : undefined;
+      if (body && body.length > 40 * 1024 * 1024) return jsonResponse({ error: 'payload too large' }, { status: 413, origin });
+      try {
+        const res = await fetch(route[0] + path + (route[1] === 'GET' ? url.search : ''), {
+          method: route[1],
+          headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), Authorization: auth, Accept: '*/*' },
+          body,
+          signal: AbortSignal.timeout(180000),
+        });
+        return new Response(res.body, {
+          status: res.status,
+          headers: { ...corsHeaders(origin), 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Cache-Control': 'no-store' },
+        });
+      } catch (e) {
+        return jsonResponse({ error: String(e && e.message || e) }, { status: 502, origin });
+      }
+    }
+
     // ========== 音频中转（给「角色听歌」用：浏览器不能跨域下载平台音频） ==========
     // GET /music2/audio?url=... → 原样流式返回音频；只放行公网地址，上限 30MB
     if (url.pathname === '/music2/audio' && request.method === 'GET') {
