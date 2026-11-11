@@ -678,7 +678,7 @@ ${groupLogStr}\n`;
             if (tropeBlock) volatileState += `\n${tropeBlock}\n`;
             const endearBlock = buildEndearmentBlock(char.id, (currentMsgs || []).filter(m => m.role === 'assistant' && (m.type || 'text') === 'text').slice(-20).map(m => String(m.content || '')));
             if (endearBlock) volatileState += `\n${endearBlock}\n`;
-            const driftBlock = buildStyleDriftBlock((currentMsgs || []).filter(m => m.role === 'assistant' && (m.type || 'text') === 'text').slice(-30).map(m => String(m.content || '')), userProfile.name);
+            const driftBlock = buildStyleDriftBlock((currentMsgs || []).filter(m => !m.groupId).slice(-160), userProfile.name);
             if (driftBlock) volatileState += `\n${driftBlock}\n`;
         } catch { /* 读不到日记不影响主 prompt */ }
 
@@ -1091,6 +1091,7 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
         if (char.chatVoiceEnabled) {
             const voiceLang = char.chatVoiceLang || '';
             const langLabel = voiceLang ? voiceLanguagePromptLabel(voiceLang) : '';
+            const isEleven = getTtsProvider() === 'elevenlabs';
             if (voiceLang) {
                 baseSystemPrompt += `\n\n### 🎤 语音消息功能
 
@@ -1101,23 +1102,28 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
 <语音> 里是真正被朗读的${langLabel}，<字幕> 里是同一段话的中文——语音条的「转文字」面板会直接用它当对照翻译，用户对着中文听${langLabel}。
 
 规则：
-1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）
+1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。${isEleven ? '不用写 emotion 属性，情绪靠措辞、标点和方括号标签（见下方表演规则）' : '可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）'}
 2. \`<字幕>\` 里写这条语音的中文版，内容和${langLabel}一致、逐段对齐（${langLabel}分几段中文就分几段）。**<字幕> 必须紧跟在 </语音> 后面，永远成对出现，不能单独用**
 3. 标签外可以发补充新信息的普通中文短消息。整轮只有一份回复，文字和语音分工表达，不得各自完整回答一遍；语音说过的信息，也不要换种说法在文字里再讲一次。
 
 示例：
-你说真的假的？
+${isEleven ? `你说真的假的？
+<语音>Wait- you're serious?</语音>
+<字幕>等等——你认真的？</字幕>
+
+<语音>[sighs] Ugh... I don't wanna move. At all.</语音>
+<字幕>啊……不想动。一点都不想。</字幕>` : `你说真的假的？
 <语音 emotion="surprised">Wait... are you serious?</语音>
 <字幕>等等……你是认真的？</字幕>
 
 <语音 emotion="sad">I don't wanna move anymore... (sighs)</语音>
-<字幕>啊不想动了……（叹气）</字幕>
+<字幕>啊不想动了……（叹气）</字幕>`}
 
 要求：
 - <语音> 里的${langLabel}要自然口语化，符合你的性格，不要机翻味
-- <语音> 里想要笑、叹气等真实语气用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等，**不要写中文（轻笑）这类舞台指示**（中文括号会被直接删掉、不朗读）
-- 每条消息最多一个 <语音> + <字幕> 组合
-- 不是每条消息都要发语音！像真人一样，有时候打字，有时候发语音，自然切换
+- ${isEleven ? '<语音> 里笑、叹气等真实语气用英文方括号标签，写法看下方表演规则' : '<语音> 里想要笑、叹气等真实语气用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等'}，**不要写中文（轻笑）这类舞台指示**（中文括号会被直接删掉、不朗读）
+- 每条消息最多一个 <语音> + <字幕> 组合；一条语音通常一到三句，长内容打字
+- 不是每条消息都要发语音！多数轮次只打字，语音是偶尔的。像真人一样，有时候打字，有时候发语音，自然切换
 - 比较适合发语音的场景：撒娇、吐槽、语气很重的话、懒得打字的时候
 - 比较适合打字的场景：发链接、正经讨论、很短的回复如"嗯"、"好"
 

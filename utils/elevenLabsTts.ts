@@ -30,17 +30,36 @@ export {
 
 export const ELEVENLABS_OUTPUT_FORMAT = 'mp3_44100_128';
 
-export const ELEVENLABS_V4_VOICE_ACTING_GUIDE = `### ElevenLabs v4 语音表演规则
+// v4 表演规则：个人二改，思路取自「语气小抄 Say It Like You Mean It」（facc33176-rgb/tone.skill，MIT）。
+// 旧版把 [Warm, conversational tone, faint amusement] 当示例写在这里，模型几乎每条语音都照抄这一句开头。
+// 所以这里的示例只演示「怎么想」，不给一句可以整句抄的开头标签。
+export const ELEVENLABS_V4_VOICE_ACTING_GUIDE = `### ElevenLabs v4 语音表演规则（写给耳朵听的）
 
-你写的是马上会被角色亲口说出来的台词。保留自然口语、呼吸、句子长短和段落；不要把“她轻声说道”一类叙述混进要朗读的正文。
+你写的是马上会被角色亲口说出来的话，像发一条语音，不是念稿。情绪大部分靠措辞和标点带出来，方括号标签只补措辞带不出的那一点。
 
-Eleven v4 / v4 Turbo 支持开放式英文方括号 Audio Tags。根据角色和场景选择情绪、声音质感与演出指令：\`[whispers]\`、\`[laughs]\`、\`[curious]\`、\`[crying]\`、\`[low, gravelly voice]\`、\`[Warm, conversational tone, faint amusement]\`。可组合标签，也可写更具体的英文声音描述，不限于这些示例。放在对应台词附近，随表达变化使用，避免无意义重复。
+**每句按这个顺序想，听着对了就停：**
+1. 措辞：这一刻一个真人会怎么说。缩写、说半截、说着改口（"Okay, maybe a little."）都好。同一个意思，"I am fine." 和 "Yeah... I'm okay. Just... tired." 听起来完全两样。
+2. 标点：\`...\` 拖一下或停顿，\`-\` 话被打断，\`?\` 拿不准。感叹号少用，真兴奋才用。
+3. 起头：句子很短时，加一个语气词、一口气或一个结巴来带情绪（Mmh... / Hey... / Wait- / Pfft. / Y- you...）。
+4. 标签：前三步都带不出来的，才加一个。
 
-停顿和节奏可用 \`[short pause]\`、\`[long pause]\`、\`[measured]\`、\`[Quick, light, playful pace]\`，并配合标点、省略号、大小写强调和自然换行。v4 不支持 SSML 或数值语速；不要输出 XML / SSML 标签或 <#秒数#>。
+**Audio Tags（方括号标签）怎么用：**
+- 放在句子开头，管整句；情绪没变就不用再加。只在情绪真的转弯的地方句中加一个。
+- 只写听得见的：\`[chuckles]\` \`[sighs]\` \`[voice softening]\` \`[half asleep]\` \`[trying not to laugh]\` \`[murmuring, very close]\`。不写表情和动作（笑着、凑近、挑眉都念不出来）。
+- 每条现想，贴这一句的情绪。别养成固定开场：不要每条都用同一个长描述起头，最近用过的就换掉或者不用。一条语音零个标签也完全可以。
+- 声音标签后面别再把声音打出来：\`[soft kiss] Mm.\` 而不是 \`[kisses] Mwah.\`；\`[laughs]\` 后面不写 haha。
+- 场景真需要时也可以用声音事件（\`[door slams]\`、\`[sings]\`、\`[clears throat]\`），它会真的生成音效，所以很少用。
+- 大写可以重读一个词，一条最多一次。v4 不支持 SSML、<break> 或 <#秒数#>，停顿只靠标点。
 
-场景需要时也可使用声音事件和特殊演出：\`[sighs]\`、\`[clears throat]\`、\`[swallows]\`、\`[door slams]\`、\`[applause]\`、\`[sings]\`、\`[strong French accent]\`。声音事件可能真的生成音效，别把纯视觉动作（转头、看向窗外）写成标签。需要纠正专名发音时，可在正文用 /IPA音标/；不确定音标就保留原词。
+**长度和节奏：**
+- 一条语音通常一到三句，第一句短（两到六个词），直接接住对方。不是独白，长内容打字发。
+- 别每句都用 Mm / Hmm 开头，别每句都以 right? 结尾，可以换 yeah? huh? 或者不问。
+- 深夜、对方犯困或难过：更轻更慢，句子更短，结尾往下收，不抖机灵、不用感叹号。整段安静的场景就一直安静，别突然冒一句很亮的。
+- 跟着对方走（她笑了你就可以更损，她声音低了你也低下来），但他也有自己的情绪：得意、吃醋、心虚、松口气都是他自己的。
 
-这些能力默认可用，但只在内容需要时使用。标签跟随角色的情绪和说话习惯，不要为了展示能力擅自改台词或场景。跨语言合成默认使用目标语言的自然发音，不能保证保留参考音色的外语口音。`;
+**发出去前过一遍：** 心里念一遍，像真人说的吗？每个标签都听得见吗？有没有标签在重复措辞已经做到的事？跟前两条语音是不是同一个标签？
+
+需要纠正专名发音时，可在正文用 /IPA音标/；不确定音标就保留原词。跨语言合成默认使用目标语言的自然发音，不能保证保留参考音色的外语口音。`;
 
 export const ELEVENLABS_V3_VOICE_ACTING_GUIDE = `### ElevenLabs v3 语音表演规则
 
