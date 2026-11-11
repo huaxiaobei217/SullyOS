@@ -9,6 +9,7 @@ import {
   GearSix,
   Images,
   PaintBrush,
+  Exam,
   Palette,
   Heart,
   BookOpenText,
@@ -83,6 +84,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   Body: ({ className }) => <Heartbeat className={className} weight="regular" />,
   Ledger: ({ className }) => <Wallet className={className} weight="regular" />,
   Draw: ({ className }) => <PaintBrush className={className} weight="regular" />,
+  Exam: ({ className }) => <Exam className={className} weight="regular" />,
   VRWorld: ({ className }) => <Planet className={className} weight="regular" />,
   CharCreatorDev: ({ className }) => <Wrench className={className} weight="regular" />,
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
@@ -129,6 +131,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Body, name: '身体', icon: 'Body', color: 'emerald' },
   { id: AppID.Ledger, name: '账本', icon: 'Ledger', color: 'amber' },
   { id: AppID.Draw, name: '绘图', icon: 'Draw', color: 'violet' },
+  { id: AppID.Exam, name: '考公陪练', icon: 'Exam', color: 'emerald' },
   { id: AppID.CharCreatorDev, name: '捏脸·开发', icon: 'CharCreatorDev', color: 'amber' }, // 仅开发模式显示（Launcher 过滤）
   // { id: AppID.QQBridge, name: 'QQ 桥', icon: 'QQBridge', color: 'sky' }, // Hidden temporarily
 ];
@@ -144,7 +147,7 @@ export const DOCK_APPS = [AppID.Chat, AppID.Footnote, AppID.Music, AppID.Setting
 
 /** 二改：桌面的常用顺序（第一页 8 个最常用，往后是偶尔用的，最后是群像大世界那一组） */
 export const NOAH_LAUNCHER_ORDER: string[] = [
-  AppID.Call, AppID.Date, AppID.Shelf, AppID.Journal, AppID.Study, AppID.Body, AppID.MemoryPalace, AppID.Character, AppID.Worldbook,
+  AppID.Call, AppID.Date, AppID.Shelf, AppID.Journal, AppID.Exam, AppID.Study, AppID.Body, AppID.MemoryPalace, AppID.Character, AppID.Worldbook,
   AppID.User, AppID.Schedule, AppID.Ledger, AppID.Bank, AppID.SpecialMoments, AppID.Gallery, AppID.Draw, AppID.HotNews, AppID.Songwriting, AppID.CheckPhone, AppID.Appearance,
   AppID.Room, AppID.VRWorld, AppID.Guidebook, AppID.FAQ,
   AppID.GroupChat, AppID.FriendFeed, AppID.Social, AppID.XhsFreeRoam, AppID.Game, AppID.Novel, AppID.XhsStock,

@@ -68,6 +68,7 @@ const ShelfApp = lazyApp(() => import('../apps/ShelfApp'));
 const BodyApp = lazyApp(() => import('../apps/BodyApp'));
 const LedgerApp = lazyApp(() => import('../apps/LedgerApp'));
 const DrawApp = lazyApp(() => import('../apps/DrawApp'));
+const ExamApp = lazyApp(() => import('../apps/ExamApp'));
 const VRWorldApp = lazyApp(() => import('../apps/VRWorldApp'));
 const WorldHomeApp = lazyApp(() => import('../apps/WorldHomeApp'));
 const CharCreatorDevApp = lazyApp(() => import('../apps/CharCreatorDevApp'));
@@ -102,7 +103,7 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.XhsFreeRoam]: XhsFreeRoamApp, [AppID.Browser]: BrowserApp, [AppID.Songwriting]: SongwritingApp,
   [AppID.Music]: MusicApp, [AppID.Call]: CallApp, [AppID.VoiceDesigner]: VoiceDesignerApp,
   [AppID.Guidebook]: GuidebookApp, [AppID.LifeSim]: LifeSimApp, [AppID.MemoryPalace]: MemoryPalaceApp,
-  [AppID.Handbook]: HandbookApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp, [AppID.Footnote]: FootnoteApp, [AppID.Shelf]: ShelfApp, [AppID.Body]: BodyApp, [AppID.Ledger]: LedgerApp, [AppID.Draw]: DrawApp,
+  [AppID.Handbook]: HandbookApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp, [AppID.Footnote]: FootnoteApp, [AppID.Shelf]: ShelfApp, [AppID.Body]: BodyApp, [AppID.Ledger]: LedgerApp, [AppID.Draw]: DrawApp, [AppID.Exam]: ExamApp,
   [AppID.VRWorld]: VRWorldApp, [AppID.CharCreatorDev]: CharCreatorDevApp, [AppID.SpecialMoments]: SpecialMomentsApp,
   [AppID.WorldHome]: WorldHomeApp,
 };
@@ -1040,6 +1041,7 @@ const PhoneShell: React.FC = () => {
       case AppID.Body: return <BodyApp />;
       case AppID.Ledger: return <LedgerApp />;
       case AppID.Draw: return <DrawApp />;
+      case AppID.Exam: return <ExamApp />;
       case AppID.SpecialMoments: return <SpecialMomentsApp />;
       case AppID.VRWorld: return <VRWorldApp />;
       case AppID.WorldHome: return <WorldHomeApp />;
