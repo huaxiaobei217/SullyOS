@@ -94,6 +94,39 @@ jobs:
           PY
           echo "---- manifest ----"; cat "$MANIFEST"
 
+      - name: Launcher icon (诺亚)
+        run: |
+          set -e
+          python3 -c "import PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages pillow || (sudo apt-get update -qq && sudo apt-get install -y -qq python3-pil)
+          python3 - <<'PY'
+          import os
+          from PIL import Image, ImageDraw
+          res = 'android/app/src/main/res'
+          art = Image.open('native/noah-apk/icon-art.png').convert('RGBA')
+          full = Image.open('native/noah-apk/icon-adaptive.png').convert('RGBA')
+          sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+          def masked(img, n, circle):
+              im = img.resize((n * 4, n * 4), Image.LANCZOS)
+              m = Image.new('L', im.size, 0); d = ImageDraw.Draw(m)
+              (d.ellipse if circle else (lambda b, fill: d.rounded_rectangle(b, radius=n * 4 // 5, fill=fill)))([0, 0, n * 4 - 1, n * 4 - 1], fill=255)
+              out = Image.new('RGBA', im.size, (0, 0, 0, 0)); out.paste(im, (0, 0), m)
+              return out.resize((n, n), Image.LANCZOS)
+          for dpi, n in sizes.items():
+              d = f'{res}/mipmap-{dpi}'; os.makedirs(d, exist_ok=True)
+              masked(art, n, False).save(f'{d}/ic_launcher.png')
+              masked(art, n, True).save(f'{d}/ic_launcher_round.png')
+              full.resize((n * 108 // 48, n * 108 // 48), Image.LANCZOS).save(f'{d}/ic_launcher_foreground.png')
+          # 自适应图标：整张不透明图当前景，不加 inset（Capacitor 模板默认会缩一圈）
+          os.makedirs(f'{res}/mipmap-anydpi-v26', exist_ok=True)
+          xml = '<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n    <background android:drawable="@color/ic_launcher_background"/>\n    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n</adaptive-icon>\n'
+          for name in ('ic_launcher.xml', 'ic_launcher_round.xml'):
+              open(f'{res}/mipmap-anydpi-v26/{name}', 'w').write(xml)
+          os.makedirs(f'{res}/values', exist_ok=True)
+          open(f'{res}/values/ic_launcher_background.xml', 'w').write('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ic_launcher_background">#F6D5C4</color></resources>\n')
+          print('launcher icons written')
+          PY
+          ls android/app/src/main/res/mipmap-anydpi-v26
+
       - name: Firebase config (主动消息推送)
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}

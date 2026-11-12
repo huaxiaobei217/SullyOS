@@ -18,3 +18,5 @@
 - 线路：先走自己的 Worker 的 `/nai/x/<路径>`（只放行 generate-image、generate-image-stream、augment-image、encode-vibe、suggest-tags、upscale、user/subscription，带图请求上限 40MB，Key 只透传）；Worker 没更新（404）时直连 NovelAI（image.novelai.net 允许跨域）。不经过任何第三方。
 - 所有会出图 / 扣 Anlas 的请求一次一个、间隔 6 秒、429 退避。免费档守卫默认开：Opus 订阅时超出 28 步或 1024×1024 自动压回去；要扣 Anlas 的操作（放大、增强、导演工具、Vibe 编码、守卫关时的大图）先问。
 - 画出来的图存成 blobref 令牌，清单在 localStorage `sully_draw_history_v1`（GC 会扫 localStorage，不会被当孤儿删）。参考图 `sully_draw_refs_v1`（含 Vibe 编码缓存），助手对话 `sully_draw_chat_v1`，工作台 `sully_draw_work_v1`。都只在本机。
+
+- 助手对话：每条可编辑 / 复制 / 删除；助手回复可重 roll，旧版本留着左右翻（图挂在各自版本上）；用户的话改完可从这里重新回复；生成中可停下。助手和提示词小工具可单独选 API 预设（`utils/appApiChoice.ts`，键 `sully_app_api_draw_v1`）。

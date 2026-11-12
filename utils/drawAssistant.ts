@@ -97,12 +97,13 @@ export function blockToWork(b: ImgBlock, cast: CastEntry[]): { prompt: string; c
 }
 
 /* ───────── 调模型 ───────── */
-export async function chatCall(api: APIConfig, messages: { role: 'system' | 'user' | 'assistant'; content: string }[], purpose: string, maxTokens = 1600, temperature = 0.7): Promise<string> {
+export async function chatCall(api: APIConfig, messages: { role: 'system' | 'user' | 'assistant'; content: string }[], purpose: string, maxTokens = 1600, temperature = 0.7, signal?: AbortSignal): Promise<string> {
   if (!api?.baseUrl || !api.model) throw new Error('先在设置里配好聊天用的 API');
   const data = await safeFetchJson(`${api.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey || 'sk-none'}` },
     body: JSON.stringify({ model: api.model, messages, temperature, max_tokens: maxTokens, stream: false }),
+    ...(signal ? { signal } : {}),
   }, 0, 0, { appName: '绘图', purpose });
   return String(extractContent(data) || '').replace(/<(think|thinking|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '').trim();
 }

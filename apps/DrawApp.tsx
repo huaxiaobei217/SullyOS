@@ -21,6 +21,7 @@ import {
   blobToBase64, imageSize, fitImage, baseSizeFor, referenceSizeFor, readNaiPng, FREE_PIXELS, NAI_MAX_PIXELS,
   type DrawParams, type DrawCharacter, type NaiSubscription, type BaseImage, type RefImage,
 } from '../utils/naiStudio';
+import { getAppApiChoice, setAppApiChoice, resolveAppApi, appApiOptions } from '../utils/appApiChoice';
 import { assistantSystem, turnHint, TURN_HINTS, parseBlocks, blockToWork, ORIENT_SIZE, chatCall, translatePrompt, revisePrompt, writePrompt, type CastEntry, type ImgBlock } from '../utils/drawAssistant';
 
 const C = { bg: '#f5f3ef', card: '#ffffff', ink: '#1f1d1a', muted: '#8a857c', faint: '#c4beb3', line: '#e9e4da', accent: '#6b5bd2', soft: '#efecfb', warn: '#c2603d', ok: '#3f8f6b' };
@@ -35,7 +36,17 @@ interface Work { prompt: string; negative: string; characters: (DrawCharacter & 
 interface HistItem { id: string; token: string; width: number; height: number; seed?: number; prompt: string; negative: string; characters: DrawCharacter[]; params: Partial<DrawParams>; at: number; kind: string }
 interface Vibe { id: string; token: string; name: string; strength: number; ie: number; on: boolean; enc: Record<string, string> }
 interface Refs { base: { token: string; strength: number; noise: number; mask?: string } | null; refs: { id: string; token: string; kind: 'character' | 'style' | 'both'; strength: number; fidelity: number }[]; vibes: Vibe[] }
-interface ChatMsg { id: string; role: 'user' | 'assistant'; text: string; images?: string[]; drawing?: boolean; error?: string }
+interface ChatMsg {
+  id: string; role: 'user' | 'assistant'; text: string; images?: string[]; drawing?: boolean; error?: string;
+  /** 重 roll 出来的几个版本（text / images 是正在看的那个） */
+  alts?: string[]; altImgs?: string[][]; alt?: number;
+}
+/** 切到第 k 个版本：正文和图跟着换 */
+const showAlt = (m: ChatMsg, k: number): ChatMsg => {
+  const alts = m.alts || [m.text], imgs = m.altImgs || [m.images || []];
+  const i = Math.max(0, Math.min(alts.length - 1, k));
+  return { ...m, alts, altImgs: imgs, alt: i, text: alts[i], images: imgs[i] || [] };
+};
 
 const defaultWork = (): Work => ({ prompt: '', negative: '', characters: [], params: defaultDrawParams(), count: 1, guard: true });
 const fullPrompt = (style: NaiStyle, prompt: string) => [style.artist, prompt, style.positive].map(s => String(s || '').trim()).filter(Boolean).join(', ');
@@ -143,7 +154,9 @@ const MaskPainter: React.FC<{ imageToken: string; maskToken?: string; onDone: (m
 type Tab = 'draw' | 'refs' | 'chat' | 'album';
 
 const DrawApp: React.FC = () => {
-  const { closeApp, apiConfig, addToast, characters, userProfile } = useOS() as any;
+  const { closeApp, apiConfig: mainApi, apiPresets, addToast, characters, userProfile } = useOS() as any;
+  const [apiChoice, setApiChoiceState] = useState(() => getAppApiChoice('draw'));
+  const apiConfig = useMemo(() => resolveAppApi(mainApi, apiPresets, apiChoice), [mainApi, apiPresets, apiChoice]);
   const [tab, setTab] = useState<Tab>(() => load<Tab>('sully_draw_tab_v1', 'draw'));
   useEffect(() => save('sully_draw_tab_v1', tab), [tab]);
   const [work, setWorkRaw] = useState<Work>(() => { const w = load<Work>(LS_WORK, defaultWork()); return { ...defaultWork(), ...w, params: normalizeDrawParams(w.params) }; });
@@ -312,33 +325,90 @@ const DrawApp: React.FC = () => {
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat.length, tab]);
   const drawBlock = async (msgId: string, b: ImgBlock) => {
     const w = blockToWork(b, cast); const [width, height] = ORIENT_SIZE[b.orient];
+    const altAt = chatRef.current.find(m => m.id === msgId)?.alt ?? 0; // 画的时候是哪个版本，图就挂在哪个版本上
     setChat(c => c.map(m => m.id === msgId ? { ...m, drawing: true } : m));
-    const items = await generate({ prompt: w.prompt, negative: work.negative, characters: w.characters, params: { width, height, seed: -1 }, count: 1, kind: '助手', useRefs: false });
-    setChat(c => c.map(m => m.id === msgId ? { ...m, drawing: false, images: [...(m.images || []), ...items.map(i => i.id)] } : m));
+    try {
+      const items = await generate({ prompt: w.prompt, negative: work.negative, characters: w.characters, params: { width, height, seed: -1 }, count: 1, kind: '助手', useRefs: false });
+      const ids = items.map(i => i.id);
+      setChat(c => c.map(m => {
+        if (m.id !== msgId) return m;
+        const base = showAlt(m, m.alt ?? 0); const imgs = (base.altImgs || []).map(x => x.slice());
+        imgs[altAt] = [...(imgs[altAt] || []), ...ids];
+        return showAlt({ ...base, altImgs: imgs, drawing: false }, base.alt ?? 0);
+      }));
+    } catch (e: any) { setChat(c => c.map(m => m.id === msgId ? { ...m, drawing: false } : m)); addToast(e?.message || '没画成', 'error'); }
   };
   const toWorkbench = (b: ImgBlock) => {
     const w = blockToWork(b, cast); const [width, height] = ORIENT_SIZE[b.orient];
     setWork(x => ({ ...x, prompt: w.prompt, characters: w.characters.map(c => ({ ...c, id: uid() })), params: { ...x.params, width, height } }));
     setTab('draw'); addToast('放进工作台了', 'success');
   };
+  const chatRef = useRef(chat); chatRef.current = chat;
+  const chatAbortRef = useRef<AbortController | null>(null);
+  /** 按 history（最后一条是用户的话）回一次；replaceId 给了就是重 roll：新回复存成那条的另一个版本 */
+  const reply = async (history: ChatMsg[], replaceId?: string) => {
+    const lastUser = [...history].reverse().find(m => m.role === 'user'); if (!lastUser) return;
+    setChatBusy(true);
+    const ac = new AbortController(); chatAbortRef.current = ac;
+    try {
+      const hint = turnHint(lastUser.text);
+      const sys = assistantSystem(cast, style.name, NAI_MODEL_NAMES[work.params.model] || work.params.model) + (hint ? `\n\n${TURN_HINTS[hint]}` : '');
+      const msgs = history.filter(m => !m.error && m.text.trim()).slice(-24).map(m => ({ role: m.role, content: m.text }));
+      const out = await chatCall(apiConfig, [{ role: 'system', content: sys }, ...msgs], '绘图助手', 1800, replaceId ? 0.9 : 0.7, ac.signal) || '（没回出东西）';
+      let targetId = replaceId || '';
+      if (replaceId) {
+        setChat(c => c.map(m => {
+          if (m.id !== replaceId) return m;
+          const base = showAlt(m, m.alt ?? 0);
+          return showAlt({ ...base, error: undefined, alts: [...base.alts!, out], altImgs: [...base.altImgs!, []] }, base.alts!.length);
+        }));
+      } else {
+        const aMsg: ChatMsg = { id: uid(), role: 'assistant', text: out, alts: [out], altImgs: [[]], alt: 0 };
+        targetId = aMsg.id; setChat(() => [...history, aMsg]);
+      }
+      const { blocks } = parseBlocks(out);
+      if (hint === 'draw' && blocks[0]) setTimeout(() => void drawBlock(targetId, blocks[0]), 0);
+    } catch (e: any) {
+      if (ac.signal.aborted || e?.name === 'AbortError') { if (!replaceId) setChat(() => history); }
+      else if (replaceId) { addToast(e?.message || '重 roll 失败', 'error'); }
+      else setChat(() => [...history, { id: uid(), role: 'assistant', text: '', error: e?.message || '出错了' }]);
+    } finally { setChatBusy(false); chatAbortRef.current = null; }
+  };
   const send = async () => {
     const text = chatInput.trim(); if (!text || chatBusy) return;
     setChatInput('');
-    const userMsg: ChatMsg = { id: uid(), role: 'user', text };
-    const history = [...chat, userMsg];
-    setChat(() => history); setChatBusy(true);
-    try {
-      const hint = turnHint(text);
-      const sys = assistantSystem(cast, style.name, NAI_MODEL_NAMES[work.params.model] || work.params.model) + (hint ? `\n\n${TURN_HINTS[hint]}` : '');
-      const reply = await chatCall(apiConfig, [{ role: 'system', content: sys }, ...history.slice(-24).map(m => ({ role: m.role, content: m.text }))], '绘图助手', 1800);
-      const aMsg: ChatMsg = { id: uid(), role: 'assistant', text: reply || '（没回出东西）' };
-      setChat(c => [...c, aMsg]);
-      const { blocks } = parseBlocks(reply);
-      if (hint === 'draw' && blocks[0]) void drawBlock(aMsg.id, blocks[0]);
-    } catch (e: any) {
-      setChat(c => [...c, { id: uid(), role: 'assistant', text: '', error: e?.message || '出错了' }]);
-    } finally { setChatBusy(false); }
+    // 上一条是报错的话，先把它拿掉
+    const base = chatRef.current.filter((m, i, a) => !(m.error && i === a.length - 1));
+    const history = [...base, { id: uid(), role: 'user' as const, text }];
+    setChat(() => history);
+    await reply(history);
   };
+  const stopReply = () => chatAbortRef.current?.abort();
+  /** 重 roll：这条助手回复再出一个版本（旧的留着，可以左右翻） */
+  const reroll = (id: string) => {
+    if (chatBusy) return;
+    const i = chatRef.current.findIndex(m => m.id === id); if (i < 0) return;
+    const m = chatRef.current[i];
+    if (m.error) { const h = chatRef.current.slice(0, i); setChat(() => h); void reply(h); return; }
+    void reply(chatRef.current.slice(0, i), id);
+  };
+  const flipAlt = (id: string, d: number) => setChat(c => c.map(m => m.id === id ? showAlt(m, (m.alt ?? 0) + d) : m));
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [actFor, setActFor] = useState<string | null>(null);
+  /** 改完：助手的直接改当前版本；用户的可以只改，也可以改完从这里重新回复（后面的对话会去掉） */
+  const saveEdit = (resend: boolean) => {
+    if (!editing) return;
+    const { id, text } = editing; const i = chatRef.current.findIndex(m => m.id === id); if (i < 0) return setEditing(null);
+    const m = chatRef.current[i];
+    if (m.role === 'assistant') {
+      setChat(c => c.map(x => { if (x.id !== id) return x; const b = showAlt(x, x.alt ?? 0); const alts = b.alts!.slice(); alts[b.alt!] = text; return showAlt({ ...b, alts }, b.alt!); }));
+    } else if (resend) {
+      const h = [...chatRef.current.slice(0, i), { ...m, text }]; setChat(() => h); void reply(h);
+    } else setChat(c => c.map(x => x.id === id ? { ...x, text } : x));
+    setEditing(null); setActFor(null);
+  };
+  const delMsg = (id: string) => { setChat(c => c.filter(m => m.id !== id)); setActFor(null); };
+  const copyMsg = (t: string) => { void navigator.clipboard?.writeText(t).then(() => addToast('复制了', 'success')).catch(() => addToast('复制不了，长按文字手动选', 'info')); setActFor(null); };
 
   /* —— 提示词小工具 —— */
   const [toolText, setToolText] = useState(''); const [wish, setWish] = useState(''); const [undo, setUndo] = useState<string | null>(null);
@@ -567,26 +637,62 @@ const DrawApp: React.FC = () => {
       {/* ───── 助手 ───── */}
       {tab === 'chat' && (
         <div className="flex-1 flex flex-col min-h-0">
+          <div className="shrink-0 px-4 pb-2 flex items-center gap-2 text-[11px]" style={{ color: C.muted }}>
+            <span className="shrink-0">用</span>
+            <select value={apiChoice} onChange={e => { setApiChoiceState(e.target.value); setAppApiChoice('draw', e.target.value); }} className="flex-1 min-w-0 rounded-xl px-2 py-1 text-[11px] outline-none" style={inputSty}>
+              {appApiOptions(mainApi, apiPresets).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <span className="shrink-0" style={{ color: C.faint }}>写提示词 / 聊天</span>
+          </div>
           <div className="flex-1 overflow-y-auto px-4 pb-3 space-y-3">
             {!chat.length && <div className="text-[12px] leading-relaxed mt-6 text-center px-6" style={{ color: C.muted }}>
               跟我说想画什么，可以先聊构图、画风、颜色。<br />方案定了说「画吧」，我就直接画出来。<br />
               <span style={{ color: C.faint }}>比如：「给我的 App 画个图标，深蓝夜空里一部发光的小手机」</span>
             </div>}
-            {chat.map(m => {
+            {chat.map((m, mi) => {
               const { parts } = m.role === 'assistant' ? parseBlocks(m.text) : { parts: [m.text] };
+              const nAlt = m.alts?.length || 1, isLast = mi === chat.length - 1;
+              const open = actFor === m.id;
+              const actions = (
+                <div className={`flex items-center gap-3 text-[11px] mt-1 ${m.role === 'user' ? 'justify-end' : ''}`} style={{ color: C.muted }}>
+                  {m.role === 'assistant' && nAlt > 1 && <span className="flex items-center gap-1.5"><button disabled={(m.alt ?? 0) <= 0} onClick={() => flipAlt(m.id, -1)} className="px-1 disabled:opacity-30">‹</button>{(m.alt ?? 0) + 1}/{nAlt}<button disabled={(m.alt ?? 0) >= nAlt - 1} onClick={() => flipAlt(m.id, 1)} className="px-1 disabled:opacity-30">›</button></span>}
+                  {m.role === 'user' && isLast && !chatBusy && <button onClick={() => void reply(chatRef.current)} style={{ color: C.accent }}>让它回这条</button>}
+                  {m.role === 'assistant' && (isLast || open) && <button disabled={chatBusy} onClick={() => reroll(m.id)} className="disabled:opacity-40">{m.error ? '重试' : '重 roll'}</button>}
+                  {open && <>
+                    {!m.error && <button onClick={() => setEditing({ id: m.id, text: m.text })}>编辑</button>}
+                    {!m.error && <button onClick={() => copyMsg(m.text)}>复制</button>}
+                    <button onClick={() => delMsg(m.id)} style={{ color: C.warn }}>删除</button>
+                  </>}
+                  {!open && !m.error && <button onClick={() => setActFor(m.id)} style={{ color: C.faint }}>···</button>}
+                  {open && <button onClick={() => setActFor(null)} style={{ color: C.faint }}>收起</button>}
+                </div>
+              );
+              if (editing?.id === m.id) return (
+                <div key={m.id} className="rounded-2xl p-2.5 space-y-2" style={{ background: C.card, border: `1px solid ${C.accent}` }}>
+                  <textarea value={editing.text} onChange={e => setEditing({ id: m.id, text: e.target.value })} rows={Math.min(14, Math.max(3, editing.text.split('\n').length + 1))} className="w-full rounded-xl px-2.5 py-2 text-[12.5px] outline-none resize-y font-[inherit]" style={inputSty} autoFocus />
+                  <div className="flex gap-2 justify-end">
+                    <Btn small tone="ghost" onClick={() => setEditing(null)}>取消</Btn>
+                    <Btn small onClick={() => saveEdit(false)}>{m.role === 'user' ? '只改字' : '保存'}</Btn>
+                    {m.role === 'user' && <Btn small tone="solid" disabled={chatBusy} onClick={() => saveEdit(true)}>改完重新回复</Btn>}
+                  </div>
+                  {m.role === 'user' && <div className="text-[10.5px]" style={{ color: C.faint }}>「改完重新回复」会去掉这条后面的对话。</div>}
+                  {m.role === 'assistant' && <div className="text-[10.5px]" style={{ color: C.faint }}>出图块里的 tag 也能直接改，保存后点「画这张」就按改过的画。</div>}
+                </div>
+              );
               return (
-                <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : ''}>
-                  {m.role === 'user' ? <div className="max-w-[80%] px-3.5 py-2 rounded-2xl rounded-br-md text-[13px] whitespace-pre-wrap" style={{ background: C.ink, color: '#fff' }}>{m.text}</div> : (
+                <div key={m.id} className={m.role === 'user' ? 'flex flex-col items-end' : ''}>
+                  {m.role === 'user' ? <div onClick={() => setActFor(open ? null : m.id)} className="max-w-[80%] px-3.5 py-2 rounded-2xl rounded-br-md text-[13px] whitespace-pre-wrap" style={{ background: C.ink, color: '#fff' }}>{m.text}</div> : (
                     <div className="space-y-2 max-w-[92%]">
                       {m.error && <div className="text-[12px] px-3 py-2 rounded-2xl" style={{ background: '#fbecE6', color: C.warn }}>{m.error}</div>}
-                      {parts.map((p, i) => typeof p === 'string' ? (p.trim() ? <div key={i} className="text-[13px] leading-relaxed whitespace-pre-wrap px-3.5 py-2 rounded-2xl rounded-bl-md" style={{ background: C.card, border: `1px solid ${C.line}` }}>{p.trim()}</div> : null) : (
+                      {parts.map((p, i) => typeof p === 'string' ? (p.trim() ? <div key={i} onClick={() => setActFor(open ? null : m.id)} className="text-[13px] leading-relaxed whitespace-pre-wrap px-3.5 py-2 rounded-2xl rounded-bl-md" style={{ background: C.card, border: `1px solid ${C.line}` }}>{p.trim()}</div> : null) : (
                         <div key={i} className="rounded-2xl p-3 text-[11px]" style={{ background: C.soft, border: `1px solid #ddd6fa` }}>
                           <div className="flex justify-between mb-1" style={{ color: C.accent }}><span>出图块 · {p.orient === 'landscape' ? '横' : p.orient === 'square' ? '方' : '竖'}</span><span>{p.chars.length} 个角色</span></div>
                           <div className="font-mono text-[10.5px] leading-snug" style={{ color: C.ink }}>{p.scene}</div>
                           {p.chars.map((c, j) => <div key={j} className="mt-1 text-[10.5px]" style={{ color: C.muted }}><b style={{ color: C.ink }}>{c.name}</b> {POS_LABEL(c.position)} · {c.tags}</div>)}
-                          <div className="flex gap-2 mt-2">
-                            <Btn small tone="solid" disabled={!!busy || m.drawing} onClick={() => drawBlock(m.id, p)}>{m.drawing ? '在画…' : '画这张'}</Btn>
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            <Btn small tone="solid" disabled={!!busy || m.drawing} onClick={() => drawBlock(m.id, p)}>{m.drawing ? '在画…' : m.images?.length ? '再画一张' : '画这张'}</Btn>
                             <Btn small onClick={() => toWorkbench(p)}>放进工作台</Btn>
+                            <Btn small tone="ghost" onClick={() => setEditing({ id: m.id, text: m.text })}>改 tag</Btn>
                           </div>
                         </div>
                       ))}
@@ -594,10 +700,11 @@ const DrawApp: React.FC = () => {
                       {m.drawing && <div className="text-[11px]" style={{ color: C.muted }}>{busy || '在画…'}</div>}
                     </div>
                   )}
+                  {actions}
                 </div>
               );
             })}
-            {chatBusy && <div className="text-[12px]" style={{ color: C.muted }}>在想…</div>}
+            {chatBusy && <div className="flex items-center gap-3 text-[12px]" style={{ color: C.muted }}>在想…<button onClick={stopReply} className="px-2.5 py-0.5 rounded-full text-[11px]" style={{ border: `1px solid ${C.line}` }}>停下</button></div>}
             <div ref={chatEnd} />
           </div>
           <div className="shrink-0 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+10px)] flex gap-2 items-end" style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
