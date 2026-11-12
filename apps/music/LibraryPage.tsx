@@ -21,6 +21,7 @@ import {
 import { FloatingLyric, hasNativeFloatingLyric } from '../../components/os/NativeFloatingLyric';
 import { loadDesktopLyricPrefs, saveDesktopLyricPrefs, loadNowPlayingSyncPrefs, saveNowPlayingSyncPrefs } from '../../utils/music/musicPrefs';
 import { pushNowPlaying } from '../../components/os/NowPlayingSync';
+import { getDuckLevel, setDuckLevel } from '../../utils/music/musicDuck';
 import { loadListenApiConfig, saveListenApiConfig } from '../../utils/music/songListen';
 import { LX_QUALITY_ORDER, LX_QUALITY_LABEL, loadLxQualityPref, saveLxQualityPref, LxQualityPref } from '../../utils/music/lxQuality';
 
@@ -62,6 +63,10 @@ const LibraryPage: React.FC<{
     try { if (id) localStorage.setItem(LS_LAST_PLAYLIST, id); } catch {}
   };
   const [drawer, setDrawer] = useState(false);
+  const [duckLv, setDuckLv] = useState(getDuckLevel);
+  // 歌单内搜索：歌太多翻不到的时候
+  const [findQ, setFindQ] = useState('');
+  const [findAll, setFindAll] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const scriptFileRef = useRef<HTMLInputElement | null>(null);
@@ -94,6 +99,17 @@ const LibraryPage: React.FC<{
   const localFileRef = useRef<HTMLInputElement | null>(null);
 
   const open = lists.find(l => l.id === openId) || null;
+  const findRows = useMemo(() => {
+    const q = findQ.trim().toLowerCase(); if (!q || !open) return [];
+    const words = q.split(/\s+/);
+    const pool = findAll ? [open, ...lists.filter(l => l.id !== open.id)] : [open];
+    const seen = new Set<string>();
+    return pool.flatMap(l => l.songs.map((s, i) => ({ s, i, l }))).filter(({ s }) => {
+      const hay = `${s.name} ${s.artists} ${s.album || ''}`.toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
+      const k = `${s.name}|${s.artists}`; if (seen.has(k)) return false; seen.add(k); return true;
+    }).slice(0, 200);
+  }, [findQ, findAll, open, lists]);
 
   const importLx = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -268,6 +284,15 @@ const LibraryPage: React.FC<{
                   </label>
                 ))}
               </div>
+              <div className="pt-2 border-t border-white/40 space-y-1">
+                <label className="flex items-center gap-2 text-[11px]" style={{ color: C.text }}>
+                  <span className="shrink-0">他说话时音乐让路</span>
+                  <input type="range" className="flex-1" min={0.1} max={1} step={0.05} value={duckLv}
+                    onChange={e => { const v = Number(e.target.value); setDuckLv(v); setDuckLevel(v); }} />
+                  <span className="w-9 text-right shrink-0">{duckLv >= 1 ? '不让' : `${Math.round(duckLv * 100)}%`}</span>
+                </label>
+                <div className="text-[10px] leading-relaxed" style={{ color: C.muted }}>语音条、电话、电台一出声，歌就降到这个音量，说完慢慢回来。拉到最右是不让路。</div>
+              </div>
               <div className="pt-2 border-t border-white/40 space-y-1.5">
                 <div className="text-[10px]" style={{ color: C.muted }}>换歌时同步「正在听」到（比如你的 MCP 的 /update 地址，留空就不同步）</div>
                 <input className="w-full rounded-xl px-3 py-1.5 outline-none text-[11px] shizuku-glass" style={{ color: C.text }}
@@ -404,7 +429,7 @@ const LibraryPage: React.FC<{
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full" style={{ color: C.primary, border: `1px solid ${C.primary}40` }}>
             <MusicNoteSimple size={12} /> {importingLocal ? '导入中…' : '本地文件'}
           </button>
-          <button onClick={() => setSorting(v => !v)}
+          <button onClick={() => { setSorting(v => !v); setFindQ(''); }}
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-full"
             style={{ color: sorting ? 'white' : C.primary, background: sorting ? C.primary : 'transparent', border: `1px solid ${C.primary}40` }}>
             <ArrowsDownUp size={12} /> {sorting ? '完成' : '排序'}
@@ -412,19 +437,30 @@ const LibraryPage: React.FC<{
           <input ref={localFileRef} type="file" multiple accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" className="hidden"
             onChange={e => { const fs = e.target.files; importLocal(fs).finally(() => { e.target.value = ''; }); }} />
         </div>
+        <div className="px-4 pb-2 flex items-center gap-2 relative z-10">
+          <div className="flex-1 min-w-0 flex items-center gap-1.5 rounded-full px-3 py-1.5 shizuku-glass">
+            <MagnifyingGlass size={12} style={{ color: C.muted }} />
+            <input value={findQ} onChange={e => { setFindQ(e.target.value); setSorting(false); }} placeholder={findAll ? '在所有歌单里找歌名 / 歌手' : '在这个歌单里找歌名 / 歌手'}
+              className="flex-1 min-w-0 bg-transparent outline-none text-[11.5px]" style={{ color: C.text }} />
+            {findQ && <button onClick={() => setFindQ('')} style={{ color: C.faint }}><X size={12} /></button>}
+          </div>
+          <button onClick={() => setFindAll(v => !v)} className="text-[10.5px] px-2 py-1 rounded-full shrink-0"
+            style={{ color: findAll ? 'white' : C.primary, background: findAll ? C.primary : 'transparent', border: `1px solid ${C.primary}40` }}>全部歌单</button>
+        </div>
         <div className="flex-1 overflow-y-auto px-2 pb-24 relative z-10 shizuku-scrollbar">
-          {open.songs.map((s, i) => (
-            <div key={s.id} className={`relative ${sorting ? 'pr-16' : 'pr-7'}`}
+          {findQ.trim() && !findRows.length && <div className="text-center text-xs mt-10" style={{ color: C.faint }}>没找到「{findQ.trim()}」{findAll ? '' : '，试试点「全部歌单」'}</div>}
+          {(findQ.trim() ? findRows : open.songs.map((s, i) => ({ s, i, l: open }))).map(({ s, i, l }) => (
+            <div key={`${l.id}:${s.id}:${i}`} className={`relative ${sorting ? 'pr-16' : 'pr-7'}`}
               onContextMenu={(e) => { e.preventDefault(); if (!sorting) setSheetSong(s); }}>
               <SongRow
                 name={s.name}
-                artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}`}
+                artists={`${s.lxSource ? `[${SOURCE_LABEL[s.lxSource] || s.lxSource}] ` : ''}${s.artists}${l.id !== open.id ? ` · ${l.name}` : ''}`}
                 album={s.album}
                 albumPic={s.albumPic}
                 duration={s.interval || fmt(s.duration)}
                 isVip={false}
                 isActive={current?.id === s.id}
-                onClick={() => { if (!sorting) playSong(s, { replaceQueue: open.songs, startIdx: i }); }}
+                onClick={() => { if (!sorting) playSong(s, { replaceQueue: l.songs, startIdx: i }); }}
               />
               {sorting ? (
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center" style={{ color: C.muted }}>

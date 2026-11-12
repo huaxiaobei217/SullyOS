@@ -46,7 +46,7 @@ export const PD_CARDS: ExamCard[] = [
     traps: ['平行四边形是中心对称，不是轴对称', 'N、S、Z 是中心对称'],
   },
   {
-    id: 'pd-curve', module: 'pd', title: '属性 · 曲直', motto: '全直、全曲、曲直混合，或者曲线数在变',
+    id: 'pd-curve', module: 'pd', title: '属性 · 曲直', motto: '全直、全曲、曲直混合，或者曲线数在变', gen: 'lines',
     spot: '有的图带圆弧，有的全是直线。',
     formulas: ['全直线图形、全曲线图形、曲直混合', '进阶：曲线数、直线数分别计数'],
     steps: ['每张图标：直 / 曲 / 混', '看是不是交替或一致', '还看不出就分别数曲线和直线条数'],
@@ -94,7 +94,7 @@ export const PD_CARDS: ExamCard[] = [
     traps: ['线条的端点（只连 1 条线）也是奇点', '图形不连通时一定画不了一笔'],
   },
   {
-    id: 'pd-part', module: 'pd', title: '数量 · 部分数', motto: '图形分成几块互不相连的 → 数部分',
+    id: 'pd-part', module: 'pd', title: '数量 · 部分数', motto: '图形分成几块互不相连的 → 数部分', gen: 'parts',
     spot: '图里有几块分开的小图形，或者线条之间断开。',
     formulas: ['部分数（连通块）：连在一起的算一部分，分开的各算一部分'],
     steps: ['看每张图由几块分开的东西组成', '找递增 / 相同的规律'],

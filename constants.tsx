@@ -108,7 +108,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },
-  { id: AppID.Study, name: '自习室', icon: 'Study', color: 'emerald' },
+  // { id: AppID.Study, name: '自习室', icon: 'Study', color: 'emerald' }, // 二改：考公陪练接手了，桌面不放了（数据和代码都还在）
   { id: AppID.Game, name: 'TRPG', icon: 'Game', color: 'orange' },
   { id: AppID.Novel, name: '笔友会', icon: 'Novel', color: 'amber' },
   { id: AppID.Songwriting, name: '写歌', icon: 'Songwriting', color: 'fuchsia' },
@@ -140,6 +140,7 @@ export const INSTALLED_APPS: AppConfig[] = [
 // 只查 INSTALLED_APPS 的话这些 App 会被静默漏掉（比如「家园」是从小小窝进的）。
 export const HIDDEN_APP_NAMES: Partial<Record<AppID, string>> = {
   [AppID.WorldHome]: '家园',
+  [AppID.Study]: '自习室',
 };
 
 // 二改：底栏换成天天用的（原版是 Chat / 群聊 / Spark / 设置，群聊和 Spark 挪进桌面后几页）
@@ -147,7 +148,7 @@ export const DOCK_APPS = [AppID.Chat, AppID.Footnote, AppID.Music, AppID.Setting
 
 /** 二改：桌面的常用顺序（第一页 8 个最常用，往后是偶尔用的，最后是群像大世界那一组） */
 export const NOAH_LAUNCHER_ORDER: string[] = [
-  AppID.Call, AppID.Date, AppID.Shelf, AppID.Journal, AppID.Exam, AppID.Study, AppID.Body, AppID.MemoryPalace, AppID.Character, AppID.Worldbook,
+  AppID.Call, AppID.Date, AppID.Shelf, AppID.Journal, AppID.Exam, AppID.Body, AppID.MemoryPalace, AppID.Character, AppID.Worldbook,
   AppID.User, AppID.Schedule, AppID.Ledger, AppID.Bank, AppID.SpecialMoments, AppID.Gallery, AppID.Draw, AppID.HotNews, AppID.Songwriting, AppID.CheckPhone, AppID.Appearance,
   AppID.Room, AppID.VRWorld, AppID.Guidebook, AppID.FAQ,
   AppID.GroupChat, AppID.FriendFeed, AppID.Social, AppID.XhsFreeRoam, AppID.Game, AppID.Novel, AppID.XhsStock,

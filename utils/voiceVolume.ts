@@ -73,12 +73,47 @@ const tryRoute = (el: HTMLMediaElement) => {
   } catch { failed.add(el); }
 };
 
+// ---------- 角色在说话吗：给音乐让路（音乐渐弱，说完再回来） ----------
+export const VOICE_ACTIVE_EVENT = 'sully:voice-active';
+const activeEls = new Set<HTMLMediaElement>();
+const watched = new WeakSet<HTMLMediaElement>();
+let streamCount = 0;
+let lastOn = false;
+let sweepTimer = 0;
+export const isVoiceActive = () => lastOn;
+const emitVoice = () => {
+  for (const el of activeEls) if (el.paused || el.ended) activeEls.delete(el);
+  const on = activeEls.size > 0 || streamCount > 0;
+  if (on && !sweepTimer) sweepTimer = window.setInterval(emitVoice, 1500); // 元素被丢掉没发 pause 时兜底
+  if (!on && sweepTimer) { clearInterval(sweepTimer); sweepTimer = 0; }
+  if (on === lastOn) return;
+  lastOn = on;
+  try { window.dispatchEvent(new CustomEvent(VOICE_ACTIVE_EVENT, { detail: { on } })); } catch { /* ignore */ }
+};
+/** 流式 PCM 语音开始出声时调一次，返回结束函数（重复调用安全） */
+export const voiceStreamBegin = (): (() => void) => {
+  streamCount++; emitVoice();
+  let done = false;
+  return () => { if (done) return; done = true; streamCount = Math.max(0, streamCount - 1); emitVoice(); };
+};
+const watchVoice = (el: HTMLMediaElement) => {
+  if (watched.has(el) || !(el instanceof HTMLAudioElement)) return;
+  const ds = (el as HTMLElement).dataset;
+  if (ds?.sullyMusic || ds?.sullyBgm) return;
+  watched.add(el);
+  const on = () => { if (safeSrc(el)) { activeEls.add(el); emitVoice(); } };
+  const off = () => { activeEls.delete(el); emitVoice(); };
+  el.addEventListener('playing', on);
+  ['pause', 'ended', 'emptied', 'error', 'abort'].forEach(ev => el.addEventListener(ev, off));
+};
+
 let installed = false;
 export function installVoiceVolume(): void {
   if (installed || typeof window === 'undefined' || typeof HTMLMediaElement === 'undefined') return;
   installed = true;
   const orig = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function (this: HTMLMediaElement, ...args: any[]) {
+    try { watchVoice(this); } catch { /* ignore */ }
     try { tryRoute(this); } catch { /* 出错就原生放 */ }
     return orig.apply(this, args as any);
   };

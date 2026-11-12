@@ -5,7 +5,7 @@
  * - 申论：出一段短材料 + 一道题（归纳概括 / 提出对策 / 公文），按采分点批改，给参考答案
  * 用自习室的 API（study_api_config），没配就用主 API。题目图片存 blobref，清单在 localStorage。
  */
-import type { APIConfig } from '../types';
+import type { APIConfig, ApiPreset } from '../types';
 import { safeFetchJson, extractContent } from './safeApi';
 import { cardIndex, EXAM_CARDS, MODULE_NAMES, type ExamModule, type ExamCard } from './examCards';
 import { allPoints, pointById } from './examSyllabus';
@@ -21,8 +21,24 @@ export function studyApi(main: APIConfig): APIConfig {
   const o = read<Partial<APIConfig>>('study_api_config', {});
   return { ...main, baseUrl: o.baseUrl || main.baseUrl, apiKey: o.apiKey || main.apiKey, model: o.model || main.model };
 }
+
+/* ───────── 用哪套 API：主 API / 自习室那套 / 任意一个预设（上班没 VPN 时切到国内能连的那套） ───────── */
+const LS_API = 'sully_exam_api_v1';
+export type ExamApiChoice = 'main' | 'study' | `preset:${string}`;
+export const hasStudyApi = () => { const o = read<Partial<APIConfig>>('study_api_config', {}); return !!(o.baseUrl || o.model || o.apiKey); };
+export const getExamApiChoice = (): ExamApiChoice => { try { const v = localStorage.getItem(LS_API); if (v) return v as ExamApiChoice; } catch { /* ignore */ } return hasStudyApi() ? 'study' : 'main'; };
+export const setExamApiChoice = (c: ExamApiChoice) => { try { localStorage.setItem(LS_API, c); } catch { /* ignore */ } try { window.dispatchEvent(new Event(EXAM_EVENT)); } catch { /* ignore */ } };
+/** 选中的预设被删了就回到主 API */
+export function examApi(main: APIConfig, presets: ApiPreset[] = [], choice = getExamApiChoice()): APIConfig {
+  if (choice.startsWith('preset:')) {
+    const p = presets.find(x => x.id === choice.slice(7));
+    if (p?.config?.baseUrl) return { ...main, ...p.config };
+    return main;
+  }
+  return choice === 'study' ? studyApi(main) : main;
+}
 async function call(api: APIConfig, messages: any[], purpose: string, maxTokens = 2000, temperature = 0.3): Promise<string> {
-  if (!api?.baseUrl || !api.model) throw new Error('先在设置里配好 API（自习室独立 API 或主 API）');
+  if (!api?.baseUrl || !api.model) throw new Error('这套 API 没填全：点右上角 ⚙ 换一套');
   const data = await safeFetchJson(`${api.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey || 'sk-none'}` },
     body: JSON.stringify({ model: api.model, messages, temperature, max_tokens: maxTokens, stream: false }),
@@ -98,14 +114,14 @@ export type DrillKind = 'summary' | 'measure' | 'doc';
 export const DRILL_NAMES: Record<DrillKind, string> = { summary: '归纳概括', measure: '提出对策', doc: '公文写作' };
 export interface Drill {
   id: string; at: number; kind: DrillKind; topic: string; material: string; question: string; limit: number;
-  points: string[]; reference: string;
+  points: string[]; reference: string; pre?: boolean;
   answer?: string; score?: number; hits?: string[]; misses?: string[]; comment?: string; rewrite?: string; doneAt?: number;
 }
 export const getDrills = (): Drill[] => read<Drill[]>(LS_DRILL, []);
 const saveDrills = (l: Drill[]) => write(LS_DRILL, l.slice(0, 200));
 
 const DOC_KINDS = ['通知', '倡议书', '讲话稿', '情况报告', '工作简报', '宣传稿'];
-export async function makeDrill(api: APIConfig, kind: DrillKind, topic = ''): Promise<Drill> {
+export async function makeDrill(api: APIConfig, kind: DrillKind, topic = '', pre = false): Promise<Drill> {
   const recent = getDrills().slice(0, 8).map(d => d.topic).join('、');
   const doc = DOC_KINDS[Math.floor(Math.random() * DOC_KINDS.length)];
   const ask = kind === 'summary' ? '一道归纳概括题（概括问题 / 原因 / 做法 / 经验其中之一），字数限制 100～150 字'
@@ -118,7 +134,7 @@ export async function makeDrill(api: APIConfig, kind: DrillKind, topic = ''): Pr
 - reference：一份参考答案，按申论规范分条写。
 只输出 JSON：{"topic":"四字主题","material":"…","question":"…","limit":150,"points":["…"],"reference":"…"}`;
   const j = json(await call(api, [{ role: 'system', content: sys }, { role: 'user', content: '出题。' }], '申论出题', 2600, 0.8));
-  const d: Drill = { id: uid(), at: Date.now(), kind, topic: String(j.topic || '').slice(0, 12), material: String(j.material || ''), question: String(j.question || ''), limit: Number(j.limit) || 150, points: Array.isArray(j.points) ? j.points.map(String) : [], reference: String(j.reference || '') };
+  const d: Drill = { id: uid(), at: Date.now(), kind, topic: String(j.topic || '').slice(0, 12), material: String(j.material || ''), question: String(j.question || ''), limit: Number(j.limit) || 150, points: Array.isArray(j.points) ? j.points.map(String) : [], reference: String(j.reference || ''), ...(pre ? { pre: true } : {}) };
   saveDrills([d, ...getDrills()]); return d;
 }
 export async function gradeDrill(api: APIConfig, d: Drill, answer: string): Promise<Drill> {
@@ -133,6 +149,13 @@ ${d.kind === 'doc' ? '公文还要看格式：标题、称呼 / 主送、正文�
   saveDrills(getDrills().map(x => x.id === d.id ? done : x)); markDay('drill');
   return done;
 }
+export function takePreDrill(kind: DrillKind): Drill | null {
+  const l = getDrills(); const d = l.filter(x => x.pre && x.kind === kind && !x.doneAt).pop();
+  if (!d) return null;
+  const n = { ...d, pre: false, at: Date.now() };
+  saveDrills([n, ...l.filter(x => x.id !== d.id)]); return n;
+}
+export const preDrillCount = (kind?: DrillKind) => getDrills().filter(x => x.pre && !x.doneAt && (!kind || x.kind === kind)).length;
 export const removeDrill = (id: string) => saveDrills(getDrills().filter(d => d.id !== id));
 
 /* ───────── 每天 ───────── */
@@ -190,12 +213,12 @@ export async function explainPoint(api: APIConfig, pointId: string, again = fals
 
 /* ───────── 刷题：一组 5 道，按真题风格出的原创题 ───────── */
 export interface QuizQ { stem: string; options: string[]; answer: string; steps: string[]; takeaway: string; pointId?: string; module: ExamModule; type: string; picked?: string; bad?: boolean }
-export interface QuizSet { id: string; at: number; title: string; qs: QuizQ[]; doneAt?: number }
+export interface QuizSet { id: string; at: number; title: string; qs: QuizQ[]; doneAt?: number; /** 提前攒下的，还没打开过 */ pre?: boolean; module?: ExamModule }
 const LS_QUIZ = 'sully_exam_quiz_v1';
 export const getQuizzes = (): QuizSet[] => read<QuizSet[]>(LS_QUIZ, []);
 const saveQuizzes = (l: QuizSet[]) => write(LS_QUIZ, l.slice(0, 60));
 
-export async function makeQuiz(api: APIConfig, target: { pointIds?: string[]; module?: ExamModule }, n = 5): Promise<QuizSet> {
+export async function makeQuiz(api: APIConfig, target: { pointIds?: string[]; module?: ExamModule }, n = 5, pre = false): Promise<QuizSet> {
   const pts = target.pointIds?.length ? target.pointIds.map(pointById).filter(Boolean) as ReturnType<typeof allPoints>
     : allPoints().filter(p => !target.module || p.module === target.module).sort(() => Math.random() - 0.5).slice(0, 3);
   if (!pts.length) throw new Error('没有可出题的知识点');
@@ -213,7 +236,7 @@ ${recent ? `别和这些题重复：${recent}` : ''}
     return { stem: String(q.stem || ''), options: Array.isArray(q.options) ? q.options.map(String).slice(0, 4) : [], answer: String(q.answer || '').trim().charAt(0).toUpperCase(), steps: Array.isArray(q.steps) ? q.steps.map(String) : [], takeaway: String(q.takeaway || ''), pointId: p.id, module: p.module, type: String(q.type || p.name).slice(0, 20) };
   }).filter((q: QuizQ) => q.stem && q.options.length >= 2 && /[A-D]/.test(q.answer));
   if (!qs.length) throw new Error('题没出成，再试一次');
-  const set: QuizSet = { id: uid(), at: Date.now(), title: target.pointIds?.length ? pts.map(p => p.name).join('、') : `${MODULE_NAMES[mod]} 混合`, qs };
+  const set: QuizSet = { id: uid(), at: Date.now(), title: target.pointIds?.length ? pts.map(p => p.name).join('、') : `${MODULE_NAMES[mod]} 混合`, qs, module: target.module || (target.pointIds?.length ? mod : undefined), ...(pre ? { pre: true } : {}) };
   saveQuizzes([set, ...getQuizzes()]); return set;
 }
 /** 作答一道：做错了进错题本（没图，带题干） */
@@ -228,6 +251,15 @@ export function answerQuiz(setId: string, idx: number, picked: string) {
   if (s.qs.every(x => x.picked || x.bad)) { s.doneAt = Date.now(); markDay('review'); }
   saveQuizzes(sets);
 }
+/** 拿一组提前攒好、还没做的（拿出来就不再算「攒着的」） */
+export function takePreQuiz(module?: ExamModule): QuizSet | null {
+  const sets = getQuizzes();
+  const s = sets.filter(q => q.pre && !q.qs.some(x => x.picked) && (!module || (q.module || q.qs[0]?.module) === module)).pop();
+  if (!s) return null;
+  s.pre = false; s.at = Date.now();
+  saveQuizzes([s, ...sets.filter(x => x.id !== s.id)]); return s;
+}
+export const preQuizCount = (module?: ExamModule) => getQuizzes().filter(q => q.pre && !q.qs.some(x => x.picked) && (!module || (q.module || q.qs[0]?.module) === module)).length;
 export function markQuizBad(setId: string, idx: number) {
   const sets = getQuizzes(); const s = sets.find(x => x.id === setId); if (!s || !s.qs[idx]) return;
   s.qs[idx].bad = true; saveQuizzes(sets);
@@ -239,4 +271,41 @@ export async function explainBankQ(api: APIConfig, q: { stem: string; options: s
 只输出 JSON：{"type":"题型","steps":["…"],"takeaway":"…"${picked && q.answer && picked !== q.answer ? ',"why":"…"' : ''}}`;
   const j = json(await call(api, [{ role: 'system', content: sys }, { role: 'user', content: `${q.stem}\n${q.options.join('\n')}\n正确答案：${q.answer || '（题库没给，请你判断）'}${picked ? `；她选了 ${picked}` : ''}` }], '讲这道', 1200, 0.2));
   return { type: String(j.type || ''), steps: Array.isArray(j.steps) ? j.steps.map(String) : [], takeaway: String(j.takeaway || ''), why: j.why ? String(j.why) : undefined };
+}
+
+
+/* ───────── 提前攒着：一次把知识点卡、题、申论都生成好，之后没网 / 没 VPN 也能慢慢看 ───────── */
+export interface PrepPlan { cards: boolean; quizPerModule: number; drillsPerKind: number }
+export interface PrepState { running: boolean; done: number; total: number; fail: number; label: string; lastError?: string }
+let prep: PrepState = { running: false, done: 0, total: 0, fail: 0, label: '' };
+let prepStop = false;
+export const getPrep = () => prep;
+const setPrep = (p: Partial<PrepState>) => { prep = { ...prep, ...p }; try { window.dispatchEvent(new Event(EXAM_EVENT)); } catch { /* ignore */ } };
+export const stopPrep = () => { prepStop = true; };
+/** 还没写的知识点卡（手写精讲卡不算） */
+export const missingPointCards = () => allPoints().filter(p => !p.card && !getPointCard(p.id));
+const QUIZ_MODULES: ExamModule[] = ['zl', 'sl', 'yy', 'cs'];
+/** 跑在模块里，不跟着页面走：退出考公 App 也会继续，直到网页关掉 */
+export async function runPrep(api: APIConfig, plan: PrepPlan): Promise<PrepState> {
+  if (prep.running) return prep;
+  prepStop = false;
+  const jobs: { label: string; run: () => Promise<unknown> }[] = [];
+  if (plan.cards) for (const p of missingPointCards()) jobs.push({ label: `知识点卡 · ${p.name}`, run: () => explainPoint(api, p.id) });
+  for (const m of QUIZ_MODULES) for (let k = preQuizCount(m); k < plan.quizPerModule; k++) jobs.push({ label: `${MODULE_NAMES[m]} · 一组 5 道`, run: () => makeQuiz(api, { module: m }, 5, true) });
+  for (const k of Object.keys(DRILL_NAMES) as DrillKind[]) for (let i = preDrillCount(k); i < plan.drillsPerKind; i++) jobs.push({ label: `申论 · ${DRILL_NAMES[k]}`, run: () => makeDrill(api, k, '', true) });
+  setPrep({ running: true, done: 0, total: jobs.length, fail: 0, label: jobs.length ? '开始…' : '都攒够了', lastError: undefined });
+  let next = 0, fails = 0, streakFail = 0;
+  const worker = async () => {
+    while (!prepStop && next < jobs.length) {
+      const j = jobs[next++]; setPrep({ label: j.label });
+      try { await j.run(); streakFail = 0; } catch (e: any) {
+        fails++; streakFail++; setPrep({ fail: fails, lastError: String(e?.message || e).slice(0, 120) });
+        if (streakFail >= 4) { prepStop = true; setPrep({ label: '连着失败好几次，先停了' }); }
+      }
+      setPrep({ done: prep.done + 1 });
+    }
+  };
+  await Promise.all([worker(), worker()]); // 两条并行，别把接口打太狠
+  setPrep({ running: false, label: prepStop ? (prep.label.includes('失败') ? prep.label : '停了，已经生成的都留着') : '攒好了' });
+  return prep;
 }

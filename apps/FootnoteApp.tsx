@@ -687,15 +687,29 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
   const playlistRef = useRef(playlist);
   const [bgmVol, setBgmVol] = useState(() => { try { return Number(localStorage.getItem('sully_sleep_bgm_vol_v1') || '0.35'); } catch { return 0.35; } });
   const bgmVolRef = useRef(bgmVol);
+  // 白噪音单独一个音量：以前跟歌单共用还再乘 0.6，手机外放几乎听不见
+  const [noiseVol, setNoiseVol] = useState(() => { try { const v = Number(localStorage.getItem('sully_sleep_noise_vol_v1')); return Number.isFinite(v) && v > 0 ? v : 0.8; } catch { return 0.8; } });
+  const noiseVolRef = useRef(noiseVol);
+  const previewRef = useRef<{ p: NoisePlayer; t: number } | null>(null);
+  useEffect(() => {
+    noiseVolRef.current = noiseVol;
+    noiseRef.current?.setVolume(noiseVol); previewRef.current?.p.setVolume(noiseVol);
+    try { localStorage.setItem('sully_sleep_noise_vol_v1', String(noiseVol)); } catch { /* ignore */ }
+  }, [noiseVol]);
+  const stopPreview = () => { const x = previewRef.current; previewRef.current = null; if (x) { clearTimeout(x.t); void x.p.stop(300); } };
+  /** 点一下试听 6 秒（在点击里创建，声音一定能出来） */
+  const preview = (k: NoiseKind) => {
+    stopPreview();
+    try { const p = startNoise(k, noiseVolRef.current); previewRef.current = { p, t: window.setTimeout(stopPreview, 6000) }; } catch { /* ignore */ }
+  };
   useEffect(() => { playlistRef.current = playlist; try { localStorage.setItem('sully_sleep_playlist_v1', JSON.stringify(playlist)); } catch { /* ignore */ } }, [playlist]);
   useEffect(() => {
     bgmVolRef.current = bgmVol;
     if (bgmRef.current) bgmRef.current.volume = bgmVol;
-    noiseRef.current?.setVolume(bgmVol * 0.6);
     try { localStorage.setItem('sully_sleep_bgm_vol_v1', String(bgmVol)); } catch { /* ignore */ }
   }, [bgmVol]);
   useEffect(() => { try { localStorage.setItem('sully_sleep_mins_v1', String(sleepMins)); localStorage.setItem('sully_sleep_noise_v1', noiseKind); } catch { /* ignore */ } }, [sleepMins, noiseKind]);
-  useEffect(() => () => { bgmRef.current?.pause(); void noiseRef.current?.stop(); }, []);
+  useEffect(() => () => { bgmRef.current?.pause(); void noiseRef.current?.stop(); stopPreview(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const bgmFileRef = useRef<HTMLInputElement | null>(null);
   const addSongs = async (files?: FileList | null) => {
     if (!files?.length) return;
@@ -715,19 +729,21 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
     const v: any = await DB.getAssetRaw(item.id).catch(() => null);
     if (!v?.blob) { void playSongAt(k + 1); return; }
     const a = new Audio(URL.createObjectURL(v.blob));
+    a.dataset.sullyBgm = '1'; // 哄睡歌单是背景，不算「他在说话」
     a.volume = bgmVolRef.current;
     a.onended = () => { void playSongAt(k + 1); };
     bgmRef.current = a;
     a.play().catch(() => {});
   };
   const startBackground = () => {
-    if (noiseKind) { try { noiseRef.current = startNoise(noiseKind, bgmVolRef.current * 0.6); } catch { /* 不支持 WebAudio */ } }
+    stopPreview();
+    if (noiseKind && !noiseRef.current) { try { noiseRef.current = startNoise(noiseKind, noiseVolRef.current); } catch { /* 不支持 WebAudio */ } }
     void playSongAt(0);
   };
   /** 他说话时背景声压低 */
   const duck = (speaking: boolean) => {
     if (bgmRef.current) bgmRef.current.volume = speaking ? bgmVolRef.current * 0.3 : bgmVolRef.current;
-    noiseRef.current?.setVolume(bgmVolRef.current * (speaking ? 0.25 : 0.6));
+    noiseRef.current?.setVolume(noiseVolRef.current * (speaking ? 0.55 : 1));
   };
   const fadeOutBackground = async () => {
     const a = bgmRef.current;
@@ -743,6 +759,9 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
   useEffect(() => { if (!sleepOn) return; const t = setInterval(() => sleepTick(x => x + 1), 30000); return () => clearInterval(t); }, [sleepOn]);
   const startSleep = async () => {
     setSleepPanel(false); setSleepMsg('');
+    // 白噪音在点按钮的这一下就开（等稿子生成完再开，手机会把音频当成自动播放拦掉）
+    stopPreview();
+    if (noiseKind && !noiseRef.current) { try { noiseRef.current = startNoise(noiseKind, noiseVolRef.current); } catch { /* ignore */ } }
     let piece: RadioPiece | null = null;
     if (sleepSource === 'old') piece = pieces.find(p => p.id === sleepOldId) || pieces[0] || null;
     if (!piece) {
@@ -751,7 +770,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
         const ch: RadioChannel = current?.channel && current.channel !== 'patent' ? current.channel : 'free';
         piece = await playRadio(char, apiConfig, ch, bilingual ? lang : '', ch === 'free' ? topic : '', SLEEP_SCRIPT_NOTE);
         setTopic('');
-      } catch (e) { onErr(e); setBusy(null); return; }
+      } catch (e) { onErr(e); setBusy(null); void noiseRef.current?.stop(1500); noiseRef.current = null; return; }
       setBusy(null);
     }
     const n = parseRadioSegments(piece.text).length;
@@ -931,9 +950,10 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
               <div className="opacity-60 mb-1.5">背景声（他说话时会自动压低）</div>
               <div className="flex flex-wrap gap-1.5">
                 {NOISE_KINDS.map(k => (
-                  <button key={k} onClick={() => setNoiseKind(noiseKind === k ? '' : k)} className="px-2.5 py-1 rounded-full" style={{ background: noiseKind === k ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>{NOISE_NAMES[k]}</button>
+                  <button key={k} onClick={() => { if (noiseKind === k) { setNoiseKind(''); stopPreview(); } else { setNoiseKind(k); preview(k); } }} className="px-2.5 py-1 rounded-full" style={{ background: noiseKind === k ? 'rgba(185,135,90,0.35)' : 'transparent', border: '1px solid rgba(233,226,214,0.2)' }}>{NOISE_NAMES[k]}</button>
                 ))}
               </div>
+              <div className="flex items-center gap-2 mt-2"><span className="opacity-50 shrink-0">白噪音</span><input type="range" className="flex-1" min={0.1} max={1} step={0.05} value={noiseVol} onChange={e => setNoiseVol(Number(e.target.value))} /><span className="opacity-40 text-[10px] shrink-0">点种类试听 6 秒</span></div>
               <div className="mt-2 space-y-1">
                 {playlist.map((x, i) => (
                   <div key={x.id} className="flex items-center gap-2"><span className="opacity-40 w-4">{i + 1}</span><span className="flex-1 truncate">{x.name}</span><button onClick={() => removeSong(x.id)} className="opacity-50">×</button></div>
@@ -941,7 +961,7 @@ const RadioTab: React.FC<{ char: any; apiConfig: any; pieces: RadioPiece[]; onEr
               </div>
               <input ref={bgmFileRef} type="file" accept="audio/*" multiple className="hidden" onChange={e => { addSongs(e.target.files); e.target.value = ''; }} />
               <button onClick={() => bgmFileRef.current?.click()} className="mt-1.5 px-3 py-1 rounded-full" style={{ border: '1px solid rgba(233,226,214,0.25)' }}>+ 加几首本地音乐（按顺序轮流放）</button>
-              <div className="flex items-center gap-2 mt-2"><span className="opacity-50 shrink-0">音量</span><input type="range" className="flex-1" min={0} max={1} step={0.05} value={bgmVol} onChange={e => setBgmVol(Number(e.target.value))} /></div>
+              <div className="flex items-center gap-2 mt-2"><span className="opacity-50 shrink-0">歌单</span><input type="range" className="flex-1" min={0} max={1} step={0.05} value={bgmVol} onChange={e => setBgmVol(Number(e.target.value))} /></div>
             </div>
             <div className="opacity-50 leading-relaxed">开始后：他一小段一小段地念，段与段之间越停越久，后半段基本只剩背景声；到时间背景声慢慢淡出。</div>
             <button onClick={startSleep} disabled={!!busy} className="w-full py-2 rounded-full text-white disabled:opacity-50" style={{ background: T.candle }}>开始哄睡</button>

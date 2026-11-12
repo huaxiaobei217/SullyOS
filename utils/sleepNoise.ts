@@ -40,8 +40,15 @@ function noiseBuffer(ctx: AudioContext, color: Color, seconds = 8): AudioBuffer 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 /** 一种声音挂到 out 上，返回停止函数 */
-function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, out: AudioNode): () => void {
-  const stops: (() => void)[] = [];
+/** 各种声音在音量 100% 时实测的响度（dBFS RMS，OfflineAudioContext 渲染），统一拉到 TARGET_DB，换种类不会忽大忽小 */
+const MEASURED_DB: Record<Exclude<NoiseKind, 'shuffle'>, number> = { rain: -19.7, storm: -18.2, waves: -23.8, fire: -20.5, wind: -23.2, stream: -28.8, night: -29.6, pink: -15.9, brown: -15.3, white: -16.8 };
+const TARGET_DB = -16;
+
+function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, dest: AudioNode): () => void {
+  const out = ctx.createGain();
+  out.gain.value = Math.pow(10, (TARGET_DB - MEASURED_DB[kind]) / 20);
+  out.connect(dest);
+  const stops: (() => void)[] = [() => { try { out.disconnect(); } catch { /* ignore */ } }];
   const timers: number[] = [];
   const loop = (color: Color, secs = 8) => {
     const s = ctx.createBufferSource(); s.buffer = noiseBuffer(ctx, color, secs); s.loop = true;
@@ -91,7 +98,7 @@ function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, out:
       break;
     }
     case 'waves': {
-      const s = loop('brown', 10); const lp = filt('lowpass', 700); const g = gainNode(0.4);
+      const s = loop('brown', 10); const lp = filt('lowpass', 1100); const g = gainNode(0.4);
       s.connect(lp); lp.connect(g); g.connect(out);
       lfo(g.gain, 0.09, 0.38); lfo(lp.frequency, 0.09, 450);
       const foam = loop('pink'); const hp = filt('highpass', 2500); const fg = gainNode(0.05);
@@ -120,7 +127,7 @@ function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, out:
       break;
     }
     case 'night': {
-      const s = loop('brown'); const lp = filt('lowpass', 300); const g = gainNode(0.2); s.connect(lp); lp.connect(g); g.connect(out);
+      const s = loop('brown'); const lp = filt('lowpass', 700); const g = gainNode(0.2); s.connect(lp); lp.connect(g); g.connect(out);
       // 蟋蟀：一串很快的高频「唧唧」
       every(1200, 4000, () => {
         const f = rand(4200, 5200), pan = rand(-0.9, 0.9), n = 2 + Math.floor(Math.random() * 3);
@@ -129,7 +136,7 @@ function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, out:
           const og = gainNode(0); const p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
           o.connect(og); if (p) { p.pan.value = pan; og.connect(p); p.connect(out); } else og.connect(out);
           const t = ctx.currentTime + i * 0.09;
-          og.gain.setValueAtTime(0, t); og.gain.linearRampToValueAtTime(0.025, t + 0.01); og.gain.linearRampToValueAtTime(0, t + 0.06);
+          og.gain.setValueAtTime(0, t); og.gain.linearRampToValueAtTime(0.05, t + 0.01); og.gain.linearRampToValueAtTime(0, t + 0.06);
           o.start(t); o.stop(t + 0.08);
         }
       });
@@ -145,9 +152,16 @@ function buildLayer(ctx: AudioContext, kind: Exclude<NoiseKind, 'shuffle'>, out:
 export function startNoise(kind: NoiseKind, volume: number): NoisePlayer {
   const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
   const ctx: AudioContext = new Ctx();
+  // 不是在点击里创建的（要先等电台生成完）时 AudioContext 会一直挂起没声音：主动 resume，点屏幕再补一次
+  const resume = () => { if (ctx.state === 'suspended') void ctx.resume().catch(() => {}); };
+  resume();
+  window.addEventListener('pointerdown', resume, { capture: true, passive: true });
   const master = ctx.createGain();
-  master.gain.value = 0;
-  master.connect(ctx.destination);
+  master.gain.setValueAtTime(0, ctx.currentTime);
+  // 限幅：拉高了也不破音（雷声、噼啪这种冲击不会炸）
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -6; limiter.knee.value = 6; limiter.ratio.value = 10; limiter.attack.value = 0.005; limiter.release.value = 0.25;
+  master.connect(limiter); limiter.connect(ctx.destination);
   master.gain.linearRampToValueAtTime(volume, ctx.currentTime + 3);
 
   let stopLayer: () => void = () => {};
@@ -175,9 +189,10 @@ export function startNoise(kind: NoiseKind, volume: number): NoisePlayer {
   }
 
   return {
-    setVolume: (v: number) => { master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(v, ctx.currentTime + 0.4); },
+    setVolume: (v: number) => { resume(); const t = ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value, t); master.gain.linearRampToValueAtTime(v, t + 0.4); },
     stop: async (fadeMs = 0) => {
-      if (fadeMs) { master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(0, ctx.currentTime + fadeMs / 1000); await new Promise(r => setTimeout(r, fadeMs)); }
+      window.removeEventListener('pointerdown', resume, { capture: true } as any);
+      if (fadeMs) { const t = ctx.currentTime; master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value, t); master.gain.linearRampToValueAtTime(0, t + fadeMs / 1000); await new Promise(r => setTimeout(r, fadeMs)); }
       clearTimeout(shuffleTimer);
       try { stopLayer(); } catch { /* ignore */ }
       void ctx.close();

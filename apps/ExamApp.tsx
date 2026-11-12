@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
+import type { ApiPreset } from '../types';
 import TokenImg from '../components/os/TokenImg';
 import { putImageBlob } from '../utils/blobRef';
 import { EXAM_CARDS, MODULE_NAMES, MODULE_COLORS, cardById, type ExamCard, type ExamModule } from '../utils/examCards';
@@ -14,6 +15,8 @@ import {
   studyApi, analyzeWrong, addWrong, getWrong, removeWrong, reviewWrong, dueWrong, askAboutWrong, getDrills, makeDrill, gradeDrill, removeDrill,
   DRILL_NAMES, todayLog, streak, cardOfDay, markCardSeen, weakSpots, markDay, EXAM_EVENT, type WrongItem, type Drill, type DrillKind,
   explainPoint, getPointCard, makeQuiz, getQuizzes, answerQuiz, markQuizBad, type QuizSet,
+  examApi, getExamApiChoice, setExamApiChoice, hasStudyApi, takePreQuiz, preQuizCount, takePreDrill, preDrillCount,
+  runPrep, stopPrep, getPrep, missingPointCards, type ExamApiChoice,
 } from '../utils/examCoach';
 import { SYLLABUS, pointById } from '../utils/examSyllabus';
 import ExamRunner, { type RunSpec } from '../components/exam/ExamRunner';
@@ -110,8 +113,14 @@ async function shrink(file: Blob, max = 1400): Promise<{ dataUrl: string; blob: 
 }
 
 const ExamApp: React.FC = () => {
-  const { closeApp, apiConfig, addToast } = useOS() as any;
-  const api = useMemo(() => studyApi(apiConfig), [apiConfig]);
+  const { closeApp, apiConfig, apiPresets, addToast } = useOS() as any;
+  const presets: ApiPreset[] = apiPresets || [];
+  const [apiChoice, setApiChoiceState] = useState<ExamApiChoice>(getExamApiChoice);
+  const api = useMemo(() => examApi(apiConfig, presets, apiChoice), [apiConfig, presets, apiChoice]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chooseApi = (c: ExamApiChoice) => { setApiChoiceState(c); setExamApiChoice(c); };
+  const [settings, setSettings] = useState(false);
+  const [prepPlan, setPrepPlan] = useState({ cards: true, quizPerModule: 3, drillsPerKind: 2 });
+  const prep = getPrep();
   const [tab, setTab] = useState<Tab>('today');
   const [, setTick] = useState(0);
   useEffect(() => { const h = () => setTick(t => t + 1); window.addEventListener(EXAM_EVENT, h); return () => window.removeEventListener(EXAM_EVENT, h); }, []);
@@ -160,6 +169,7 @@ const ExamApp: React.FC = () => {
         return addToast('这类图推要看真题的图，代码还画不准，先看卡；有真题 PDF 可以导入后刷', 'info');
       }
     }
+    if (!target.pointIds?.length) { const pre = takePreQuiz(target.module); if (pre) { setQuiz(pre); setQi(0); setTab('quiz'); return; } }
     setBusy('在出题…');
     try { const q = await makeQuiz(api, target); setQuiz(q); setQi(0); setTab('quiz'); } catch (e: any) { addToast(e?.message || '没出成', 'error'); } finally { setBusy(''); }
   };
@@ -201,6 +211,8 @@ const ExamApp: React.FC = () => {
   const [drillStart, setDrillStart] = useState(0);
   const [showRef, setShowRef] = useState(false);
   const newDrill = async (kind: DrillKind) => {
+    const pre = takePreDrill(kind);
+    if (pre) { setOpenDrill(pre); setDrillAnswer(''); setDrillStart(Date.now()); setShowRef(false); return; }
     setBusy('在出题…');
     try { const d = await makeDrill(api, kind); setOpenDrill(d); setDrillAnswer(''); setDrillStart(Date.now()); setShowRef(false); }
     catch (e: any) { addToast(e?.message || '没出成', 'error'); } finally { setBusy(''); }
@@ -223,7 +235,10 @@ const ExamApp: React.FC = () => {
       <div className="flex items-center justify-between">
         <button onClick={closeApp} className="text-[13px]" style={{ color: C.muted }}>‹ 返回</button>
         <div className="text-[15px] font-semibold" style={{ fontFamily: `'Noto Serif SC', serif` }}>考公陪练</div>
-        <div className="text-[10.5px]" style={{ color: C.gold }}>{streak() ? `连续 ${streak()} 天` : ''}</div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10.5px]" style={{ color: C.gold }}>{streak() ? `连续 ${streak()} 天` : ''}</span>
+          <button onClick={() => setSettings(true)} className="text-[11px] px-2 py-0.5 rounded-full max-w-[110px] truncate" style={{ background: '#e7e3d8', color: C.muted }} title="换 API · 提前攒题">{prep.running ? `攒 ${prep.done}/${prep.total}` : `⚙ ${api.model || '没配'}`}</button>
+        </div>
       </div>
       <div className="flex gap-1 mt-2 p-1 rounded-full" style={{ background: '#e7e3d8' }}>
         {([['today', '今天'], ['points', '知识点'], ['quiz', '刷题'], ['wrong', `错题${wrong.length ? ` ${wrong.length}` : ''}`], ['shenlun', '申论']] as [Tab, string][]).map(([k, l]) => (
@@ -389,7 +404,7 @@ const ExamApp: React.FC = () => {
           {quizzes.map(q => { const done = q.qs.filter(x => x.picked); const right = done.filter(x => x.picked === x.answer).length; return (
             <button key={q.id} onClick={() => { setQuiz(q); setQi(Math.max(0, q.qs.findIndex(x => !x.picked && !x.bad))); }} className="w-full text-left p-3 rounded-2xl flex items-center gap-3" style={{ background: C.card, border: `1px solid ${C.line}` }}>
               <div className="w-11 h-11 rounded-xl flex items-center justify-center text-[13px] font-bold shrink-0" style={{ background: '#efece4', color: C.ink }}>{done.length ? `${right}/${done.length}` : '—'}</div>
-              <div className="flex-1 min-w-0"><div className="text-[12.5px] font-medium truncate">{q.title}</div><div className="text-[10.5px]" style={{ color: C.muted }}>{new Date(q.at).toLocaleDateString()} · {q.doneAt ? '做完了' : `做到第 ${done.length + 1} 道`}</div></div>
+              <div className="flex-1 min-w-0"><div className="text-[12.5px] font-medium truncate">{q.title}</div><div className="text-[10.5px]" style={{ color: C.muted }}>{q.pre && !done.length ? '攒着的 · 没做过' : `${new Date(q.at).toLocaleDateString()} · ${q.doneAt ? '做完了' : `做到第 ${done.length + 1} 道`}`}</div></div>
             </button>
           ); })}
         </div>
@@ -552,6 +567,50 @@ const ExamApp: React.FC = () => {
         </div>
       ); })()}
 
+
+      {settings && (() => {
+        const opts: { c: ExamApiChoice; name: string; sub: string; ok: boolean }[] = [
+          { c: 'main', name: '跟主 API', sub: apiConfig?.model || '没配', ok: !!apiConfig?.baseUrl },
+          ...(hasStudyApi() ? [{ c: 'study' as ExamApiChoice, name: '自习室那套', sub: studyApi(apiConfig).model || '', ok: true }] : []),
+          ...presets.map(p => ({ c: `preset:${p.id}` as ExamApiChoice, name: `${p.group ? `${p.group} · ` : ''}${p.name}`, sub: p.config?.model || '', ok: !!p.config?.baseUrl })),
+        ];
+        const missing = missingPointCards().length;
+        return (
+          <div className="absolute inset-0 z-40 flex flex-col justify-end" style={{ background: 'rgba(20,20,18,0.35)' }} onClick={() => setSettings(false)}>
+            <div className="rounded-t-3xl px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+16px)] max-h-[85%] overflow-y-auto space-y-4" style={{ background: C.bg }} onClick={e => e.stopPropagation()}>
+              <div>
+                <div className="text-[13px] font-semibold">用哪套 API</div>
+                <div className="text-[11px] mt-0.5 mb-2" style={{ color: C.muted }}>出题、讲题、申论批改都用这套。上班没 VPN 就切到国内能直接连的那个预设。拆错题要能看图的模型。</div>
+                <div className="space-y-1.5">{opts.map(o => (
+                  <button key={o.c} onClick={() => chooseApi(o.c)} disabled={!o.ok} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-2xl text-left disabled:opacity-40" style={{ background: C.card, border: `1px solid ${apiChoice === o.c ? C.accent : C.line}` }}>
+                    <span className="w-3.5 h-3.5 rounded-full shrink-0 border-2" style={{ borderColor: apiChoice === o.c ? C.accent : C.faint, background: apiChoice === o.c ? C.accent : 'transparent' }} />
+                    <span className="flex-1 min-w-0"><span className="block text-[12.5px] truncate">{o.name}</span><span className="block text-[10.5px] truncate" style={{ color: C.muted }}>{o.sub}</span></span>
+                  </button>))}
+                  {!presets.length && <div className="text-[11px]" style={{ color: C.faint }}>还没有 API 预设：设置 → API 里存一个，这里就能选。</div>}
+                </div>
+              </div>
+              <div>
+                <div className="text-[13px] font-semibold">提前攒着，慢慢看</div>
+                <div className="text-[11px] mt-0.5 mb-2" style={{ color: C.muted }}>在家有网的时候一次生成好，存在手机里；之后点「刷 5 道」「申论小练」先拿攒好的，不用联网等。图推题本来就是代码现画的，不用攒。</div>
+                <label className="flex items-center justify-between py-1.5 text-[12.5px]"><span>写完所有知识点卡 <span style={{ color: C.muted }}>（还差 {missing} 张）</span></span><input type="checkbox" checked={prepPlan.cards} onChange={e => setPrepPlan(p => ({ ...p, cards: e.target.checked }))} /></label>
+                <label className="flex items-center justify-between py-1.5 text-[12.5px]"><span>资料 / 数量 / 言语 / 常识 各攒几组题 <span style={{ color: C.muted }}>（一组 5 道，现有 {preQuizCount()} 组）</span></span>
+                  <select value={prepPlan.quizPerModule} onChange={e => setPrepPlan(p => ({ ...p, quizPerModule: Number(e.target.value) }))} className="rounded-lg px-1 py-0.5 text-[12px]" style={{ background: C.card }}>{[0, 1, 2, 3, 5, 8].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+                <label className="flex items-center justify-between py-1.5 text-[12.5px]"><span>申论三种题 各攒几道 <span style={{ color: C.muted }}>（现有 {preDrillCount()} 道）</span></span>
+                  <select value={prepPlan.drillsPerKind} onChange={e => setPrepPlan(p => ({ ...p, drillsPerKind: Number(e.target.value) }))} className="rounded-lg px-1 py-0.5 text-[12px]" style={{ background: C.card }}>{[0, 1, 2, 3, 5].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+                {prep.total > 0 && <div className="mt-2">
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#e7e3d8' }}><div className="h-full" style={{ width: `${prep.total ? prep.done / prep.total * 100 : 0}%`, background: C.accent }} /></div>
+                  <div className="text-[11px] mt-1" style={{ color: C.muted }}>{prep.done}/{prep.total} · {prep.label}{prep.fail ? ` · 失败 ${prep.fail}` : ''}</div>
+                  {prep.lastError && <div className="text-[10.5px]" style={{ color: C.warn }}>{prep.lastError}</div>}
+                </div>}
+                {prep.running
+                  ? <button onClick={stopPrep} className="mt-2 w-full py-2.5 rounded-2xl text-[12.5px]" style={{ background: '#fbe9e1', color: C.warn }}>停下（已生成的留着）</button>
+                  : <button onClick={() => { void runPrep(api, prepPlan); }} className="mt-2 w-full py-2.5 rounded-2xl text-[12.5px] font-semibold text-white" style={{ background: C.accent }}>开始攒（用 {api.model || '当前 API'}）</button>}
+                <div className="text-[10.5px] mt-1.5" style={{ color: C.faint }}>两条并行慢慢跑，退出考公 App 也继续；网页 / App 关掉就停，下次再点会接着补缺的。</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {run && <ExamRunner spec={run} api={api} onClose={() => setRun(null)} onOpenPoint={id => void openPoint(id)} toast={(m, t) => addToast(m, (t as any) || 'info')} />}
       {openCard && <CardView card={openCard} onClose={() => setOpenCard(null)} onPractice={figPractice} />}
       {busy && !adding && tab !== 'shenlun' && <div className="absolute left-1/2 -translate-x-1/2 bottom-8 z-50 px-4 py-2 rounded-full text-[12px] text-white" style={{ background: 'rgba(34,35,31,0.85)' }}>{busy}</div>}

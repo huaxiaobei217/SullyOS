@@ -14,6 +14,7 @@ import React, {
 } from 'react';
 import { cachedCall as _cachedCall, invalidate as _invalidateCache, clearAll as _clearAllCache } from '../utils/musicCache';
 import { DB } from '../utils/db';
+import { attachMusicDuck } from '../utils/music/musicDuck';
 import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT, isLegacyProxyWorkerUrl } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
 import { resolveRefToDataUrl } from '../utils/blobRef';
@@ -663,6 +664,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     a.dataset.sullyMusic = '1'; // 角色语音放大不碰音乐（缓存的歌也是 blob）
     // 注意: 不要设置 crossOrigin — NetEase CDN 没有 CORS 头，会变成静默加载失败
     audioRef.current = a;
+    const detachDuck = attachMusicDuck(a); // 他说话时音乐渐弱
 
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
@@ -680,6 +682,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     a.addEventListener('ended', onEnd);
 
     return () => {
+      detachDuck();
       a.removeEventListener('play', onPlay);
       a.removeEventListener('pause', onPause);
       a.removeEventListener('timeupdate', onTime);

@@ -23,8 +23,12 @@ export interface FigPuzzle {
   options: string[];        // A–D
   answer: 'A' | 'B' | 'C' | 'D';
   steps: string[]; takeaway: string; pointId: string;
+  /** 「混着来」：答完再告诉题型 */
+  mixed?: boolean;
 }
-export type FigKind = 'faces' | 'lines' | 'onestroke' | 'strokes' | 'rotate' | 'move' | 'xor' | 'symmetry';
+export type FigKind = 'faces' | 'lines' | 'onestroke' | 'strokes' | 'rotate' | 'move' | 'xor' | 'symmetry' | 'count' | 'parts' | 'orbit' | 'mixed';
+/** 「混着来」从这些里抽（考场上不会告诉你是哪类） */
+const MIX_POOL: FigKind[] = ['faces', 'lines', 'onestroke', 'rotate', 'move', 'xor', 'symmetry', 'count', 'parts', 'orbit'];
 
 /* ───────── 面数：矩形 / 圆里画 k 条互不相交的平行弦，面数 = k + 1 ───────── */
 function facesFig(r: Rng, k: number): { svg: string; faces: number } {
@@ -100,12 +104,145 @@ const GLYPHS: string[] = [
 const framed = (inner: string, deg: number, mirror = false) => svg(`<rect x="6" y="6" width="88" height="88" fill="none" stroke="#c9c5ba" stroke-width="1.5"/><g transform="rotate(${deg} 50 50)${mirror ? ' translate(100 0) scale(-1 1)' : ''}">${inner}</g>`);
 
 /* ───────── 平移 / 黑白：3×3 格子 ───────── */
-const cellsSvg = (cells: number[], gray: number[] = []) => {
-  let b = '';
-  for (let i = 0; i < 9; i++) { const x = 14 + (i % 3) * 24, y = 14 + Math.floor(i / 3) * 24; b += `<rect x="${x}" y="${y}" width="24" height="24" fill="${cells.includes(i) ? INK : gray.includes(i) ? '#9a968c' : '#fff'}" stroke="${INK}" stroke-width="1.6"/>`; }
+const cellsSvg = (cells: number[], gray: number[] = [], n = 3) => {
+  let b = ''; const w = 72 / n;
+  for (let i = 0; i < n * n; i++) { const x = 14 + (i % n) * w, y = 14 + Math.floor(i / n) * w; b += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${w.toFixed(1)}" fill="${cells.includes(i) ? INK : gray.includes(i) ? '#9a968c' : '#fff'}" stroke="${INK}" stroke-width="1.6"/>`; }
   return svg(b);
 };
-const bitsSvg = (bits: boolean[]) => cellsSvg(bits.map((v, i) => v ? i : -1).filter(i => i >= 0));
+const bitsSvg = (bits: boolean[]) => cellsSvg(bits.map((v, i) => v ? i : -1).filter(i => i >= 0), [], Math.round(Math.sqrt(bits.length)));
+
+/* ═════════ 第二批（更像真题）：面数换成凸多边形 + 对角线、曲直数、元素数量 / 种类、部分数、多个元素绕圈 ═════════ */
+type Pt = [number, number];
+/** 两条线段严格相交（共端点不算） */
+const segCross = (a: Pt, b: Pt, c: Pt, d: Pt): boolean => {
+  const same = (p: Pt, q: Pt) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+  if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) return false;
+  const o = (p: Pt, q: Pt, s: Pt) => Math.sign((q[0] - p[0]) * (s[1] - p[1]) - (q[1] - p[1]) * (s[0] - p[0]));
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+};
+
+/* —— 面：凸 n 边形里画 k 条互不相交的对角线 —— */
+interface PolyFig { pts: Pt[]; diags: Edge[] }
+function polyFaces(r: Rng, faces: number): PolyFig | null {
+  const k = faces - 1;
+  for (let t = 0; t < 80; t++) {
+    const lo = Math.max(4, k + 3), n = lo + Math.floor(r() * (10 - lo)); // 凸 n 边形最多 n−3 条不相交对角线
+    if (n > 9) continue;
+    const rot = r() * Math.PI * 2;
+    const pts: Pt[] = Array.from({ length: n }, (_, i) => { const a = rot + (i + (r() - 0.5) * 0.45) * 2 * Math.PI / n; return [50 + 37 * Math.cos(a), 50 + 37 * Math.sin(a)]; });
+    const cand: Edge[] = []; for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) if (!(i === 0 && j === n - 1)) cand.push([i, j]);
+    const diags: Edge[] = [];
+    for (const d of shuffle(r, cand)) { if (diags.length >= k) break; if (diags.every(e => !segCross(pts[d[0]], pts[d[1]], pts[e[0]], pts[e[1]]))) diags.push(d); }
+    if (diags.length === k) return { pts, diags };
+  }
+  return null;
+}
+const polySvg = (f: PolyFig) => svg(`<polygon points="${f.pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>${f.diags.map(([a, b]) => ln(f.pts[a][0], f.pts[a][1], f.pts[b][0], f.pts[b][1])).join('')}`);
+/** 独立数面：先确认对角线两两不交叉，再用欧拉公式（内部面 = 边 − 点 + 1） */
+function countFaces(f: PolyFig): number {
+  for (let i = 0; i < f.diags.length; i++) for (let j = i + 1; j < f.diags.length; j++) {
+    const [a, b] = f.diags[i], [c, d] = f.diags[j];
+    if (segCross(f.pts[a], f.pts[b], f.pts[c], f.pts[d])) return -1;
+  }
+  return (f.pts.length + f.diags.length) - f.pts.length + 1;
+}
+const polyLines = (f: PolyFig) => f.pts.length + f.diags.length;
+
+/* —— 小元素：放在 3×3 的位置上，互不接触，所以线、面、个数都能数得一清二楚 —— */
+type ShapeName = 'circle' | 'square' | 'tri' | 'semi' | 'sector' | 'lens' | 'penta';
+interface El { shape: ShapeName; black: boolean; slot: number }
+/** 每种元素的直线数、曲线数（数线时用） */
+const SHAPE_LC: Record<ShapeName, [number, number]> = { circle: [0, 1], square: [4, 0], tri: [3, 0], semi: [1, 1], sector: [2, 1], lens: [0, 2], penta: [5, 0] };
+const SHAPE_NAME: Record<ShapeName, string> = { circle: '圆', square: '方块', tri: '三角', semi: '半圆', sector: '扇形', lens: '叶形', penta: '五边形' };
+function shapeSvg(e: El): string {
+  const cx = 22 + (e.slot % 3) * 28, cy = 22 + Math.floor(e.slot / 3) * 28, s = 9.5;
+  const st = `fill="${e.black ? INK : '#fff'}" stroke="${INK}" stroke-width="2" stroke-linejoin="round"`;
+  const f = (v: number) => v.toFixed(1);
+  switch (e.shape) {
+    case 'circle': return `<circle cx="${cx}" cy="${cy}" r="${s}" ${st}/>`;
+    case 'square': return `<rect x="${cx - s}" y="${cy - s}" width="${2 * s}" height="${2 * s}" ${st}/>`;
+    case 'tri': return `<polygon points="${f(cx)},${f(cy - s)} ${f(cx + s)},${f(cy + s * 0.8)} ${f(cx - s)},${f(cy + s * 0.8)}" ${st}/>`;
+    case 'semi': return `<path d="M${cx - s} ${cy + 4} A${s} ${s} 0 0 1 ${cx + s} ${cy + 4} Z" ${st}/>`;
+    case 'sector': return `<path d="M${cx - 7} ${cy + 7} L${cx + 9} ${cy + 7} A16 16 0 0 0 ${cx - 7} ${cy - 9} Z" ${st}/>`;
+    case 'lens': return `<path d="M${cx - s} ${cy} A${s * 1.2} ${s * 1.2} 0 0 1 ${cx + s} ${cy} A${s * 1.2} ${s * 1.2} 0 0 1 ${cx - s} ${cy}" ${st}/>`;
+    case 'penta': return `<polygon points="${Array.from({ length: 5 }, (_, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / 5; return `${f(cx + s * Math.cos(a))},${f(cy + s * Math.sin(a))}`; }).join(' ')}" ${st}/>`;
+  }
+}
+const elsSvg = (els: El[]) => svg(els.map(shapeSvg).join(''));
+type ElMetric = 'lines' | 'curves' | 'total' | 'types' | 'black' | 'diff' | 'sum';
+const EL_METRIC_NAME: Record<ElMetric, string> = { lines: '直线数', curves: '曲线数', total: '元素个数', types: '元素种类数', black: '黑色元素个数', diff: '直线数 − 曲线数', sum: '线条总数（直 + 曲）' };
+function elMetric(els: El[], m: ElMetric): number {
+  let L = 0, C = 0, B = 0; const ty = new Set<string>();
+  for (const e of els) { const [l, c] = SHAPE_LC[e.shape]; L += l; C += c; if (e.black) B++; ty.add(e.shape); }
+  return m === 'lines' ? L : m === 'curves' ? C : m === 'total' ? els.length : m === 'types' ? ty.size : m === 'black' ? B : m === 'diff' ? L - C : L + C;
+}
+const ALL_SHAPES = Object.keys(SHAPE_LC) as ShapeName[];
+/** 随机摆元素，直到这个指标正好等于 want（blackP：涂黑的概率） */
+function elsWith(r: Rng, m: ElMetric, want: number, opt: { minN?: number; maxN?: number; pool?: ShapeName[]; blackP?: number; fixedN?: number } = {}): El[] | null {
+  const pool = opt.pool || ALL_SHAPES;
+  for (let t = 0; t < 1500; t++) {
+    const n = opt.fixedN ?? ((opt.minN ?? 2) + Math.floor(r() * ((opt.maxN ?? 5) - (opt.minN ?? 2) + 1)));
+    const slots = shuffle(r, [0, 1, 2, 3, 4, 5, 6, 7, 8]).slice(0, n);
+    const els = slots.map(slot => ({ shape: pick(r, pool), black: r() < (opt.blackP ?? 0.3), slot }));
+    if (elMetric(els, m) === want) return els;
+  }
+  return null;
+}
+
+/* —— 部分数：4×4 点阵上的线段，连在一起的算一部分 —— */
+const LP = (i: number): Pt => [17 + (i % 4) * 22, 17 + Math.floor(i / 4) * 22];
+const LAT_EDGES: Edge[] = (() => { const e: Edge[] = []; for (let i = 0; i < 16; i++) { const x = i % 4, y = Math.floor(i / 4); if (x < 3) e.push([i, i + 1]); if (y < 3) e.push([i, i + 4]); } return e; })();
+const LAT_DIAG: [Edge, Edge][] = Array.from({ length: 9 }, (_, k) => { const i = Math.floor(k / 3) * 4 + (k % 3); return [[i, i + 5], [i + 1, i + 4]] as [Edge, Edge]; });
+/** 独立数部分：并查集 */
+function countParts(edges: Edge[]): number {
+  const p = new Map<number, number>(); const f = (x: number): number => { while (p.get(x)! !== x) x = p.get(x)!; return x; };
+  for (const [a, b] of edges) { if (!p.has(a)) p.set(a, a); if (!p.has(b)) p.set(b, b); p.set(f(a), f(b)); }
+  return new Set([...p.keys()].map(f)).size;
+}
+function latticeWith(r: Rng, parts: number): Edge[] | null {
+  for (let t = 0; t < 3000; t++) {
+    const m = parts + 2 + Math.floor(r() * 6);
+    const es = shuffle(r, LAT_EDGES).slice(0, m);
+    for (const [d1, d2] of LAT_DIAG) if (r() < 0.15) es.push(r() < 0.5 ? d1 : d2); // 一格最多一条斜线，不会凭空交叉
+    if (countParts(es) === parts) return es;
+  }
+  return null;
+}
+const latSvg = (es: Edge[]) => svg(es.map(([a, b]) => { const [x1, y1] = LP(a), [x2, y2] = LP(b); return ln(x1, y1, x2, y2, 2.6); }).join(''));
+
+/* —— 绕圈：九宫格外圈 8 格，几个元素各走各的 —— */
+const RING = [0, 1, 2, 5, 8, 7, 6, 3]; // 顺时针
+type Marker = 'dot' | 'ring' | 'tri';
+const MARKER_NAME: Record<Marker, string> = { dot: '黑点', ring: '白圈', tri: '黑三角' };
+function orbitSvg(markers: Marker[], pos: number[]): string {
+  let b = '';
+  for (let i = 0; i < 9; i++) { const x = 14 + (i % 3) * 24, y = 14 + Math.floor(i / 3) * 24; b += `<rect x="${x}" y="${y}" width="24" height="24" fill="#fff" stroke="${INK}" stroke-width="1.4"/>`; }
+  markers.forEach((m, k) => {
+    const cell = RING[((pos[k] % 8) + 8) % 8]; const cx = 26 + (cell % 3) * 24, cy = 26 + Math.floor(cell / 3) * 24;
+    b += m === 'dot' ? `<circle cx="${cx}" cy="${cy}" r="7" fill="${INK}"/>` : m === 'ring' ? `<circle cx="${cx}" cy="${cy}" r="7" fill="#fff" stroke="${INK}" stroke-width="2.2"/>` : `<polygon points="${cx},${cy - 7} ${cx + 7},${cy + 6} ${cx - 7},${cy + 6}" fill="${INK}"/>`;
+  });
+  return svg(b);
+}
+const stepWord = (s: number) => `${s > 0 ? '顺时针' : '逆时针'}走 ${Math.abs(s)} 格`;
+
+/* —— 数列型出题：给一个「值 → 图」的函数，按规则排四张，再做三个错的 —— */
+type Family = 'el' | 'poly' | 'lat';
+type Mode = 'inc' | 'const';
+function familyMetrics(fam: Family, o: unknown): Record<string, number> {
+  if (fam === 'poly') { const f = o as PolyFig; return { faces: countFaces(f), lines: polyLines(f) }; }
+  if (fam === 'lat') { const e = o as Edge[]; return { parts: countParts(e), lines: e.length }; }
+  const els = o as El[]; const out: Record<string, number> = {};
+  for (const m of Object.keys(EL_METRIC_NAME) as ElMetric[]) out[m] = elMetric(els, m);
+  return out;
+}
+function seqPuzzle<T>(r: Rng, make: (v: number) => T | null, draw: (o: T) => string, vals: number[], ans: number, wrongVals: number[]) {
+  const seqO = vals.map(make), right = make(ans), wrong = wrongVals.slice(0, 3).map(make);
+  if (seqO.some(x => !x) || !right || wrong.length < 3 || wrong.some(x => !x)) return null;
+  const rs = draw(right), ws = wrong.map(w => draw(w!));
+  const pl = place(r, rs, ws);
+  return { seq: seqO.map(o => draw(o!)), seqObjs: seqO as T[], ...pl, optObjs: pl.options.map(s => s === rs ? right : wrong[ws.indexOf(s)]!) as T[] };
+}
+const near = (r: Rng, ans: number, lo: number, hi: number) => shuffle(r, [ans - 1, ans + 1, ans - 2, ans + 2, ans + 3].filter(x => x >= lo && x <= hi && x !== ans)).slice(0, 3);
 
 /* ───────── 出题 ───────── */
 const LETTERS = ['A', 'B', 'C', 'D'] as const;
@@ -116,35 +253,87 @@ function place(r: Rng, right: string, wrong: string[]): { options: string[]; ans
 
 export function makeFigPuzzle(kind: FigKind, seed = Date.now()): FigPuzzle {
   const r = rngFrom(seed);
-  for (let attempt = 0; attempt < 30; attempt++) {
+  if (kind === 'mixed') { const k = pick(r, MIX_POOL); return { ...makeFigPuzzle(k, Math.floor(r() * 2 ** 31)), mixed: true }; }
+  for (let attempt = 0; attempt < 80; attempt++) {
     const p = tryMake(kind, r);
     if (p && checkPuzzle(p.puzzle, p.facts)) return p.puzzle;
   }
   throw new Error('这一题没生成成功，换一题');
 }
 
-interface Facts { kind: FigKind; seqVals: unknown[]; optVals: unknown[]; rightIdx: number }
+interface Facts { kind: FigKind; seqVals: unknown[]; optVals: unknown[]; rightIdx: number; rule?: { fam: Family; metric: string; mode: Mode } }
 
 function tryMake(kind: FigKind, r: Rng): { puzzle: FigPuzzle; facts: Facts } | null {
+  const fin = (title: string, pointId: string, steps: string[], takeaway: string, q: NonNullable<ReturnType<typeof seqPuzzle<any>>>, rule: NonNullable<Facts['rule']>) =>
+    ({ puzzle: { kind, title, seq: q.seq, options: q.options, answer: q.answer, steps, takeaway, pointId }, facts: { kind, seqVals: q.seqObjs, optVals: q.optObjs, rightIdx: LETTERS.indexOf(q.answer), rule } });
   if (kind === 'faces') {
-    const start = 1 + Math.floor(r() * 2);              // 面数 1..2 起
-    const seq = [0, 1, 2, 3].map(i => facesFig(r, start + i - 1));
-    const ansFaces = start + 4;
-    const right = facesFig(r, ansFaces - 1);
-    const wrongK = shuffle(r, [ansFaces - 2, ansFaces + 1, ansFaces - 3, ansFaces + 2].filter(x => x >= 1 && x <= 7)).slice(0, 3);
-    const wrong = wrongK.map(f => facesFig(r, f - 1));
-    const pl = place(r, right.svg, wrong.map(w => w.svg));
-    return { puzzle: { kind, title: '面数', seq: seq.map(s => s.svg), ...pl, steps: ['图形线条规整、有封闭区域 → 先数面', `数出来依次是 ${seq.map(s => s.faces).join('、')}，每次多 1 个面`, `下一个应是 ${ansFaces} 个面`], takeaway: '封闭区域多，先数面', pointId: 'pd-face2' },
-      facts: { kind, seqVals: seq.map(s => s.faces), optVals: pl.options.map(o => o === right.svg ? right.faces : wrong[wrong.findIndex(w => w.svg === o)].faces), rightIdx: LETTERS.indexOf(pl.answer) } };
+    const mode: Mode = r() < 0.6 ? 'inc' : 'const';
+    const make = (v: number) => polyFaces(r, v);
+    if (mode === 'inc') {
+      const s0 = 1 + Math.floor(r() * 3), vals = [0, 1, 2, 3].map(i => s0 + i), ans = s0 + 4;
+      const q = seqPuzzle(r, make, polySvg, vals, ans, near(r, ans, 1, 7)); if (!q) return null;
+      return fin('面数', 'pd-face2', ['都是封闭的多边形、里面被线隔成几块 → 数面（封闭区域）', `依次是 ${vals.join('、')} 个面，每次多 1 个`, '多边形是几边形、画了几条线都在变，是干扰；只数被分成几块', `下一个应是 ${ans} 个面`], '封闭区域多，先数面；边数是干扰', q, { fam: 'poly', metric: 'faces', mode });
+    }
+    const c = 2 + Math.floor(r() * 3);
+    const q = seqPuzzle(r, make, polySvg, [c, c, c, c], c, near(r, c, 1, 7)); if (!q) return null;
+    return fin('面数', 'pd-face2', ['都是封闭多边形、被线分割 → 数面', `每个图都被分成 ${c} 个面`, '边数和线条数在变，但面数不变（数量规律也有「恒定」）', `选同样是 ${c} 个面的`], '数出来一样多也是规律', q, { fam: 'poly', metric: 'faces', mode });
   }
   if (kind === 'lines') {
-    const start = 3;
-    const seq = [0, 1, 2, 3].map(i => polygonFig(r, start + i));
-    const right = polygonFig(r, 7);
-    const wrong = shuffle(r, [5, 6, 8]).map(n => polygonFig(r, n));
-    const pl = place(r, right.svg, wrong.map(w => w.svg));
-    return { puzzle: { kind, title: '直线数', seq: seq.map(s => s.svg), ...pl, steps: ['图形都由直线围成、边数不同 → 数直线', '依次 3、4、5、6 条，每次多 1 条', '下一个是 7 条直线（七边形）'], takeaway: '全是直线图形，数线条', pointId: 'pd-line2' },
-      facts: { kind, seqVals: seq.map(s => s.lines), optVals: pl.options.map(o => o === right.svg ? 7 : wrong.find(w => w.svg === o)!.lines), rightIdx: LETTERS.indexOf(pl.answer) } };
+    const rules: { m: ElMetric; mode: Mode }[] = [{ m: 'lines', mode: 'inc' }, { m: 'curves', mode: 'inc' }, { m: 'diff', mode: 'const' }, { m: 'sum', mode: 'const' }];
+    const { m, mode } = pick(r, rules);
+    const make = (v: number) => elsWith(r, m, v, { minN: 2, maxN: 4, blackP: 0.25 });
+    let vals: number[], ans: number;
+    if (mode === 'inc') { const s0 = m === 'lines' ? 2 + Math.floor(r() * 4) : Math.floor(r() * 2); vals = [0, 1, 2, 3].map(i => s0 + i); ans = s0 + 4; }
+    else { const c = m === 'diff' ? 0 : 5 + Math.floor(r() * 4); vals = [c, c, c, c]; ans = c; }
+    const q = seqPuzzle(r, make, elsSvg, vals, ans, near(r, ans, m === 'diff' ? -4 : 0, 14)); if (!q) return null;
+    const pid = m === 'lines' || m === 'sum' ? 'pd-line2' : 'pd-curve2';
+    const steps = m === 'lines' ? ['图形由直线和曲线混着组成 → 曲直分开数', `只数直线：依次 ${vals.join('、')} 条（方块 4、三角 3、半圆 1、扇形 2）`, '曲线数是干扰', `下一个 ${ans} 条直线`]
+      : m === 'curves' ? ['有圆、弧这些曲线 → 曲直分开数', `只数曲线：依次 ${vals.join('、')} 条（圆 1、半圆 1、扇形 1、叶形 2）`, '直线数是干扰', `下一个 ${ans} 条曲线`]
+      : m === 'diff' ? ['直线、曲线都有，单独数都没规律 → 看两者关系', '每个图里直线数 = 曲线数', '选直线数和曲线数相等的'] : ['直线、曲线单独数都乱 → 加起来看', `每个图直线 + 曲线一共 ${ans} 条`, `选线条总数也是 ${ans} 的`];
+    return fin('曲直数', pid, steps, m === 'diff' ? '单独数乱，就比一比、加一加' : m === 'sum' ? '单独数乱，就加起来' : '曲直混着，分开数', q, { fam: 'el', metric: m, mode });
+  }
+  if (kind === 'count') {
+    const rules: { m: ElMetric; mode: Mode }[] = [{ m: 'total', mode: 'inc' }, { m: 'types', mode: 'inc' }, { m: 'types', mode: 'const' }, { m: 'black', mode: 'inc' }];
+    const { m, mode } = pick(r, rules);
+    const make = (v: number) => m === 'total' ? elsWith(r, m, v, { fixedN: v, blackP: 0.35 })
+      : m === 'types' ? elsWith(r, m, v, { minN: Math.max(v, 3), maxN: 7, blackP: 0.3 }) : elsWith(r, m, v, { fixedN: 6, blackP: 0.5 });
+    let vals: number[], ans: number;
+    if (m === 'types' && mode === 'const') { vals = [3, 3, 3, 3]; ans = 3; }
+    else { const s0 = m === 'total' ? 1 + Math.floor(r() * 3) : m === 'types' ? 1 : Math.floor(r() * 2); vals = [0, 1, 2, 3].map(i => s0 + i); ans = s0 + 4; }
+    const q = seqPuzzle(r, make, elsSvg, vals, ans, near(r, ans, m === 'black' ? 0 : 1, m === 'black' ? 6 : 8)); if (!q) return null;
+    const steps = m === 'total' ? ['图里是一个个分开的小图形 → 先数元素个数', `依次 ${vals.join('、')} 个，每次多 1 个`, '形状、黑白都在变，是干扰', `下一个 ${ans} 个元素`]
+      : m === 'types' && mode === 'inc' ? ['小图形个数在变但没规律 → 改数种类（几种不同的形状）', `种类数依次 ${vals.join('、')}，每次多一种`, '同一种形状出现几次都只算一种；黑白不算新种类', `下一个 ${ans} 种`]
+      : m === 'types' ? ['个数没规律 → 数种类', '每个图都只有 3 种形状', '选正好 3 种的'] : ['元素个数都一样 → 看黑白', `黑色的依次 ${vals.join('、')} 个`, `下一个 ${ans} 个黑的`];
+    return fin('元素数量', 'pd-num', steps, '个数乱就数种类，再看黑白', q, { fam: 'el', metric: m, mode });
+  }
+  if (kind === 'parts') {
+    const mode: Mode = r() < 0.55 ? 'inc' : 'const';
+    const make = (v: number) => latticeWith(r, v);
+    const vals = mode === 'inc' ? [1, 2, 3, 4] : (() => { const c = 2 + Math.floor(r() * 2); return [c, c, c, c]; })();
+    const ans = mode === 'inc' ? 5 : vals[0];
+    const q = seqPuzzle(r, make, latSvg, vals, ans, near(r, ans, 1, 6)); if (!q) return null;
+    return fin('部分数', 'pd-part2', ['线条散成几块、互相不连 → 数部分（连在一起的算一部分）', mode === 'inc' ? `依次 ${vals.join('、')} 部分，每次多一块` : `每个图都是 ${ans} 部分`, '线条条数在变，是干扰；只看断成几块', `选 ${ans} 部分的`], '图形散开，先数几部分', q, { fam: 'lat', metric: 'parts', mode });
+  }
+  if (kind === 'orbit') {
+    const mk = shuffle(r, ['dot', 'ring', 'tri'] as Marker[]).slice(0, r() < 0.55 ? 2 : 3);
+    const steps = mk.map(() => pick(r, [1, 2, 3, -1, -2]));
+    if (new Set(steps).size < mk.length && r() < 0.7) return null;
+    const start = shuffle(r, [0, 1, 2, 3, 4, 5, 6, 7]).slice(0, mk.length);
+    const at = (i: number, st = steps) => start.map((s0, k) => ((s0 + st[k] * i) % 8 + 8) % 8);
+    const clash = (p: number[]) => new Set(p).size < p.length;
+    for (let i = 0; i <= 4; i++) if (clash(at(i))) return null;
+    const ans = at(4);
+    const wrongPos: number[][] = [];
+    const w1 = ans.slice(); w1[0] = (w1[0] + (steps[0] > 0 ? 1 : -1) + 8) % 8; wrongPos.push(w1);                 // 第一个多走一格
+    const w2 = ans.slice(); const k2 = mk.length - 1; w2[k2] = at(3)[k2]; wrongPos.push(w2); // 最后一个忘了走
+    const w3 = ans.slice(); [w3[0], w3[1]] = [w3[1], w3[0]]; wrongPos.push(w3);                                 // 两个互换
+    if (wrongPos.some(clash)) return null;
+    const rs = orbitSvg(mk, ans), ws = wrongPos.map(p => orbitSvg(mk, p));
+    if (new Set([rs, ...ws]).size < 4) return null;
+    const pl = place(r, rs, ws);
+    return { puzzle: { kind, title: '多元素绕圈', seq: [0, 1, 2, 3].map(i => orbitSvg(mk, at(i))), ...pl,
+      steps: ['几个元素在九宫格外圈换位置 → 平移，每个元素分开看', ...mk.map((m, k) => `${MARKER_NAME[m]}每次${stepWord(steps[k])}`), '把每个元素都往后推一步，全部对上的只有一个'], takeaway: '多个元素，一个一个单独追', pointId: 'pd-move2' },
+      facts: { kind, seqVals: [0, 1, 2, 3].map(i => at(i)), optVals: pl.options.map(o => o === rs ? ans : wrongPos[ws.indexOf(o)]), rightIdx: LETTERS.indexOf(pl.answer) } };
   }
   if (kind === 'onestroke' || kind === 'strokes') {
     const target = kind === 'onestroke' ? [1, 1, 1, 1] : [1, 2, 3, 4].slice(0, 4);
@@ -188,7 +377,8 @@ function tryMake(kind: FigKind, r: Rng): { puzzle: FigPuzzle; facts: Facts } | n
   }
   if (kind === 'xor') {
     const op = pick(r, ['xor', 'and', 'or'] as const);
-    const rand = () => Array.from({ length: 9 }, () => r() < 0.45);
+    const N = r() < 0.6 ? 16 : 9; // 4×4 更像真题，格子多了不好一眼看出
+    const rand = () => Array.from({ length: N }, () => r() < 0.45);
     const f = (x: boolean[], y: boolean[]) => x.map((v, i) => op === 'xor' ? v !== y[i] : op === 'and' ? v && y[i] : v || y[i]);
     const A = rand(), B = rand(), D = rand(), E = rand();
     const Cc = f(A, B), F = f(D, E);
@@ -197,7 +387,7 @@ function tryMake(kind: FigKind, r: Rng): { puzzle: FigPuzzle; facts: Facts } | n
     const ops = ['xor', 'and', 'or'].filter(o => { const g = (x: boolean[], y: boolean[]) => x.map((v, i) => o === 'xor' ? v !== y[i] : o === 'and' ? v && y[i] : v || y[i]); return g(A, B).every((v, i) => v === Cc[i]); });
     if (ops.length !== 1) return null;
     const flip = (bits: boolean[], i: number) => bits.map((v, j) => j === i ? !v : v);
-    const idx = shuffle(r, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const idx = shuffle(r, Array.from({ length: N }, (_, i) => i));
     const alt = ['xor', 'and', 'or'].filter(o => o !== op).map(o => D.map((v, i) => o === 'xor' ? v !== E[i] : o === 'and' ? v && E[i] : v || E[i]));
     const wrongBits = [...alt, flip(F, idx[0]), flip(F, idx[1])].filter(b => b.some((v, i) => v !== F[i]));
     const uniq: boolean[][] = []; for (const b of wrongBits) if (!uniq.some(u => u.every((v, i) => v === b[i]))) uniq.push(b);
@@ -237,6 +427,32 @@ function tryMake(kind: FigKind, r: Rng): { puzzle: FigPuzzle; facts: Facts } | n
 function checkPuzzle(p: FigPuzzle, f: Facts): boolean {
   if (p.options.length !== 4 || new Set(p.options).size !== 4) return false;
   const v = f.optVals, ri = f.rightIdx;
+  if (f.rule) {
+    // 意图规则：题干四张必须符合，选项里正好一个符合，而且就是答案
+    const pred = (vals: number[], mode: Mode): number | null => mode === 'const' ? (vals.every(x => x === vals[0]) ? vals[0] : null) : (vals.every((x, i) => !i || x - vals[i - 1] === 1) ? vals[3] + 1 : null);
+    const seqM = f.seqVals.map(o => familyMetrics(f.rule!.fam, o)), optM = f.optVals.map(o => familyMetrics(f.rule!.fam, o));
+    if (seqM.some(x => Object.values(x).some(v => v < -10))) return false;
+    if (f.rule.fam === 'poly' && [...seqM, ...optM].some(x => x.faces < 1)) return false;
+    const want = pred(seqM.map(x => x[f.rule!.metric]), f.rule.mode);
+    if (want === null) return false;
+    const hits = optM.map((x, i) => x[f.rule!.metric] === want ? i : -1).filter(i => i >= 0);
+    if (hits.length !== 1 || hits[0] !== ri) return false;
+    // 防一题两解：别的指标要是也能从题干推出规律，并且指向另一个选项，这题不要
+    for (const m of Object.keys(seqM[0])) for (const mode of ['inc', 'const'] as Mode[]) {
+      const w = pred(seqM.map(x => x[m]), mode); if (w === null) continue;
+      const h = optM.map((x, i) => x[m] === w ? i : -1).filter(i => i >= 0);
+      if (h.length && !(h.length === 1 && h[0] === ri)) return false;
+    }
+    return true;
+  }
+  if (f.kind === 'orbit') {
+    const seq = f.seqVals as number[][]; const n = seq[0].length;
+    const st = Array.from({ length: n }, (_, k) => (seq[1][k] - seq[0][k] + 8) % 8);
+    if (!seq.every((p, i) => !i || p.every((x, k) => (x - seq[i - 1][k] + 8) % 8 === st[k]))) return false;
+    const want = seq[3].map((x, k) => (x + st[k]) % 8).join();
+    const hits = (f.optVals as number[][]).map((p, i) => p.join() === want ? i : -1).filter(i => i >= 0);
+    return hits.length === 1 && hits[0] === ri;
+  }
   switch (f.kind) {
     case 'faces': { const s = f.seqVals as number[]; if (s.some(x => x < 1) || s.some((x, i) => i && x - s[i - 1] !== 1)) return false; const want = s[3] + 1; return v[ri] === want && v.filter(x => x === want).length === 1; }
     case 'lines': { const s = f.seqVals as number[]; return s.join() === '3,4,5,6' && v[ri] === 7 && v.filter(x => x === 7).length === 1; }
@@ -247,8 +463,11 @@ function checkPuzzle(p: FigPuzzle, f: Facts): boolean {
 }
 
 export const FIG_KINDS: { kind: FigKind; name: string; pointId: string }[] = [
-  { kind: 'faces', name: '数面', pointId: 'pd-face2' }, { kind: 'lines', name: '数直线', pointId: 'pd-line2' }, { kind: 'onestroke', name: '一笔画', pointId: 'pd-stroke2' },
-  { kind: 'rotate', name: '旋转', pointId: 'pd-rot2' }, { kind: 'move', name: '平移', pointId: 'pd-move2' }, { kind: 'xor', name: '黑白运算', pointId: 'pd-style' }, { kind: 'symmetry', name: '轴对称', pointId: 'pd-attr' },
+  { kind: 'mixed', name: '混着来（像考场）', pointId: 'pd-num' },
+  { kind: 'faces', name: '数面', pointId: 'pd-face2' }, { kind: 'lines', name: '曲直数', pointId: 'pd-line2' }, { kind: 'count', name: '元素数量 / 种类', pointId: 'pd-num' },
+  { kind: 'parts', name: '部分数', pointId: 'pd-part2' }, { kind: 'onestroke', name: '一笔画', pointId: 'pd-stroke2' },
+  { kind: 'rotate', name: '旋转', pointId: 'pd-rot2' }, { kind: 'move', name: '平移', pointId: 'pd-move2' }, { kind: 'orbit', name: '多元素绕圈', pointId: 'pd-move2' },
+  { kind: 'xor', name: '黑白运算', pointId: 'pd-style' }, { kind: 'symmetry', name: '轴对称', pointId: 'pd-attr' },
 ];
 
 /** 整道题拼成一张 SVG（进错题本用） */

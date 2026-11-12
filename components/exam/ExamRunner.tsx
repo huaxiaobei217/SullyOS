@@ -73,7 +73,7 @@ const ExamRunner: React.FC<{ spec: RunSpec; api: APIConfig; onClose: () => void;
       </div>
       <div className="flex-1 overflow-y-auto px-4 pb-10 space-y-3">
         <div className="flex items-center gap-1.5">
-          {it.kind === 'fig' ? <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: `${MODULE_COLORS.pd}18`, color: MODULE_COLORS.pd }}>图形推理 · {it.fig.title}</span>
+          {it.kind === 'fig' ? <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: `${MODULE_COLORS.pd}18`, color: MODULE_COLORS.pd }}>图形推理 · {it.fig.mixed && !mine ? '混着来，先自己认题型' : it.fig.title}</span>
             : <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: `${MODULE_COLORS[it.q.module]}18`, color: MODULE_COLORS[it.q.module] }}>{MODULE_NAMES[it.q.module]}{it.q.type ? ` · ${it.q.type}` : ''}</span>}
           <span className="text-[10px]" style={{ color: C.faint }}>{spec.title}{it.kind === 'bank' && it.q.no ? ` · 第 ${it.q.no} 题` : ''}</span>
         </div>

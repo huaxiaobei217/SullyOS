@@ -1,5 +1,5 @@
 /** Streaming audio primitives shared by chat, calls and reading. */
-import { getVoiceGain, boostSample } from './voiceVolume';
+import { getVoiceGain, boostSample, voiceStreamBegin } from './voiceVolume';
 export interface VoiceCue { text: string; start: number; end: number; voiceId?: string }
 export const VOICE_SAMPLE_RATE = 24000;
 
@@ -111,6 +111,7 @@ export class PcmVoicePlayer {
   private stopped = false;
   private ended = false;
   private waiters: { resolve: () => void; reject: (error: Error) => void }[] = [];
+  private voiceEnd: (() => void) | null = null;
 
   constructor(readonly context: AudioContext, readonly sampleRate = VOICE_SAMPLE_RATE, private readonly output: AudioNode = context.destination) {}
 
@@ -149,8 +150,10 @@ export class PcmVoicePlayer {
     this.schedule.push({ at, offset: this.duration, duration: buffer.duration });
     this.duration += buffer.duration;
     this.sources.add(source);
+    if (!this.voiceEnd) this.voiceEnd = voiceStreamBegin();
     source.onended = () => {
       this.sources.delete(source); source.disconnect();
+      if (!this.sources.size) { this.voiceEnd?.(); this.voiceEnd = null; }
       if (this.ended && !this.sources.size) this.waiters.splice(0).forEach(w => w.resolve());
     };
     source.start(at);
@@ -168,6 +171,7 @@ export class PcmVoicePlayer {
     this.stopped = true;
     for (const source of this.sources) { source.onended = null; source.stop(); source.disconnect(); }
     this.sources.clear();
+    this.voiceEnd?.(); this.voiceEnd = null;
     this.waiters.splice(0).forEach(w => w.reject(new DOMException('语音已停止', 'AbortError')));
   }
 }
