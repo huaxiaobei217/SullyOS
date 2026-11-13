@@ -13,6 +13,7 @@ import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 import { buildTripSchedulePrompt, acceptTripFromSchedule } from './charTrip';
 import { buildYesterdayTraces } from './lifeThread';
 import { buildDayStatePrompt, acceptDayState } from './charDayState';
+import { buildVarietyPrompt } from './scheduleVariety';
 import { buildOurDatesBlock } from './ourDates';
 import { refreshCharWeather, weatherLine } from './charWeather';
 import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
@@ -294,10 +295,11 @@ export async function generateDailyScheduleForChar(
     const {scheduleHomeVisitPrompt,submitScheduleHomeVisits}=await import('./homeVisits');
     const homePrompt = buildHomeSchedulePrompt(char);
     const visitPrompt=await scheduleHomeVisitPrompt(char);
+    const variety = style === 'mindful' ? '' : await buildVarietyPrompt(char, today).catch(() => '');
     const weather = style === 'mindful' ? null : await refreshCharWeather(char).catch(() => null);
     const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户') + buildYesterdayTraces(char.id) + buildDayStatePrompt(char, userProfile?.name || '用户') + ((d => d ? `\n\n${d}\n今天的日程可以和这些日子有关（比如悄悄去准备点什么），但别写成为她而活的一天。` : '')(buildOurDatesBlock(char, today, userProfile?.name || '用户'))) + (weather ? `\n\n### 你那边今天的天气（真实的）\n${weatherLine(weather)}。日程要和天气对得上（下雨就别安排在公园晒太阳）。` : '')) + homePrompt + visitPrompt;
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock) + buildTripSchedulePrompt(char, today, userProfile?.name || '用户') + buildYesterdayTraces(char.id) + buildDayStatePrompt(char, userProfile?.name || '用户', today) + variety + ((d => d ? `\n\n${d}\n今天的日程可以和这些日子有关（比如悄悄去准备点什么），但别写成为她而活的一天。` : '')(buildOurDatesBlock(char, today, userProfile?.name || '用户'))) + (weather ? `\n\n### 你那边今天的天气（真实的）\n${weatherLine(weather)}。日程要和天气对得上（下雨就别安排在公园晒太阳）。` : '')) + homePrompt + visitPrompt;
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {

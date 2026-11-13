@@ -51,8 +51,8 @@ export async function browseOnce(char: CharacterProfile, api: APIConfig, userNam
   const { text } = await callAsChar(char, api,
     `### 【自己上网逛了会儿】
 现在是 ${hour} 点，你一个人拿着手机 / 电脑随便逛了一会儿（不是为了${userName}，是你自己的消遣）。
-${hotList ? `今天各平台热榜上有这些（真实的，可以点进去看）：\n${hotList}\n` : ''}${topInterests(st).length ? `你最近感兴趣的：${topInterests(st).join('、')}\n` : ''}${day.threads.length ? `你这阵子在跟进：${day.threads.map(t => `${t.kind}《${t.title}》`).join('、')}\n` : ''}${recentTitles.length ? `最近看过的（别重复）：${recentTitles.join(' / ')}\n` : ''}
-写下这一趟逛了什么，4～7 条，按你的口味：可以点热榜（写 ref 编号），也可以逛你自己常去的地方（B 站某类视频、论坛帖子、小说站、播客、维基……这类不写 ref，标题按你会点开的样子写，别冒充真实新闻）。
+${hotList ? `今天各平台热榜上有这些（真实的，可以点进去看）：\n${hotList}\n` : ''}${topInterests(st).length ? `你最近感兴趣的：${topInterests(st).join('、')}\n` : ''}${day.threads.length && Math.random() < 0.3 ? `你这阵子在跟进：${day.threads.map(t => `${t.kind}《${t.title}》`).join('、')}（最多一条跟这些有关）\n` : ''}${recentTitles.length ? `最近看过的（别重复）：${recentTitles.join(' / ')}\n` : ''}
+写下这一趟逛了什么，4～7 条，按你的口味，但别全是同一个圈子（几条你常逛的，再有一两条是随手刷到的、平时不怎么看的）：可以点热榜（写 ref 编号），也可以逛你自己常去的地方（B 站某类视频、论坛帖子、小说站、播客、维基……这类不写 ref，标题按你会点开的样子写，别冒充真实新闻）。
 - thought：你看完的一句真实想法（吐槽、被戳到、想转给${userName}、看不下去关掉……），20～50 字，你的语气。
 - fav：真喜欢才收藏，一趟最多 2 条；tags：给这条打 1～3 个兴趣标签（比如 黑胶、冷知识、悬疑、英超）。
 ${allowMature ? `- 现在是深夜，你一个人，可以逛到成人向的东西（成人小说、R18 同人、成人向的帖子等），这类标 mature:true；只写标题和一句想法，不写露骨内容。\n` : ''}- hide：不想让${userName}在你手机上看到的就 hide:true（会从浏览记录里删掉）。${allowMature ? '成人向的删不删你自己决定。' : ''}
