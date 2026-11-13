@@ -122,7 +122,7 @@ const ShelfApp: React.FC = () => {
   const pageBoxRef = useRef<HTMLDivElement>(null);
   const colRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<'pos' | 'last' | null>('pos');
-  const touchRef = useRef<{ x: number; y: number; t: number; lock?: 'h' | 'v' } | null>(null);
+  const touchRef = useRef<{ x: number; y: number; t: number; lock?: 'h' | 'v'; busy?: boolean } | null>(null);
   /* 沉浸式翻页：手指拖着走、松手吸附；中间点一下呼出菜单 */
   const [bars, setBars] = useState(false);
   const [family, setFamily] = useState<'serif' | 'sans'>(() => { try { return localStorage.getItem(FAMILY_KEY) === 'sans' ? 'sans' : 'serif'; } catch { return 'serif'; } });
@@ -396,7 +396,7 @@ const ShelfApp: React.FC = () => {
     const path = dir > 0
       ? (t: number) => { const e = ease(t); return { x: W - 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; }
       : (t: number) => { const e = ease(t); return { x: -W + 2 * W * e, y: H - lift * Math.sin(Math.PI * e) }; };
-    animate(path, 380, () => { commitTurn(dir); flushQueued(); });
+    animate(path, 280, () => { commitTurn(dir); flushQueued(); });
   };
   turnRef.current = turn;
   const flushQueued = () => {
@@ -414,19 +414,21 @@ const ShelfApp: React.FC = () => {
     const r = pageBoxRef.current!.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     if (bars) { setBars(false); setShowType(false); return; }
-    if (x < 0.3) turn(-1); else if (x > 0.7) turn(1); else setBars(true);
+    if (x < 0.36) turn(-1); else if (x > 0.64) turn(1); else setBars(true);
   };
   const onTouchStart = (e: React.TouchEvent) => {
-    if (animRef.current) return;
     const t = e.touches[0]; const r = pageBoxRef.current!.getBoundingClientRect();
-    touchRef.current = { x: t.clientX, y: t.clientY - r.top, t: Date.now() };
+    // 上一页还在卷的时候又滑：不再吞掉，记成「接着翻」（busy）
+    touchRef.current = { x: t.clientX, y: t.clientY - r.top, t: Date.now(), busy: !!(animRef.current || settleRef.current) };
   };
   const onTouchMove = (e: React.TouchEvent) => {
-    const s0 = touchRef.current; if (!s0 || animRef.current) return;
+    const s0 = touchRef.current; if (!s0) return;
     const r = pageBoxRef.current!.getBoundingClientRect();
     const t = e.touches[0]; const mx = t.clientX - s0.x; const my = (t.clientY - r.top) - s0.y;
-    if (!s0.lock) { if (Math.abs(mx) > 8 || Math.abs(my) > 8) s0.lock = Math.abs(mx) > Math.abs(my) ? 'h' : 'v'; else return; }
+    // 斜着滑也算横滑（横向占比 > 0.7 倍纵向就算），起手 6px 就判定
+    if (!s0.lock) { if (Math.abs(mx) > 6 || Math.abs(my) > 6) s0.lock = Math.abs(mx) > Math.abs(my) * 0.7 ? 'h' : 'v'; else return; }
     if (s0.lock !== 'h') return;
+    if (s0.busy || animRef.current) { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } return; }
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     let c = curlRef.current;
     if (!c) {
@@ -448,15 +450,18 @@ const ShelfApp: React.FC = () => {
     if (!s0) return;
     if (s0.lock !== 'h') return;
     suppressClick.current = true;
-    const c = curlRef.current; if (!c) return;
     const t = e.changedTouches[0];
     const mx = t.clientX - s0.x; const dt = Math.max(1, Date.now() - s0.t);
+    // 动画中滑的那一下：滑够 16px 就排队接着翻
+    if (s0.busy || (animRef.current && !curlRef.current)) { if (Math.abs(mx) > 16) turn(mx < 0 ? 1 : -1); return; }
+    const c = curlRef.current; if (!c) return;
     const dist = c.dir > 0 ? -mx : mx;
-    const go = dist > sheet.w * 0.18 || (dist > 20 && Math.abs(mx / dt) > 0.3);
+    // 拖过 12% 页宽，或者轻轻一甩（>12px 且速度够）就翻
+    const go = dist > sheet.w * 0.12 || (dist > 12 && Math.abs(mx / dt) > 0.2);
     const W = sheet.w; const F0 = { ...c.F };
     const done = go ? (c.dir > 0 ? { x: -W, y: c.C.y } : { ...c.C }) : (c.dir > 0 ? { ...c.C } : { x: -W, y: c.C.y });
-    animate(tt => { const k = ease(tt); return { x: F0.x + (done.x - F0.x) * k, y: F0.y + (done.y - F0.y) * k }; }, go ? 300 : 220,
-      () => { if (go) commitTurn(c.dir); else setCurl(null); });
+    animate(tt => { const k = ease(tt); return { x: F0.x + (done.x - F0.x) * k, y: F0.y + (done.y - F0.y) * k }; }, go ? 200 : 180,
+      () => { if (go) { commitTurn(c.dir); flushQueued(); } else setCurl(null); });
   };
   const openMenu = (i: number) => {
     const el = paraRefs.current[i] as HTMLElement | null; const root = pageBoxRef.current;

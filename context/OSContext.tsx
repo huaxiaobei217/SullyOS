@@ -1204,6 +1204,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // Location lookup URLs contain device coordinates. Keep them out of API
           // capture, network diagnostics and request comparison caches; direct only.
           if (isUserLocationLookupUrl(urlStr)) return originalFetch(...args);
+          // 二改：热榜是后台顺手拉的（他逛网、聊天里的新闻），拉不到会自己回落，不该弹红框；
+          // 公司网络 / 没 VPN 时常年超时，看小说时 15 秒一个红框很烦。
+          if (/^https:\/\/news\.orz\.ai\//.test(urlStr)) return originalFetch(...args);
           const fetchStartedAt = Date.now();
           // 失败诊断要按发起时刻去 Resource Timing 里认领本次那条记录，而 entry.startTime 跟
           // performance.now() 同一条时间轴、跟 Date.now() 不是——两者不能混用，详见
